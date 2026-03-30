@@ -20,7 +20,7 @@ import {
   ImageIcon,
 } from "lucide-react";
 import type { InvestigationState } from "../../types/api";
-import { compareEntities, confirmEntity, fetchReport } from "../../lib/api";
+import { compareEntities, confirmEntity, fetchReport, generateThreatMap } from "../../lib/api";
 import { cn } from "../../lib/utils";
 
 interface NarrativePanelProps {
@@ -215,16 +215,11 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
             setThreatMapLoading(true);
             setThreatMapSvg(null);
             try {
-              const res = await fetch("http://localhost:8000/api/threatmap", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  entity: state.entity,
-                  entity_type: state.entityType,
-                  narrative: state.narrative?.slice(0, 500) ?? "",
-                }),
+              const data = await generateThreatMap({
+                entity: state.entity,
+                entity_type: state.entityType,
+                narrative: state.narrative?.slice(0, 500) ?? "",
               });
-              const data = await res.json();
               if (data.svg) setThreatMapSvg(data.svg);
             } catch (e) {
               console.error("Threat map generation failed:", e);
