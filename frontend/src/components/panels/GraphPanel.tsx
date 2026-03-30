@@ -450,13 +450,13 @@ function GeoMap({ points }: { points: GeoPoint[] }) {
         className="relative h-full w-full overflow-hidden rounded-xl border border-cyan-500/10"
         style={{
           background: "radial-gradient(ellipse at 50% 40%, rgba(0,20,40,1) 0%, rgba(4,10,20,1) 60%, rgba(2,5,12,1) 100%)",
+          cursor: dragging ? "grabbing" : "grab",
         }}
         onWheel={handleWheel}
         onMouseDown={(e) => { setDragging(true); setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }); }}
         onMouseMove={(e) => { if (dragging) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); }}
         onMouseUp={() => setDragging(false)}
         onMouseLeave={() => setDragging(false)}
-        style-cursor={dragging ? "grabbing" : "grab"}
       >
         {/* Top bar */}
         <div className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-2.5 border-b border-cyan-500/10 bg-black/40 backdrop-blur-sm">
