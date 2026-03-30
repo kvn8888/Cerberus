@@ -4,7 +4,7 @@
  * Single-panel layout: one search bar, auto-detects entity type,
  * optional NLP expansion, quick-start examples.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Search,
   Package,
@@ -87,12 +87,27 @@ const EXAMPLES = [
   { entity: "event-stream", type: "package" as EntityType, desc: "Supply chain compromise" },
 ];
 
+type FeedSource = "juspay" | "demo";
+const FEED_SOURCE_KEY = "cerberus.feedSource";
+
+function getInitialFeedSource(): FeedSource {
+  if (typeof window === "undefined") return "juspay";
+  const saved = window.localStorage.getItem(FEED_SOURCE_KEY);
+  return saved === "demo" ? "demo" : "juspay";
+}
+
 export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
   const [query, setQuery] = useState("");
   const [showNl, setShowNl] = useState(false);
   const [naturalText, setNaturalText] = useState("");
   const [nlError, setNlError] = useState("");
   const [nlBusy, setNlBusy] = useState(false);
+  const [feedSource, setFeedSource] = useState<FeedSource>(getInitialFeedSource);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(FEED_SOURCE_KEY, feedSource);
+  }, [feedSource]);
 
   const detected = detectEntityType(query);
   const DetectedIcon = TYPE_ICONS[detected.type];
@@ -139,6 +154,38 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
         <form onSubmit={handleSubmit} className="p-4 space-y-4 flex flex-col h-full">
           {/* Search bar */}
           <div>
+            <div className="mb-3">
+              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2">
+                Fraud feed source
+              </p>
+              <div className="grid grid-cols-2 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFeedSource("juspay")}
+                  className={cn(
+                    "rounded-md px-2 py-1.5 text-[10px] font-mono border transition-all",
+                    feedSource === "juspay"
+                      ? "border-primary/35 bg-primary/15 text-primary"
+                      : "border-border bg-surface-raised text-muted-foreground"
+                  )}
+                >
+                  Juspay API
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFeedSource("demo")}
+                  className={cn(
+                    "rounded-md px-2 py-1.5 text-[10px] font-mono border transition-all",
+                    feedSource === "demo"
+                      ? "border-primary/35 bg-primary/15 text-primary"
+                      : "border-border bg-surface-raised text-muted-foreground"
+                  )}
+                >
+                  Demo Feed
+                </button>
+              </div>
+            </div>
+
             <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2 block">
               Enter an entity
             </label>
