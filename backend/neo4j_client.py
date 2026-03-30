@@ -682,13 +682,13 @@ def get_geo_points(entity: str, entity_type: str) -> list[dict[str, Any]]:
     MATCH path = shortestPath(
       (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
     )
-    UNWIND nodes(path) AS n
-    WITH DISTINCT n
-    WHERE n:IP
-    OPTIONAL MATCH (actor:ThreatActor)-[:OPERATES]->(n)
-    RETURN n.address AS ip,
-           coalesce(n.geo, 'UN') AS geo,
-           collect(DISTINCT actor.name) AS actors
+    WITH DISTINCT ta
+    OPTIONAL MATCH (ta)-[:OPERATES]->(ip:IP)
+    WITH DISTINCT ip, collect(DISTINCT ta.name) AS actors
+    WHERE ip IS NOT NULL
+    RETURN ip.address AS ip,
+           coalesce(ip.geo, 'UN') AS geo,
+           actors
     LIMIT 25
     """.format(label=label, key=key)
 
