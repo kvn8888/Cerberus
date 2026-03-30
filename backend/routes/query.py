@@ -29,6 +29,7 @@ from fastapi.responses import StreamingResponse
 
 import neo4j_client as db
 import llm
+import rocketride
 from models import EntityType, QueryRequest
 
 router = APIRouter(prefix="/api/query")
@@ -116,44 +117,80 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
         raise HTTPException(status_code=400, detail="entity must not be empty")
 
     async def event_generator():
+        # ── Stage: input ─────────────────────────────────────────────────────
+        yield f"data: {json.dumps({'stage': 'input'})}\n\n"
+        await asyncio.sleep(0)
+
+        # ── Stage: ner + classify (cache check counts as routing) ────────────
+        yield f"data: {json.dumps({'stage': 'ner'})}\n\n"
+        await asyncio.sleep(0)
+        yield f"data: {json.dumps({'stage': 'classify'})}\n\n"
+        await asyncio.sleep(0)
+
         # Cache check
+        yield f"data: {json.dumps({'stage': 'route'})}\n\n"
         cached = await asyncio.to_thread(db.cache_check, entity, entity_type)
         if cached:
             narrative = _extract_cached_narrative(cached) or (
                 f"[CACHED] Confirmed threat path for {entity}. LLM skipped."
             )
-            yield f"data: {json.dumps({'from_cache': True})}\n\n"
+            yield f"data: {json.dumps({'from_cache': True, 'paths_found': len(cached)})}\n\n"
+            yield f"data: {json.dumps({'stage': 'narrate'})}\n\n"
             for chunk in _chunk_string(narrative, 80):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
             yield "data: [DONE]\n\n"
             return
 
-        # Traversal
+        # ── Stage: traverse ───────────────────────────────────────────────────
+        yield f"data: {json.dumps({'stage': 'traverse'})}\n\n"
         traversal = await asyncio.to_thread(db.traverse, entity, entity_type)
 
         if traversal["paths_found"] == 0:
+            yield f"data: {json.dumps({'paths_found': 0, 'from_cache': False})}\n\n"
             yield f"data: {json.dumps({'text': f'No threat paths found for {entity}.'})}\n\n"
             yield "data: [DONE]\n\n"
             return
 
         yield f"data: {json.dumps({'paths_found': traversal['paths_found'], 'from_cache': False})}\n\n"
 
-        # Stream LLM narrative
-        gen  = llm.generate_narrative_stream(entity, entity_type, traversal)
+        # ── Stage: analyze → narrate (via RocketRide or direct LLM fallback) ──
+        # rocketride.stream_via_rocketride_or_fallback() tries RocketRide first.
+        # If RocketRide is not running or returns an error, it silently falls
+        # back to direct Anthropic calls. Either way it emits the same SSE
+        # contract: {"stage":...}, {"text":...} chunks, then returns.
         narrative_chunks: list[str] = []
+        try:
+            async for sse_line in rocketride.stream_via_rocketride_or_fallback(
+                entity, entity_type, traversal
+            ):
+                # Collect text chunks for write-back, then forward to client
+                if sse_line.startswith("data: ") and not sse_line.startswith("data: ["):
+                    try:
+                        chunk = json.loads(sse_line[6:].strip())
+                        if "text" in chunk:
+                            narrative_chunks.append(chunk["text"])
+                    except json.JSONDecodeError:
+                        pass
+                yield sse_line
+        except Exception as exc:
+            # Absolute last-resort fallback if the abstraction itself errors
+            fallback = (
+                f"[LLM unavailable: {type(exc).__name__}] "
+                f"Graph traversal found {traversal['paths_found']} threat path(s) for {entity}. "
+                f"Review the raw graph data for full detail."
+            )
+            yield f"data: {json.dumps({'text': fallback})}\n\n"
+            yield "data: [DONE]\n\n"
+            return
 
-        for chunk in gen:
-            narrative_chunks.append(chunk)
-            yield f"data: {json.dumps({'text': chunk})}\n\n"
-            await asyncio.sleep(0)   # yield control to event loop
-
-        # Write-back
-        await asyncio.to_thread(
-            db.write_back,
-            entity,
-            entity_type,
-            "".join(narrative_chunks),
-        )
+        # ── Write-back ────────────────────────────────────────────────────────
+        if narrative_chunks:
+            await asyncio.to_thread(
+                db.write_back,
+                entity,
+                entity_type,
+                "".join(narrative_chunks),
+            )
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

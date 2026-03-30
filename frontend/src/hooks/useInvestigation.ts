@@ -2,8 +2,15 @@
  * hooks/useInvestigation.ts — Core state machine for running investigations
  *
  * Manages the full lifecycle: idle → streaming SSE → complete/error.
- * Simulates pipeline stage progression for visual feedback.
+ * Pipeline stage progression is driven by real {"stage": "..."} events from
+ * the backend SSE stream. No simulation timers needed.
  * Exposes the narrative text, metadata, and stage for the UI.
+ *
+ * SSE event contract (emitted by GET /api/query/stream):
+ *   {"stage": "input"|"ner"|"classify"|"route"|"traverse"|"analyze"|"narrate"|"complete"}
+ *   {"paths_found": number, "from_cache": boolean}
+ *   {"text": string}   — narrative chunk, may arrive many times
+ *   "[DONE]"           — terminal string (not JSON)
  */
 import { useState, useCallback, useRef } from "react";
 import type {
@@ -12,18 +19,6 @@ import type {
   InvestigationState,
 } from "../types/api";
 import { queryEntityStream, fetchGraph } from "../lib/api";
-
-/** The ordered pipeline stages displayed in the UI */
-const PIPELINE_STAGES: PipelineStage[] = [
-  "input",
-  "ner",
-  "classify",
-  "route",
-  "traverse",
-  "analyze",
-  "narrate",
-  "complete",
-];
 
 /** Default idle state before any investigation */
 const IDLE_STATE: InvestigationState = {
@@ -50,35 +45,35 @@ export function useInvestigation() {
   const abortRef = useRef<AbortController | null>(null);
 
   /**
-   * Advance through pipeline stages on a timer to give
-   * visual feedback while waiting for SSE data.
-   * Each stage lights up for ~600ms before advancing.
+   * Finish the investigation: fetch graph data then mark complete.
+   * Called on both normal [DONE] and early-exit paths.
    */
-  const simulateStages = useCallback(
-    (upTo: PipelineStage) => {
-      const targetIdx = PIPELINE_STAGES.indexOf(upTo);
-      let current = 0;
-
-      const interval = setInterval(() => {
-        if (current >= targetIdx) {
-          clearInterval(interval);
-          return;
-        }
-        current++;
+  const finalize = useCallback(
+    async (entity: string, entityType: EntityType) => {
+      try {
+        const graph = await fetchGraph({ entity, type: entityType });
         setState((prev) => ({
           ...prev,
-          currentStage: PIPELINE_STAGES[current],
+          status: "complete",
+          currentStage: "complete",
+          graphData: graph.nodes.length > 0 ? graph : undefined,
         }));
-      }, 600);
-
-      return () => clearInterval(interval);
+      } catch {
+        /* Graph fetch failed — still mark complete, GraphPanel falls back to demo */
+        setState((prev) => ({
+          ...prev,
+          status: "complete",
+          currentStage: "complete",
+        }));
+      }
     },
     []
   );
 
   /**
    * Start an investigation for the given entity.
-   * Opens an SSE stream and accumulates narrative text.
+   * Opens an SSE stream and processes events as they arrive.
+   * Stage transitions come from the backend — no timers needed.
    */
   const investigate = useCallback(
     async (entity: string, entityType: EntityType) => {
@@ -98,9 +93,6 @@ export function useInvestigation() {
         fromCache: false,
       });
 
-      /* Start visual stage progression */
-      const cleanup = simulateStages("analyze");
-
       try {
         const res = await queryEntityStream({ entity, type: entityType });
 
@@ -111,6 +103,8 @@ export function useInvestigation() {
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let accumulated = "";
+        /* Buffer for partial SSE lines split across chunks */
+        let buffer = "";
 
         /* Read the SSE stream chunk by chunk */
         while (true) {
@@ -119,63 +113,45 @@ export function useInvestigation() {
           const { done, value } = await reader.read();
           if (done) break;
 
-          const text = decoder.decode(value, { stream: true });
-          /* SSE format: "data: {json}\n\n" — split on double newline */
-          const lines = text.split("\n");
+          /* Append to buffer and split on newlines */
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          /* Keep last (possibly incomplete) line in buffer */
+          buffer = lines.pop() ?? "";
 
           for (const line of lines) {
             if (!line.startsWith("data: ")) continue;
             const payload = line.slice(6).trim();
 
-            /* Terminal marker */
+            /* Terminal marker — fetch graph then done */
             if (payload === "[DONE]") {
-              /* Fetch real graph data from the backend */
-              try {
-                const graph = await fetchGraph({ entity, type: entityType });
-                setState((prev) => ({
-                  ...prev,
-                  status: "complete",
-                  currentStage: "complete",
-                  graphData: graph.nodes.length > 0 ? graph : undefined,
-                }));
-              } catch {
-                /* Graph fetch failed — still mark complete, frontend falls back to demo */
-                setState((prev) => ({
-                  ...prev,
-                  status: "complete",
-                  currentStage: "complete",
-                }));
-              }
-              cleanup();
+              await finalize(entity, entityType);
               return;
             }
 
-            /* Parse JSON chunk */
+            /* Parse JSON event */
             try {
               const chunk = JSON.parse(payload);
 
-              if ("from_cache" in chunk && "paths_found" in chunk) {
-                /* Metadata chunk with path count */
+              if ("stage" in chunk) {
+                /* Real pipeline stage transition from backend */
+                setState((prev) => ({
+                  ...prev,
+                  currentStage: chunk.stage as PipelineStage,
+                }));
+              } else if ("paths_found" in chunk) {
+                /* Metadata: path count + cache status */
                 setState((prev) => ({
                   ...prev,
                   pathsFound: chunk.paths_found,
-                  fromCache: chunk.from_cache,
-                  currentStage: "narrate",
-                }));
-              } else if ("from_cache" in chunk) {
-                /* Cache-hit indicator */
-                setState((prev) => ({
-                  ...prev,
-                  fromCache: chunk.from_cache,
-                  currentStage: "narrate",
+                  fromCache: chunk.from_cache ?? false,
                 }));
               } else if ("text" in chunk) {
-                /* Narrative text fragment — append */
+                /* Narrative text fragment — append to accumulated narrative */
                 accumulated += chunk.text;
                 setState((prev) => ({
                   ...prev,
                   narrative: accumulated,
-                  currentStage: "narrate",
                 }));
               }
             } catch {
@@ -184,22 +160,8 @@ export function useInvestigation() {
           }
         }
 
-        /* If stream ended without [DONE], still fetch graph and mark complete */
-        try {
-          const graph = await fetchGraph({ entity, type: entityType });
-          setState((prev) => ({
-            ...prev,
-            status: "complete",
-            currentStage: "complete",
-            graphData: graph.nodes.length > 0 ? graph : undefined,
-          }));
-        } catch {
-          setState((prev) => ({
-            ...prev,
-            status: "complete",
-            currentStage: "complete",
-          }));
-        }
+        /* Stream ended without [DONE] — still finalize */
+        await finalize(entity, entityType);
       } catch (err) {
         if (controller.signal.aborted) return;
         setState((prev) => ({
@@ -208,11 +170,9 @@ export function useInvestigation() {
           error:
             err instanceof Error ? err.message : "Unknown error occurred",
         }));
-      } finally {
-        cleanup();
       }
     },
-    [simulateStages]
+    [finalize]
   );
 
   /** Reset everything back to idle */
