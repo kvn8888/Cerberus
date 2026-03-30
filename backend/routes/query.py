@@ -179,8 +179,21 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
                 traversal = await asyncio.to_thread(db.traverse, entity, entity_type)
 
         if traversal["paths_found"] == 0:
+            neighborhood = traversal.get("neighborhood", [])
             yield f"data: {json.dumps({'paths_found': 0, 'from_cache': False})}\n\n"
-            yield f"data: {json.dumps({'text': f'No threat paths found for {entity}.'})}\n\n"
+            if neighborhood:
+                neighbors_desc = ", ".join(
+                    f"{n['neighbor_label']}:{n['neighbor_id']} (via {n['rel_type']})"
+                    for n in neighborhood[:10]
+                )
+                msg = (
+                    f"No full threat-actor chain found for {entity}, but it has "
+                    f"{len(neighborhood)} connected entities: {neighbors_desc}. "
+                    f"These connections may become traversable as more threat intel is ingested."
+                )
+            else:
+                msg = f"No threat paths found for {entity}."
+            yield f"data: {json.dumps({'text': msg})}\n\n"
             yield "data: [DONE]\n\n"
             return
 
