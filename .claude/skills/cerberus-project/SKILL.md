@@ -134,6 +134,37 @@ NEO4J_MCP_ENDPOINT=http://localhost:8787/mcp  # MCP endpoint for RocketRide's MC
 | 2 (seeded) | MITRE + CVE imported | Shorter prompts, ~5s |
 | 3 (confirmed) | Analyst-confirmed patterns | Cache hit, skip LLM, ~2s |
 
+## Real-Time Enrichment (`backend/enrich.py`)
+
+When a user queries an entity that doesn't exist in the graph, the backend
+automatically fetches threat intel from public APIs and ingests findings
+into Neo4j on-the-fly. Subsequent queries hit the cached data.
+
+### Flow
+
+```
+User queries "lodash" → db.traverse() → paths_found=0
+  → enrich.try_enrich("lodash", "package")
+  → OSV.dev API: 8 CVEs found → MERGE into Neo4j
+  → db.traverse() again → paths_found=8
+  → LLM narrative generated normally
+Next query for "lodash" → db.traverse() → paths_found=8 (already enriched, skip)
+```
+
+### Supported Sources
+
+| Entity Type | API Source | Auth | Rate Limit |
+|-------------|-----------|------|------------|
+| package | OSV.dev (`/v1/query`) | None | Unlimited |
+| cve | NVD REST API 2.0 | None (optional key) | 5 req/30s |
+| ip | Abuse.ch Feodo Tracker + URLhaus | None | Public feed |
+| domain | Abuse.ch URLhaus (`/v1/host/`) | None | Public |
+
+### Frontend Pipeline Stage
+
+The "ENRICH" stage appears in the pipeline visualization between TRAVERSE and
+ANALYZE, with a cloud-download icon. Only lights up when enrichment is triggered.
+
 ## User Stories
 
 ### Core Investigation Flow

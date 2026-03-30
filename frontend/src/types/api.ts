@@ -91,6 +91,7 @@ export type PipelineStage =
   | "classify"
   | "route"
   | "traverse"
+  | "enrich"
   | "analyze"
   | "narrate"
   | "complete";

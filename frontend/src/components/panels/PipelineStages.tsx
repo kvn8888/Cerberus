@@ -15,6 +15,7 @@ import {
   Tag,
   GitFork,
   Network,
+  CloudDownload,
   Brain,
   FileText,
   CheckCircle2,
@@ -58,6 +59,12 @@ const STAGES: {
     label: "TRAVERSE",
     icon: Network,
     description: "Graph walk",
+  },
+  {
+    id: "enrich",
+    label: "ENRICH",
+    icon: CloudDownload,
+    description: "Live threat intel",
   },
   {
     id: "analyze",

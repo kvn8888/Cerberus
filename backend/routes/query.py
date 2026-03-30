@@ -30,6 +30,7 @@ from fastapi.responses import StreamingResponse
 import neo4j_client as db
 import llm
 import rocketride
+import enrich
 from models import EntityType, QueryRequest
 
 router = APIRouter(prefix="/api/query")
@@ -65,6 +66,17 @@ async def query(req: QueryRequest):
     # ── 2. Graph traversal ────────────────────────────────────────────────────
     traversal = await asyncio.to_thread(db.traverse, entity, entity_type)
     paths_found = traversal["paths_found"]
+
+    # ── 2b. Real-time enrichment if entity not found ─────────────────────────
+    # When the entity has no paths in the graph, try enriching from external
+    # threat intel APIs (OSV.dev, NVD, Abuse.ch). If new data is ingested,
+    # re-run traversal to pick up the newly-created nodes and edges.
+    enriched = False
+    if paths_found == 0:
+        enriched = await enrich.try_enrich(entity, entity_type)
+        if enriched:
+            traversal = await asyncio.to_thread(db.traverse, entity, entity_type)
+            paths_found = traversal["paths_found"]
 
     # ── 3. LLM narrative (via RocketRide or direct Anthropic fallback) ───────
     # rocketride.generate_narrative_or_fallback() tries RocketRide first.
@@ -102,6 +114,7 @@ async def query(req: QueryRequest):
         "paths_found":  paths_found,
         "from_cache":   False,
         "llm_called":   llm_called,
+        "enriched":     enriched,
         "narrative":    narrative,
         "cross_domain": traversal.get("cross_domain", []),
     }
@@ -144,6 +157,14 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
         # ── Stage: traverse ───────────────────────────────────────────────────
         yield f"data: {json.dumps({'stage': 'traverse'})}\n\n"
         traversal = await asyncio.to_thread(db.traverse, entity, entity_type)
+
+        # ── Stage: enrich (if entity not found, try external APIs) ────────────
+        if traversal["paths_found"] == 0:
+            yield f"data: {json.dumps({'stage': 'enrich'})}\n\n"
+            enriched = await enrich.try_enrich(entity, entity_type)
+            if enriched:
+                # Re-traverse now that new nodes exist
+                traversal = await asyncio.to_thread(db.traverse, entity, entity_type)
 
         if traversal["paths_found"] == 0:
             yield f"data: {json.dumps({'paths_found': 0, 'from_cache': False})}\n\n"
