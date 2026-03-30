@@ -6,11 +6,9 @@
  * the design system's node-type palette.
  *
  * In the idle state, shows a placeholder with the graph legend.
- * When an investigation completes, it would render the traversal paths.
- *
- * Note: In this version, we generate a mock graph from the narrative
- * metadata since the backend SSE doesn't send graph node data directly.
- * A production version would add a /api/graph endpoint.
+ * When an investigation completes, it renders real traversal data from
+ * the /api/query/graph endpoint. Falls back to a demo graph if the
+ * backend doesn't return data (e.g. empty graph, API unreachable).
  */
 import { useMemo, useRef, useCallback, useEffect } from "react";
 import ForceGraph2D from "react-force-graph-2d";
@@ -133,13 +131,16 @@ export function GraphPanel({ state }: GraphPanelProps) {
   /* Ref for the force graph instance */
   const graphRef = useRef<any>(null);
 
-  /* Generate graph data when investigation completes */
+  /* Use real graph data from backend when available, fall back to demo */
   const graphData = useMemo(() => {
     if (state.status === "complete" && state.pathsFound > 0) {
+      if (state.graphData && state.graphData.nodes.length > 0) {
+        return state.graphData;
+      }
       return generateDemoGraph(state.entity, state.entityType);
     }
     return { nodes: [], links: [] };
-  }, [state.status, state.pathsFound, state.entity, state.entityType]);
+  }, [state.status, state.pathsFound, state.entity, state.entityType, state.graphData]);
 
   /* Custom node rendering on the canvas */
   const paintNode = useCallback(

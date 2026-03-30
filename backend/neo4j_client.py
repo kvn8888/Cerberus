@@ -229,6 +229,115 @@ def confirm(entity: str, entity_type: str) -> None:
         s.run(cypher, value=entity)
 
 
+def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
+    """
+    Run the same traversal as traverse() but return nodes + links
+    formatted for the frontend force-directed graph (react-force-graph-2d).
+
+    Returns: {"nodes": [{id, label, type, val}, ...], "links": [{source, target, type, dashed?}, ...]}
+    """
+    label = _entity_label(entity_type)
+    key   = _entity_key(entity_type)
+    etype = entity_type.lower()
+
+    nodes_map: dict[str, dict] = {}   # dedup by id
+    links: list[dict] = []
+
+    def _add_node(name: str, node_label: str, val: int = 5):
+        if name and name not in nodes_map:
+            nodes_map[name] = {"id": name, "label": name, "type": node_label, "val": val}
+
+    def _add_link(src: str, tgt: str, rel_type: str, dashed: bool = False):
+        if src and tgt:
+            links.append({"source": src, "target": tgt, "type": rel_type, "dashed": dashed})
+
+    # Extract nodes and links from Neo4j Path objects
+    _GRAPH_PATH_QUERY = """
+    MATCH path = shortestPath(
+      (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
+    )
+    RETURN path
+    LIMIT 10
+    """.format(label=label, key=key)
+
+    with _get_driver().session() as s:
+        # Main path traversal
+        result = s.run(_GRAPH_PATH_QUERY, value=entity)
+        for record in result:
+            path = record["path"]
+            for node in path.nodes:
+                labels = list(node.labels)
+                # Pick the most specific label (skip ConfirmedThreat)
+                node_type = next((l for l in labels if l != "ConfirmedThreat"), labels[0] if labels else "Unknown")
+                # Determine the display name from common properties
+                name = (
+                    node.get("name")
+                    or node.get("id")
+                    or node.get("address")
+                    or node.get("juspay_id")
+                    or node.get("username")
+                    or node.get("mitre_id")
+                    or str(node.element_id)
+                )
+                size = 7 if node_type in ("Package", "ThreatActor") else 5
+                _add_node(name, node_type, size)
+
+            for rel in path.relationships:
+                start_node = rel.start_node
+                end_node   = rel.end_node
+                src = (
+                    start_node.get("name") or start_node.get("id")
+                    or start_node.get("address") or start_node.get("juspay_id")
+                    or start_node.get("username") or start_node.get("mitre_id")
+                    or str(start_node.element_id)
+                )
+                tgt = (
+                    end_node.get("name") or end_node.get("id")
+                    or end_node.get("address") or end_node.get("juspay_id")
+                    or end_node.get("username") or end_node.get("mitre_id")
+                    or str(end_node.element_id)
+                )
+                rel_type = rel.type
+                # Mark LINKED_TO as synthetic (dashed edge)
+                is_synthetic = rel_type == "LINKED_TO"
+                _add_link(src, tgt, rel_type, dashed=is_synthetic)
+
+        # Cross-domain query for package type (adds fraud signals)
+        if etype == "package":
+            cross = s.run(_TRAVERSE_PACKAGE_CROSS, value=entity)
+            for r in cross:
+                pkg_name = r.get("package")
+                publisher = r.get("publisher")
+                ip_addr = r.get("ip")
+                actor = r.get("actor")
+                fraud_types = r.get("fraud_types", [])
+
+                if pkg_name: _add_node(pkg_name, "Package", 7)
+                if publisher: _add_node(publisher, "Account", 4)
+                if ip_addr: _add_node(ip_addr, "IP", 5)
+                if actor: _add_node(actor, "ThreatActor", 7)
+
+                if pkg_name and publisher:
+                    _add_link(pkg_name, publisher, "PUBLISHED_BY")
+                if publisher and ip_addr:
+                    _add_link(publisher, ip_addr, "LINKED_TO", dashed=True)
+                if ip_addr and actor:
+                    _add_link(actor, ip_addr, "OPERATES")
+
+                # Add fraud signal nodes if any
+                for i, ft in enumerate(fraud_types):
+                    if ft and ip_addr:
+                        fs_id = f"fraud-{ip_addr}-{i}"
+                        _add_node(fs_id, "FraudSignal", 4)
+                        _add_link(ip_addr, fs_id, "ASSOCIATED_WITH")
+
+    # Ensure the queried entity is always the root node with largest size
+    if entity in nodes_map:
+        nodes_map[entity]["val"] = 8
+
+    return {"nodes": list(nodes_map.values()), "links": links}
+
+
 def get_schema() -> dict[str, list[dict[str, Any]] | list[str]]:
     with _get_driver().session() as s:
         labels = [r["label"] for r in s.run("CALL db.labels() YIELD label")]

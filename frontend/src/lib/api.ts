@@ -11,6 +11,7 @@ import type {
   ConfirmRequest,
   ConfirmResponse,
   SchemaResponse,
+  GraphResponse,
 } from "../types/api";
 
 /** Base URL for the Cerberus backend — no trailing slash */
@@ -71,6 +72,24 @@ export async function confirmEntity(
   });
   if (!res.ok) {
     throw new Error(`Confirm failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+/**
+ * Fetch the graph traversal result as nodes + links for the
+ * force-directed visualization in GraphPanel.
+ */
+export async function fetchGraph(
+  req: QueryRequest
+): Promise<GraphResponse> {
+  const params = new URLSearchParams({
+    entity: req.entity,
+    type: req.type,
+  });
+  const res = await fetch(`${API_BASE}/api/query/graph?${params}`);
+  if (!res.ok) {
+    throw new Error(`Graph fetch failed: ${res.status} ${res.statusText}`);
   }
   return res.json();
 }

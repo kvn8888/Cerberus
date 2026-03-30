@@ -166,6 +166,23 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
     )
 
 
+@router.get("/graph")
+async def query_graph(entity: str, type: EntityType = EntityType.package):
+    """
+    Return the graph traversal result as nodes + links for the frontend
+    force-directed visualization. Separate from the narrative endpoints
+    so the frontend can fetch graph data independently.
+    """
+    entity = entity.strip()
+    entity_type = type.value
+
+    if not entity:
+        raise HTTPException(status_code=400, detail="entity must not be empty")
+
+    graph = await asyncio.to_thread(db.get_graph, entity, entity_type)
+    return graph
+
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def _extract_cached_narrative(cached: list[dict]) -> str | None:

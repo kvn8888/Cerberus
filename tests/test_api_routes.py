@@ -51,6 +51,7 @@ TRAVERSE    = "neo4j_client.traverse"
 WRITE_BACK  = "neo4j_client.write_back"
 CONFIRM     = "neo4j_client.confirm"
 GENERATE    = "llm.generate_narrative"
+GET_GRAPH   = "neo4j_client.get_graph"
 INGEST_FRAUD = "neo4j_client.ingest_fraud_signals"
 JUSPAY_SUMMARY = "neo4j_client.get_juspay_summary"
 
@@ -267,6 +268,50 @@ class TestConfirmEndpoint(unittest.TestCase):
             "/api/confirm",
             json={"entity": "ua-parser-js", "type": "nope"},
         )
+        self.assertEqual(resp.status_code, 422)
+
+
+class TestGraphEndpoint(unittest.TestCase):
+    """GET /api/query/graph returns nodes + links for force-directed viz."""
+
+    MOCK_GRAPH = {
+        "nodes": [
+            {"id": "ua-parser-js", "label": "ua-parser-js", "type": "Package", "val": 8},
+            {"id": "APT41", "label": "APT41", "type": "ThreatActor", "val": 7},
+        ],
+        "links": [
+            {"source": "ua-parser-js", "target": "APT41", "type": "HAS_VULNERABILITY", "dashed": False},
+        ],
+    }
+
+    def test_graph_returns_nodes_and_links(self):
+        with patch(GET_GRAPH, return_value=self.MOCK_GRAPH):
+            resp = CLIENT.get("/api/query/graph?entity=ua-parser-js&type=package")
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertIn("nodes", body)
+        self.assertIn("links", body)
+        self.assertEqual(len(body["nodes"]), 2)
+        self.assertEqual(len(body["links"]), 1)
+
+    def test_graph_empty_entity_returns_400(self):
+        resp = CLIENT.get("/api/query/graph?entity=&type=package")
+        self.assertEqual(resp.status_code, 400)
+
+    def test_graph_default_type_is_package(self):
+        with patch(GET_GRAPH, return_value=self.MOCK_GRAPH) as mock_graph:
+            resp = CLIENT.get("/api/query/graph?entity=ua-parser-js")
+        self.assertEqual(resp.status_code, 200)
+        mock_graph.assert_called_once_with("ua-parser-js", "package")
+
+    def test_graph_ip_entity_type(self):
+        with patch(GET_GRAPH, return_value={"nodes": [], "links": []}) as mock_graph:
+            resp = CLIENT.get("/api/query/graph?entity=203.0.113.42&type=ip")
+        self.assertEqual(resp.status_code, 200)
+        mock_graph.assert_called_once_with("203.0.113.42", "ip")
+
+    def test_graph_missing_entity_returns_422(self):
+        resp = CLIENT.get("/api/query/graph?type=package")
         self.assertEqual(resp.status_code, 422)
 
 

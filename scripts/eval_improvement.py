@@ -149,9 +149,14 @@ def confirm_pattern(package_name: str):
 def run_import_scripts():
     """
     Run the data import pipeline in the correct order.
+    Resolves script paths relative to this file's directory so the
+    eval can be invoked from any working directory.
     Returns True if imports succeeded, False otherwise.
     """
     import subprocess
+
+    # Resolve paths relative to the directory containing this script
+    script_dir = os.path.dirname(os.path.abspath(__file__))
 
     scripts = [
         "import_mitre.py",
@@ -162,16 +167,18 @@ def run_import_scripts():
     ]
 
     for script in scripts:
-        if not os.path.exists(script):
+        script_path = os.path.join(script_dir, script)
+        if not os.path.exists(script_path):
             print(f"    WARN: {script} not found — skipping")
             continue
 
         print(f"    Running {script} ...")
         result = subprocess.run(
-            [sys.executable, script],
+            [sys.executable, script_path],
             capture_output=True,
             text=True,
             timeout=300,  # 5 min timeout per script
+            cwd=script_dir,  # run from scripts/ so relative imports work
         )
         if result.returncode != 0:
             print(f"    ERROR in {script}:")

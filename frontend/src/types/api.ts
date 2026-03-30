@@ -50,6 +50,28 @@ export interface SchemaResponse {
   counts: Array<{ label: string; count: number }>;
 }
 
+/** A single node in the graph visualization */
+export interface GraphNode {
+  id: string;
+  label: string;
+  type: string;
+  val: number;
+}
+
+/** A single link (edge) in the graph visualization */
+export interface GraphLink {
+  source: string;
+  target: string;
+  type?: string;
+  dashed?: boolean;
+}
+
+/** GET /api/query/graph response — nodes + links for force-directed graph */
+export interface GraphResponse {
+  nodes: GraphNode[];
+  links: GraphLink[];
+}
+
 /** SSE stream chunk shapes from GET /api/query/stream */
 export type StreamChunk =
   | { text: string }
@@ -80,4 +102,5 @@ export interface InvestigationState {
   pathsFound: number;
   fromCache: boolean;
   error?: string;
+  graphData?: GraphResponse;
 }

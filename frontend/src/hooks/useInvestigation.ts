@@ -11,7 +11,7 @@ import type {
   PipelineStage,
   InvestigationState,
 } from "../types/api";
-import { queryEntityStream } from "../lib/api";
+import { queryEntityStream, fetchGraph } from "../lib/api";
 
 /** The ordered pipeline stages displayed in the UI */
 const PIPELINE_STAGES: PipelineStage[] = [
@@ -129,11 +129,23 @@ export function useInvestigation() {
 
             /* Terminal marker */
             if (payload === "[DONE]") {
-              setState((prev) => ({
-                ...prev,
-                status: "complete",
-                currentStage: "complete",
-              }));
+              /* Fetch real graph data from the backend */
+              try {
+                const graph = await fetchGraph({ entity, type: entityType });
+                setState((prev) => ({
+                  ...prev,
+                  status: "complete",
+                  currentStage: "complete",
+                  graphData: graph.nodes.length > 0 ? graph : undefined,
+                }));
+              } catch {
+                /* Graph fetch failed — still mark complete, frontend falls back to demo */
+                setState((prev) => ({
+                  ...prev,
+                  status: "complete",
+                  currentStage: "complete",
+                }));
+              }
               cleanup();
               return;
             }
@@ -172,12 +184,22 @@ export function useInvestigation() {
           }
         }
 
-        /* If stream ended without [DONE], still mark complete */
-        setState((prev) => ({
-          ...prev,
-          status: "complete",
-          currentStage: "complete",
-        }));
+        /* If stream ended without [DONE], still fetch graph and mark complete */
+        try {
+          const graph = await fetchGraph({ entity, type: entityType });
+          setState((prev) => ({
+            ...prev,
+            status: "complete",
+            currentStage: "complete",
+            graphData: graph.nodes.length > 0 ? graph : undefined,
+          }));
+        } catch {
+          setState((prev) => ({
+            ...prev,
+            status: "complete",
+            currentStage: "complete",
+          }));
+        }
       } catch (err) {
         if (controller.signal.aborted) return;
         setState((prev) => ({

@@ -185,6 +185,41 @@ class TestTraverse(unittest.TestCase):
         self.assertEqual(result["paths_found"], 0)
 
 
+class TestGetGraph(unittest.TestCase):
+    """get_graph() should run traversal queries and return nodes + links."""
+
+    def test_get_graph_result_structure(self):
+        session = _make_session(records=[])
+        with patch.object(db, "_driver", _mock_driver(session)):
+            result = db.get_graph("ua-parser-js", "package")
+        self.assertIn("nodes", result)
+        self.assertIn("links", result)
+        self.assertIsInstance(result["nodes"], list)
+        self.assertIsInstance(result["links"], list)
+
+    def test_get_graph_empty_result_returns_empty_lists(self):
+        session = _make_session(records=[])
+        with patch.object(db, "_driver", _mock_driver(session)):
+            result = db.get_graph("nonexistent", "package")
+        self.assertEqual(len(result["nodes"]), 0)
+        self.assertEqual(len(result["links"]), 0)
+
+    def test_get_graph_runs_queries_for_package(self):
+        """Package type should run both path query and cross-domain query."""
+        session = _make_session(records=[])
+        with patch.object(db, "_driver", _mock_driver(session)):
+            db.get_graph("ua-parser-js", "package")
+        # Should run at least 2 queries: path + cross-domain
+        self.assertGreaterEqual(session.run.call_count, 2)
+
+    def test_get_graph_ip_runs_path_query(self):
+        session = _make_session(records=[])
+        with patch.object(db, "_driver", _mock_driver(session)):
+            db.get_graph("203.0.113.42", "ip")
+        # Path query only (no cross-domain for IP)
+        self.assertGreaterEqual(session.run.call_count, 1)
+
+
 class TestConfirmCypher(unittest.TestCase):
     """confirm() and write_back() should run Cypher with the expected tokens."""
 
