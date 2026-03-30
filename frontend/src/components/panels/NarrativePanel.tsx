@@ -7,7 +7,7 @@
  *
  * Implements US-4 (streaming narrative) and US-7 (analyst confirmation).
  */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { pdf } from "@react-pdf/renderer";
 import {
   FileText,
@@ -45,6 +45,13 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
     risk_level: string;
     summary: string;
   }>>([]);
+
+  useEffect(() => {
+    setConfirmed(false);
+    setThreatMapSvg(null);
+    setCompareResults([]);
+    setCompareError("");
+  }, [state.entity]);
 
   const canExport = useMemo(
     () => state.status === "complete" && !!state.entity,

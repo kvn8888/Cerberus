@@ -82,7 +82,7 @@ export function useInvestigation() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      /* Reset state and mark as running */
+      /* Full reset — wipe everything from the previous investigation */
       setState({
         status: "running",
         entity,
@@ -91,6 +91,7 @@ export function useInvestigation() {
         narrative: "",
         pathsFound: 0,
         fromCache: false,
+        graphData: undefined,
       });
 
       try {
