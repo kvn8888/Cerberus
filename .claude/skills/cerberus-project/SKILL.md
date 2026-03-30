@@ -154,7 +154,9 @@ NEO4J_USERNAME=neo4j
 NEO4J_PASSWORD=<password>
 ANTHROPIC_API_KEY=sk-ant-...            # Anthropic API key
 NEO4J_MCP_URL=http://127.0.0.1:8787    # MCP server (optional, has default)
-ROCKETRIDE_URL=http://127.0.0.1:3000   # RocketRide (optional, has default)
+ROCKETRIDE_URI=http://localhost:5565    # RocketRide SDK server
+ROCKETRIDE_APIKEY=...                   # RocketRide auth key
+ROCKETRIDE_ANTHROPIC_KEY=sk-ant-...     # Anthropic key for pipeline LLM nodes
 CERBERUS_API=http://localhost:8000
 ```
 
@@ -213,13 +215,14 @@ Return response
 
 ## RocketRide Pipeline Definitions
 
-Pipeline YAML configs live in `pipelines/`:
+Pipeline definitions live in `pipelines/` as `.pipe` files (JSON format for the RocketRide SDK):
 
-| File | Purpose | Key Nodes |
-|------|---------|-----------|
-| `cerberus-ingest.yaml` | Raw input → NER → classify → Neo4j write | webhook → NER (Claude Haiku 4.5) → classifier → cypher-builder → neo4j-write |
-| `cerberus-query.yaml` | Thoughtful agent query pipeline | chat → NER → classifier → cache-check → branch → traverse → LLM → write-back |
-| `cerberus-juspay.yaml` | Juspay fraud signal ingestion (stretch) | webhook → parser → validator → neo4j-write-fraud → neo4j-enrich |
+| File | Purpose | Nodes |
+|------|---------|-------|
+| `cerberus-ingest.pipe` | NER entity extraction from free-text | chat → prompt (extract+classify) → llm_anthropic (Haiku 4.5) → response_answers |
+| `cerberus-query.pipe` | Threat narrative generation from graph data | chat → prompt (threat analyst) → llm_anthropic (Sonnet 4.6) → response_answers |
+
+Note: `cerberus-juspay` pipeline (stretch goal) not yet ported to `.pipe` format.
 
 ## Test Suite
 
@@ -267,11 +270,20 @@ Base URL hardcoded as `http://localhost:8000` — uses the backend's CORS `allow
 
 ## RocketRide Integration (rocketride.py)
 
-Backend integrates with RocketRide AI for pipeline orchestration:
-- **Async httpx client** with 60s timeout for pipeline execution
-- **SSE proxy** — streams pipeline events from RocketRide to frontend
-- **Graceful fallback** — if RocketRide is unavailable, falls back to direct LLM narrative generation
-- Used by `query.py` via `rocketride.generate_narrative_or_fallback()`
+Backend integrates with RocketRide AI via the official Python SDK (`pip install rocketride`):
+- **SDK client** — `RocketRideClient(uri=..., auth=...)` with `connect()`, `ping()`, `use()`, `chat()`
+- **Pipeline loading** — `.pipe` files (JSON) loaded via `client.use(filepath=...)`, token cached
+- **Streaming** — SDK returns complete answer; backend chunks it word-by-word for SSE animation
+- **Graceful fallback** — if SDK not installed or server unreachable, falls back to direct Anthropic LLM
+- Used by `query.py` via `rocketride.stream_via_rocketride_or_fallback()`
+
+### RocketRide Env Vars
+
+```
+ROCKETRIDE_URI=http://localhost:5565      # RocketRide server (SDK default)
+ROCKETRIDE_APIKEY=...                     # Auth key
+ROCKETRIDE_ANTHROPIC_KEY=sk-ant-...       # Anthropic key for pipeline LLM nodes
+```
 
 ## Project Structure (Current)
 
@@ -293,10 +305,9 @@ Cerberus/
 │       ├── query.py            # POST /api/query, GET /api/query/stream
 │       └── confirm.py          # POST /api/confirm
 │
-├── pipelines/                  # RocketRide YAML definitions
-│   ├── cerberus-ingest.yaml
-│   ├── cerberus-query.yaml
-│   └── cerberus-juspay.yaml
+├── pipelines/                  # RocketRide .pipe definitions (JSON)
+│   ├── cerberus-ingest.pipe    # NER extraction (Haiku 4.5)
+│   └── cerberus-query.pipe     # Threat narrative (Sonnet 4.6)
 │
 ├── scripts/                    # ALL import scripts + eval (single source of truth)
 │   ├── constraints.cypher      # 8 uniqueness constraints (documented)

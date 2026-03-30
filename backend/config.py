@@ -24,4 +24,5 @@ NEO4J_PASSWORD = get("NEO4J_PASSWORD")
 ANTHROPIC_KEY = get("ANTHROPIC_API_KEY")
 
 NEO4J_MCP_URL = get("NEO4J_MCP_URL", "http://127.0.0.1:8787")
-ROCKETRIDE_URL = get("ROCKETRIDE_URL", "http://127.0.0.1:3000")
+ROCKETRIDE_URL = get("ROCKETRIDE_URL", "http://127.0.0.1:3000")  # legacy (scripts)
+ROCKETRIDE_URI = get("ROCKETRIDE_URI", "http://localhost:5565")   # SDK default
