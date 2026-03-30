@@ -352,8 +352,30 @@ export function ThreatMap({ state }: ThreatMapProps) {
         for (const pt of data.points) {
           const actors: string[] = pt.actors || [];
           const actorName = actors[0] || "";
-          const ipId = `live-ip-${pt.ip}`;
 
+          // Actor-only points: plot the actor directly at their country
+          if (pt.actor_only) {
+            if (!actorName || seenActors.has(actorName)) continue;
+            seenActors.add(actorName);
+            const matchingStatic = THREAT_NODES.find(
+              (n) => n.type === "apt" && n.name.toLowerCase().includes(actorName.toLowerCase().split(" ")[0])
+            );
+            if (!matchingStatic) {
+              newNodes.push({
+                id: `live-actor-${actorName.replace(/\s+/g, "-").toLowerCase()}`,
+                name: actorName,
+                type: "apt",
+                coordinates: [pt.lon ?? 0, pt.lat ?? 0],
+                severity: "critical",
+                region: pt.geo || "Unknown",
+                active: true,
+              });
+            }
+            continue;
+          }
+
+          // IP-based points: infrastructure node + connected actor
+          const ipId = `live-ip-${pt.ip}`;
           newNodes.push({
             id: ipId,
             name: pt.ip,

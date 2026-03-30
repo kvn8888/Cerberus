@@ -735,14 +735,18 @@ def get_juspay_summary(limit: int = 10) -> dict[str, Any]:
 
 def get_geo_points(entity: str, entity_type: str) -> list[dict[str, Any]]:
     """
-    Return geo-plottable IP points related to an investigation target.
-    Uses country-code hints already stored on IP nodes and maps them to
-    approximate lat/lon centroids for a simple frontend map view.
+    Return geo-plottable points related to an investigation target.
+    Two passes:
+      1. IPs operated by connected ThreatActors (with geo from the IP node)
+      2. ThreatActors themselves plotted at their attributed country when
+         they have no IPs — so actors like OilRig/FIN7 still appear on the map
     """
     entity, entity_type = normalize_entity(entity, entity_type)
     label = _entity_label(entity_type)
     key = _entity_key(entity_type)
-    query = """
+
+    # Pass 1: IPs operated by connected actors
+    ip_query = """
     MATCH path = shortestPath(
       (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
     )
@@ -756,23 +760,84 @@ def get_geo_points(entity: str, entity_type: str) -> list[dict[str, Any]]:
     LIMIT 25
     """.format(label=label, key=key)
 
+    # Pass 2: Actors with no IPs — plot at their attributed country
+    actor_query = """
+    MATCH path = shortestPath(
+      (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
+    )
+    WITH DISTINCT ta
+    WHERE NOT (ta)-[:OPERATES]->(:IP)
+    RETURN ta.name AS actor
+    LIMIT 25
+    """.format(label=label, key=key)
+
     points: list[dict[str, Any]] = []
+    seen_actors: set[str] = set()
+
     with _get_driver().session() as s:
-        for record in s.run(query, value=entity):
+        for record in s.run(ip_query, value=entity):
             geo = record["geo"]
             if geo not in _COUNTRY_COORDS:
                 continue
             lat, lon = _COUNTRY_COORDS[geo]
-            points.append(
-                {
-                    "ip": record["ip"],
-                    "geo": geo,
-                    "lat": lat,
-                    "lon": lon,
-                    "actors": [actor for actor in record["actors"] if actor],
-                }
-            )
+            actors = [a for a in record["actors"] if a]
+            for a in actors:
+                seen_actors.add(a)
+            points.append({
+                "ip": record["ip"],
+                "geo": geo,
+                "lat": lat,
+                "lon": lon,
+                "actors": actors,
+            })
+
+        # Plot actors that don't have IP infrastructure
+        for record in s.run(actor_query, value=entity):
+            actor = record["actor"]
+            if not actor or actor in seen_actors:
+                continue
+            seen_actors.add(actor)
+            country = _ACTOR_GEO.get(actor)
+            if not country or country not in _COUNTRY_COORDS:
+                continue
+            lat, lon = _COUNTRY_COORDS[country]
+            # Small random-ish offset so actors in the same country don't overlap
+            offset = (hash(actor) % 10 - 5) * 0.5
+            points.append({
+                "ip": actor,
+                "geo": country,
+                "lat": lat + offset,
+                "lon": lon + offset,
+                "actors": [actor],
+                "actor_only": True,
+            })
+
     return points
+
+
+# Maps known threat actors to their attributed country code for geo plotting.
+_ACTOR_GEO: dict[str, str] = {
+    "APT28": "RU", "APT29": "RU", "APT41": "CN", "APT40": "CN",
+    "APT31": "CN", "APT10": "CN", "APT1": "CN", "APT3": "CN",
+    "APT17": "CN", "APT27": "CN", "APT30": "CN", "APT32": "VN",
+    "APT33": "IR", "APT34": "IR", "APT35": "IR", "APT43": "KP",
+    "Lazarus Group": "KP", "Kimsuky": "KP", "Andariel": "KP",
+    "BlueNoroff": "KP", "Sandworm Team": "RU", "Turla": "RU",
+    "Gamaredon Group": "RU", "Ember Bear": "RU",
+    "Wizard Spider": "RU", "Indrik Spider": "RU",
+    "FIN7": "RU", "FIN11": "RU", "Evil Corp": "RU",
+    "Mummy Spider": "RU", "TA505": "RU", "TeamTNT": "DE",
+    "HAFNIUM": "CN", "LuminousMoth": "CN", "Naikon": "CN",
+    "Mustang Panda": "CN", "Winnti Group": "CN", "Ke3chang": "CN",
+    "Stone Panda": "CN", "Emissary Panda": "CN",
+    "UNC3886": "CN", "Velvet Ant": "CN", "Aquatic Panda": "CN",
+    "Daggerfly": "CN", "Elderwood": "CN",
+    "MuddyWater": "IR", "Charming Kitten": "IR", "OilRig": "IR",
+    "Fox Kitten": "IR",
+    "OceanLotus": "VN", "Equation": "US",
+    "WIRTE": "IR", "Dragonfly": "RU",
+    "Medusa Group": "RU", "Scattered Spider": "US",
+}
 
 
 def get_memory_geo() -> list[dict[str, Any]]:
