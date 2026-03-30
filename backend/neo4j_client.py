@@ -244,3 +244,87 @@ def get_schema() -> dict[str, list[dict[str, Any]] | list[str]]:
             "MATCH (n) RETURN labels(n)[0] AS label, count(n) AS count"
         ).data()
     return {"labels": labels, "relationship_types": rel_types, "counts": counts}
+
+
+def ingest_fraud_signals(signals: list[dict[str, Any]]) -> dict[str, Any]:
+    """
+    Upsert Juspay-style fraud signals and connect them to IPs.
+    Returns a small summary useful for UI and pipeline output.
+    """
+    if not signals:
+        return {"ingested": 0, "linked_ips": 0, "signal_ids": []}
+
+    cypher = """
+    UNWIND $signals AS sig
+    MERGE (fs:FraudSignal {juspay_id: sig.juspay_id})
+    SET fs.type      = sig.fraud_type,
+        fs.amount    = sig.amount,
+        fs.currency  = sig.currency,
+        fs.timestamp = sig.timestamp,
+        fs.merchant_id = sig.merchant_id,
+        fs.synthetic = coalesce(sig.synthetic, false),
+        fs.source    = coalesce(sig.source, 'juspay')
+    WITH fs, sig
+    MERGE (ip:IP {address: sig.ip_address})
+    MERGE (ip)-[:ASSOCIATED_WITH]->(fs)
+    RETURN count(fs) AS ingested
+    """
+    with _get_driver().session() as s:
+        result = s.run(cypher, signals=signals)
+        ingested = result.single()["ingested"]
+    return {
+        "ingested": ingested,
+        "linked_ips": len({sig["ip_address"] for sig in signals}),
+        "signal_ids": [sig["juspay_id"] for sig in signals],
+    }
+
+
+def get_juspay_summary(limit: int = 10) -> dict[str, Any]:
+    with _get_driver().session() as s:
+        totals = s.run(
+            """
+            MATCH (fs:FraudSignal)
+            OPTIONAL MATCH (ip:IP)-[:ASSOCIATED_WITH]->(fs)
+            RETURN count(DISTINCT fs) AS signals,
+                   count(DISTINCT ip) AS ips,
+                   coalesce(sum(fs.amount), 0) AS total_amount
+            """
+        ).single()
+        by_type = s.run(
+            """
+            MATCH (fs:FraudSignal)
+            RETURN fs.type AS type, count(*) AS count
+            ORDER BY count DESC, type ASC
+            """
+        ).data()
+        actor_links = s.run(
+            """
+            MATCH (ta:ThreatActor)-[:OPERATES]->(ip:IP)-[:ASSOCIATED_WITH]->(fs:FraudSignal)
+            RETURN ta.name AS actor, count(DISTINCT fs) AS signal_count
+            ORDER BY signal_count DESC, actor ASC
+            LIMIT $limit
+            """,
+            limit=limit,
+        ).data()
+        recent = s.run(
+            """
+            MATCH (ip:IP)-[:ASSOCIATED_WITH]->(fs:FraudSignal)
+            RETURN fs.juspay_id AS juspay_id,
+                   fs.type AS type,
+                   fs.amount AS amount,
+                   fs.currency AS currency,
+                   ip.address AS ip_address
+            ORDER BY fs.timestamp DESC, fs.juspay_id ASC
+            LIMIT $limit
+            """,
+            limit=limit,
+        ).data()
+
+    return {
+        "signals": totals["signals"],
+        "linked_ips": totals["ips"],
+        "total_amount": totals["total_amount"],
+        "by_type": by_type,
+        "actor_links": actor_links,
+        "recent_signals": recent,
+    }

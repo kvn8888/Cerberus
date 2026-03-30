@@ -51,6 +51,8 @@ TRAVERSE    = "neo4j_client.traverse"
 WRITE_BACK  = "neo4j_client.write_back"
 CONFIRM     = "neo4j_client.confirm"
 GENERATE    = "llm.generate_narrative"
+INGEST_FRAUD = "neo4j_client.ingest_fraud_signals"
+JUSPAY_SUMMARY = "neo4j_client.get_juspay_summary"
 
 EMPTY_TRAVERSAL = {"paths": [], "cross_domain": [], "paths_found": 0}
 FOUND_TRAVERSAL = {
@@ -266,6 +268,91 @@ class TestConfirmEndpoint(unittest.TestCase):
             json={"entity": "ua-parser-js", "type": "nope"},
         )
         self.assertEqual(resp.status_code, 422)
+
+
+class TestJuspayEndpoints(unittest.TestCase):
+    def test_ingest_single_signal(self):
+        with patch(
+            INGEST_FRAUD,
+            return_value={
+                "ingested": 1,
+                "linked_ips": 1,
+                "signal_ids": ["JS-1"],
+            },
+        ) as mock_ingest:
+            resp = CLIENT.post(
+                "/api/juspay/ingest",
+                json={
+                    "id": "JS-1",
+                    "alert_type": "account_takeover",
+                    "amount": 1250,
+                    "customer_ip": "203.0.113.42",
+                },
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["ingested"], 1)
+        normalized = mock_ingest.call_args[0][0][0]
+        self.assertEqual(normalized["juspay_id"], "JS-1")
+        self.assertEqual(normalized["fraud_type"], "account_takeover")
+        self.assertEqual(normalized["ip_address"], "203.0.113.42")
+
+    def test_ingest_wrapped_batch(self):
+        with patch(
+            INGEST_FRAUD,
+            return_value={
+                "ingested": 2,
+                "linked_ips": 2,
+                "signal_ids": ["JS-1", "JS-2"],
+            },
+        ) as mock_ingest:
+            resp = CLIENT.post(
+                "/api/juspay/ingest",
+                json={
+                    "signals": [
+                        {
+                            "juspay_id": "JS-1",
+                            "fraud_type": "refund_fraud",
+                            "amount": 120.5,
+                            "ip_address": "203.0.113.42",
+                        },
+                        {
+                            "transaction_id": "JS-2",
+                            "signal_type": "card_not_present",
+                            "transaction_amount": 800,
+                            "device_ip": "203.0.113.99",
+                        },
+                    ]
+                },
+            )
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(len(mock_ingest.call_args[0][0]), 2)
+
+    def test_ingest_rejects_invalid_payload(self):
+        resp = CLIENT.post(
+            "/api/juspay/ingest",
+            json={"merchant_id": "m_123"},
+        )
+        self.assertEqual(resp.status_code, 400)
+
+    def test_juspay_summary_endpoint(self):
+        with patch(
+            JUSPAY_SUMMARY,
+            return_value={
+                "signals": 2,
+                "linked_ips": 1,
+                "total_amount": 5000,
+                "by_type": [{"type": "account_takeover", "count": 2}],
+                "actor_links": [{"actor": "APT41", "signal_count": 2}],
+                "recent_signals": [{"juspay_id": "JS-1"}],
+            },
+        ):
+            resp = CLIENT.get("/api/juspay/signals?limit=5")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json()["signals"], 2)
+
+    def test_juspay_summary_limit_validation(self):
+        resp = CLIENT.get("/api/juspay/signals?limit=101")
+        self.assertEqual(resp.status_code, 400)
 
 
 if __name__ == "__main__":
