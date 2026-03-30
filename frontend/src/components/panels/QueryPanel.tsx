@@ -80,6 +80,7 @@ type Tab = "investigate" | "livefeed";
 export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
   const [tab, setTab] = useState<Tab>("investigate");
   const [query, setQuery] = useState("");
+  const [showNl, setShowNl] = useState(false);
   const [naturalText, setNaturalText] = useState("");
   const [nlError, setNlError] = useState("");
   const [nlBusy, setNlBusy] = useState(false);
@@ -194,10 +195,10 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
       <div className="flex-1 overflow-y-auto">
         {tab === "investigate" && (
           <form onSubmit={handleSubmit} className="p-4 space-y-4 flex flex-col h-full">
-            {/* Single search box */}
+            {/* Primary: entity search */}
             <div>
               <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2 block">
-                Search anything
+                Enter an entity
               </label>
               <div className="relative group">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground transition-colors group-focus-within:text-primary" />
@@ -205,7 +206,7 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Package, IP, CVE, domain, threat actor..."
+                  placeholder="e.g. ua-parser-js, 203.0.113.42, CVE-2021-44228"
                   className={cn(
                     "w-full pl-10 pr-4 py-3 rounded-lg text-sm font-mono",
                     "bg-surface-raised border border-border",
@@ -215,7 +216,6 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
                   )}
                 />
               </div>
-              {/* Auto-detected type badge — shows what Cerberus thinks you typed */}
               {query.trim() && (
                 <div className="mt-2 flex items-center gap-2 animate-fade-in">
                   <span className="text-[10px] font-mono text-muted-foreground/60">Detected:</span>
@@ -227,7 +227,6 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
               )}
             </div>
 
-            {/* Submit */}
             <button
               type="submit"
               disabled={!query.trim() || isRunning}
@@ -249,11 +248,58 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
               )}
             </button>
 
-            {/* Quick start examples — with descriptions */}
+            {/* Secondary: natural language — collapsible */}
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowNl(!showNl)}
+                className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+              >
+                <MessageSquareText className="h-3 w-3" />
+                <span>{showNl ? "Hide" : "Or describe what you're looking for"}</span>
+                <ChevronRight className={cn("h-3 w-3 transition-transform", showNl && "rotate-90")} />
+              </button>
+              {showNl && (
+                <div className="mt-2 rounded-lg border border-primary/15 bg-primary/5 p-3 animate-fade-in">
+                  <textarea
+                    value={naturalText}
+                    onChange={(e) => setNaturalText(e.target.value)}
+                    placeholder='e.g. "What attacks use ua-parser-js?" or "Show threats linked to 203.0.113.42"'
+                    rows={2}
+                    className={cn(
+                      "w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-xs",
+                      "text-foreground placeholder:text-muted-foreground/40",
+                      "focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
+                    )}
+                  />
+                  <button
+                    type="button"
+                    disabled={!naturalText.trim() || isRunning || nlBusy}
+                    onClick={handleNaturalInvestigate}
+                    className={cn(
+                      "mt-2 w-full rounded-lg px-3 py-2 text-xs font-semibold",
+                      !naturalText.trim() || isRunning || nlBusy
+                        ? "bg-muted text-muted-foreground"
+                        : "bg-primary/15 text-primary border border-primary/25 hover:bg-primary/20"
+                    )}
+                  >
+                    <span className="flex items-center justify-center gap-2">
+                      <Languages className="h-3.5 w-3.5" />
+                      {nlBusy ? "Parsing..." : "Investigate"}
+                    </span>
+                  </button>
+                  {nlError && (
+                    <p className="mt-2 text-[10px] font-mono text-threat-high">{nlError}</p>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Quick start examples */}
             <div className="mt-auto pt-4">
               <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2.5 flex items-center gap-1.5">
                 <span className="w-3 h-px bg-muted-foreground/30" />
-                Try these
+                Quick start
                 <span className="flex-1 h-px bg-muted-foreground/10" />
               </p>
               <div className="space-y-1">
@@ -289,101 +335,56 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
         )}
 
         {tab === "livefeed" && (
-          <div className="p-4 space-y-4">
-            {/* Natural language input */}
-            <div className="rounded-lg border border-primary/15 bg-primary/5 p-3">
-              <label className="text-[10px] font-mono text-primary uppercase tracking-[0.15em] mb-2 block flex items-center gap-1.5">
-                <Languages className="h-3 w-3" />
-                Ask a question
-              </label>
-              <textarea
-                value={naturalText}
-                onChange={(e) => setNaturalText(e.target.value)}
-                placeholder='e.g. "What attacks involve ua-parser-js?" or "Who is behind 203.0.113.42?"'
-                rows={3}
-                className={cn(
-                  "w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-xs",
-                  "text-foreground placeholder:text-muted-foreground/40",
-                  "focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
-                )}
-              />
-              <button
-                type="button"
-                disabled={!naturalText.trim() || isRunning || nlBusy}
-                onClick={handleNaturalInvestigate}
-                className={cn(
-                  "mt-2 w-full rounded-lg px-3 py-2 text-xs font-semibold",
-                  !naturalText.trim() || isRunning || nlBusy
-                    ? "bg-muted text-muted-foreground"
-                    : "bg-primary/15 text-primary border border-primary/25 hover:bg-primary/20"
-                )}
-              >
-                <span className="flex items-center justify-center gap-2">
-                  <Languages className="h-3.5 w-3.5" />
-                  {nlBusy ? "Parsing..." : "Investigate"}
-                </span>
-              </button>
-              {nlError && (
-                <p className="mt-2 text-[10px] font-mono text-threat-high">{nlError}</p>
-              )}
-            </div>
-
-            {/* Fraud feed cards */}
+          <div className="p-4 space-y-3">
             <div>
-              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-1.5 flex items-center gap-1.5">
+              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-1 flex items-center gap-1.5">
                 <Radio className="h-3 w-3 text-primary animate-pulse" />
-                Recent suspicious activity
+                Incoming fraud signals
               </p>
-              <p className="text-[10px] text-muted-foreground/50 mb-2.5">
-                Click Investigate to trace the full attack chain for any alert.
+              <p className="text-[10px] text-muted-foreground/50 mb-3">
+                Ingest a signal to add it to the threat graph, then investigate the IP.
               </p>
-              <div className="space-y-2">
-                {feed.map((event) => (
-                  <div
-                    key={event.juspay_id}
-                    className="rounded-lg border border-border bg-surface-raised/50 p-3"
-                  >
-                    <p className="text-xs text-foreground font-medium">
-                      {event.fraud_type.replace(/_/g, " ")}
-                    </p>
-                    <div className="mt-1 flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-mono text-muted-foreground">
-                        IP: {event.ip_address}
-                      </span>
-                      <span className="text-[10px] font-mono text-yellow-400/80">
-                        {event.currency} {event.amount.toLocaleString()}
-                      </span>
-                    </div>
-                    <div className="mt-2 flex gap-2">
-                      <button
-                        type="button"
-                        disabled={!!ingestingId}
-                        onClick={() => handleFeedIngest(event)}
-                        className="flex-1 rounded-md border border-primary/25 bg-primary/10 px-2 py-1.5 text-[10px] font-mono text-primary hover:bg-primary/15 disabled:opacity-50"
-                      >
-                        <span className="flex items-center justify-center gap-1">
-                          <Download className="h-3 w-3" />
-                          {ingestingId === event.juspay_id ? "Ingesting" : "Ingest"}
-                        </span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={isRunning}
-                        onClick={() => onInvestigate(event.ip_address, "ip")}
-                        className="rounded-md border border-border px-2 py-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground"
-                      >
-                        Investigate
-                      </button>
-                    </div>
+            </div>
+            <div className="space-y-2">
+              {feed.map((event) => (
+                <div
+                  key={event.juspay_id}
+                  className="rounded-lg border border-border bg-surface-raised/50 p-3"
+                >
+                  <p className="text-xs text-foreground font-medium">
+                    {event.fraud_type.replace(/_/g, " ")}
+                  </p>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="text-[10px] font-mono text-muted-foreground">
+                      IP: {event.ip_address}
+                    </span>
+                    <span className="text-[10px] font-mono text-yellow-400/80">
+                      {event.currency} {event.amount.toLocaleString()}
+                    </span>
                   </div>
-                ))}
-                {feed.length === 0 && !feedError && (
-                  <p className="text-xs text-muted-foreground/50 text-center py-4">Loading feed...</p>
-                )}
-                {feedError && (
-                  <p className="text-[10px] font-mono text-threat-high">{feedError}</p>
-                )}
-              </div>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      disabled={!!ingestingId}
+                      onClick={() => handleFeedIngest(event)}
+                      className="flex-1 rounded-md border border-primary/25 bg-primary/10 px-2 py-1.5 text-[10px] font-mono text-primary hover:bg-primary/15 disabled:opacity-50"
+                    >
+                      <span className="flex items-center justify-center gap-1">
+                        <Download className="h-3 w-3" />
+                        {ingestingId === event.juspay_id ? "Adding to graph..." : "Ingest & Investigate"}
+                      </span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {feed.length === 0 && !feedError && (
+                <p className="text-xs text-muted-foreground/50 text-center py-6">
+                  Waiting for signals...
+                </p>
+              )}
+              {feedError && (
+                <p className="text-[10px] font-mono text-threat-high">{feedError}</p>
+              )}
             </div>
           </div>
         )}
