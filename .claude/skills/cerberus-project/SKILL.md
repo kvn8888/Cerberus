@@ -517,6 +517,9 @@ docker compose up --build      # starts all 3 services
 5. ~~Duplicate import scripts~~ — CONSOLIDATED. `scripts/` is now the single source of truth
 6. ~~Unbounded shortestPath~~ — FIXED. All Cypher queries now use `[*..6]` or `[*..5]` bounds
 7. ~~_WRITE_BACK Cypher bug~~ — FIXED. `start` variable now carried through WITH clause
+11. ~~Directed traversal in _TRAVERSE_PACKAGE~~ — FIXED. Changed `-[*..6]->` to undirected `-[*..6]-` so paths through Account→IP←ThreatActor (OPERATES backward hop) are found
+12. ~~Enrichment orphan nodes~~ — FIXED. enrich.py now creates EXPLOITED_BY and OPERATES edges after ingesting nodes, so enriched entities have traversable paths
+13. ~~No results for entities without ThreatActor path~~ — FIXED. Neighborhood fallback query returns directly connected entities when no full threat chain exists
 8. ~~Missing LLM error handling~~ — FIXED. Query route gracefully returns graph data when LLM unavailable
 9. ~~Bad model name~~ — FIXED. Changed from `claude-opus-4-6` to `claude-sonnet-4-20250514`
 10. **FastAPI version:** Requires FastAPI ≥0.115.0 (incompatible with older Starlette 0.46+)
