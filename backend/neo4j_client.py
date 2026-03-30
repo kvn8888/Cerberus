@@ -450,3 +450,60 @@ def get_juspay_summary(limit: int = 10) -> dict[str, Any]:
         "actor_links": actor_links,
         "recent_signals": recent,
     }
+
+
+def get_geo_points(entity: str, entity_type: str) -> list[dict[str, Any]]:
+    """
+    Return geo-plottable IP points related to an investigation target.
+    Uses country-code hints already stored on IP nodes and maps them to
+    approximate lat/lon centroids for a simple frontend map view.
+    """
+    label = _entity_label(entity_type)
+    key = _entity_key(entity_type)
+    query = """
+    MATCH path = shortestPath(
+      (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
+    )
+    UNWIND nodes(path) AS n
+    WITH DISTINCT n
+    WHERE n:IP
+    OPTIONAL MATCH (actor:ThreatActor)-[:OPERATES]->(n)
+    RETURN n.address AS ip,
+           coalesce(n.geo, 'UN') AS geo,
+           collect(DISTINCT actor.name) AS actors
+    LIMIT 25
+    """.format(label=label, key=key)
+
+    points: list[dict[str, Any]] = []
+    with _get_driver().session() as s:
+        for record in s.run(query, value=entity):
+            geo = record["geo"]
+            if geo not in _COUNTRY_COORDS:
+                continue
+            lat, lon = _COUNTRY_COORDS[geo]
+            points.append(
+                {
+                    "ip": record["ip"],
+                    "geo": geo,
+                    "lat": lat,
+                    "lon": lon,
+                    "actors": [actor for actor in record["actors"] if actor],
+                }
+            )
+    return points
+
+
+_COUNTRY_COORDS: dict[str, tuple[float, float]] = {
+    "US": (39.5, -98.35),
+    "CN": (35.9, 104.2),
+    "RU": (61.5, 105.3),
+    "DE": (51.2, 10.4),
+    "FR": (46.2, 2.2),
+    "NL": (52.1, 5.3),
+    "UA": (48.3, 31.2),
+    "IS": (64.9, -19.0),
+    "HK": (22.3, 114.2),
+    "KP": (40.3, 127.5),
+    "GB": (55.3, -3.4),
+    "UN": (0.0, 0.0),
+}

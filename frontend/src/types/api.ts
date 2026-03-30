@@ -11,7 +11,8 @@ export type EntityType =
   | "ip"
   | "domain"
   | "cve"
-  | "threatactor";
+  | "threatactor"
+  | "fraudsignal";
 
 /** POST /api/query request body */
 export interface QueryRequest {
@@ -105,4 +106,75 @@ export interface InvestigationState {
   fromCache: boolean;
   error?: string;
   graphData?: GraphResponse;
+}
+
+export interface NaturalLanguageResponse {
+  message: string;
+  primary_entity: {
+    type: EntityType;
+    value: string;
+  };
+  entities: Array<{
+    type: EntityType;
+    value: string;
+  }>;
+}
+
+export interface ComparisonItem {
+  entity: string;
+  entity_type: EntityType;
+  from_cache: boolean;
+  paths_found: number;
+  risk_level: string;
+  summary: string;
+  cross_domain_count?: number;
+}
+
+export interface ComparisonResponse {
+  results: ComparisonItem[];
+}
+
+export interface FeedEvent {
+  juspay_id: string;
+  fraud_type: string;
+  amount: number;
+  currency: string;
+  ip_address: string;
+  merchant_id?: string;
+  timestamp: number;
+}
+
+export interface FeedResponse {
+  events: FeedEvent[];
+}
+
+export interface GeoPoint {
+  ip: string;
+  geo: string;
+  lat: number;
+  lon: number;
+  actors: string[];
+}
+
+export interface MapResponse {
+  entity: string;
+  entity_type: EntityType;
+  points: GeoPoint[];
+}
+
+export interface ReportResponse {
+  entity: string;
+  entity_type: EntityType;
+  generated_at: number;
+  from_cache: boolean;
+  paths_found: number;
+  cross_domain: Array<Record<string, unknown>>;
+  graph: GraphResponse;
+  juspay_summary: {
+    signals: number;
+    linked_ips: number;
+    total_amount: number;
+  };
+  narrative: string;
+  summary: string;
 }

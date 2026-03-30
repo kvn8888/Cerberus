@@ -12,6 +12,11 @@ import type {
   ConfirmResponse,
   SchemaResponse,
   GraphResponse,
+  NaturalLanguageResponse,
+  ComparisonResponse,
+  FeedResponse,
+  MapResponse,
+  ReportResponse,
 } from "../types/api";
 
 /** Base URL for the Cerberus backend — no trailing slash */
@@ -131,4 +136,87 @@ export async function rocketrideHealthCheck(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export async function parseNaturalLanguage(
+  message: string
+): Promise<NaturalLanguageResponse> {
+  const res = await fetch(`${API_BASE}/api/demo/natural`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) {
+    throw new Error(`Natural-language parse failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function compareEntities(
+  queries: QueryRequest[]
+): Promise<ComparisonResponse> {
+  const res = await fetch(`${API_BASE}/api/demo/compare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ queries }),
+  });
+  if (!res.ok) {
+    throw new Error(`Compare failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function fetchLiveFeed(limit = 6): Promise<FeedResponse> {
+  const res = await fetch(`${API_BASE}/api/demo/feed?limit=${limit}`);
+  if (!res.ok) {
+    throw new Error(`Live feed failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function ingestFeedEvent(event: {
+  juspay_id: string;
+  fraud_type: string;
+  amount: number;
+  currency: string;
+  ip_address: string;
+  merchant_id?: string;
+}): Promise<{ success: boolean; ingested: number }> {
+  const res = await fetch(`${API_BASE}/api/demo/feed/ingest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(event),
+  });
+  if (!res.ok) {
+    throw new Error(`Feed ingest failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function fetchGeoMap(
+  req: QueryRequest
+): Promise<MapResponse> {
+  const params = new URLSearchParams({
+    entity: req.entity,
+    type: req.type,
+  });
+  const res = await fetch(`${API_BASE}/api/demo/map?${params}`);
+  if (!res.ok) {
+    throw new Error(`Map fetch failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
+export async function fetchReport(
+  req: QueryRequest
+): Promise<ReportResponse> {
+  const params = new URLSearchParams({
+    entity: req.entity,
+    type: req.type,
+  });
+  const res = await fetch(`${API_BASE}/api/demo/report?${params}`);
+  if (!res.ok) {
+    throw new Error(`Report failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
 }
