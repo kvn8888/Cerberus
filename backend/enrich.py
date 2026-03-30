@@ -188,7 +188,9 @@ def _ingest_package_vulns(package_name: str, vulns: list[dict]) -> int:
 async def _enrich_cve(cve_id: str) -> bool:
     """
     Query NVD for details on a specific CVE.
-    Creates the CVE node if it doesn't exist.
+    Creates the CVE node with edges to affected products, weaknesses, and
+    any existing ThreatActors in the graph — so the node is traversable,
+    not an orphan.
 
     NVD API: https://services.nvd.nist.gov/rest/json/cves/2.0
     Rate limit: 5 requests per 30 seconds (no API key).
@@ -223,8 +225,8 @@ async def _enrich_cve(cve_id: str) -> bool:
 
     severity, cvss = _extract_nvd_severity(cve_data)
 
-    # Write CVE node into Neo4j
-    cypher = """
+    # ── 1. Write CVE node ────────────────────────────────────────────────────
+    cypher_cve = """
     MERGE (cve:CVE {id: $cve_id})
     ON CREATE SET cve.description = $description,
                   cve.severity    = $severity,
@@ -233,21 +235,193 @@ async def _enrich_cve(cve_id: str) -> bool:
                   cve.enriched_at = timestamp()
     ON MATCH SET  cve.description = CASE WHEN cve.description IS NULL
                                          THEN $description
-                                         ELSE cve.description END
+                                         ELSE cve.description END,
+                 cve.severity = COALESCE($severity, cve.severity),
+                 cve.cvss     = CASE WHEN $cvss > 0 THEN $cvss ELSE cve.cvss END
     RETURN cve.id AS id
     """
 
     with _get_driver().session() as s:
         s.run(
-            cypher,
+            cypher_cve,
             cve_id=cve_id_upper,
             description=description[:500],
             severity=severity,
             cvss=cvss,
         )
 
-    logger.info("Enriched CVE '%s' (severity=%s, cvss=%s)", cve_id_upper, severity, cvss)
+    # ── 2. Extract affected products from CPE data and create Package edges ──
+    # NVD configurations contain CPE match strings that identify the affected
+    # software. We parse these to create Package nodes with HAS_VULNERABILITY
+    # edges, making the CVE reachable via graph traversal.
+    product_names = _extract_affected_products(cve_data)
+    if product_names:
+        _link_cve_to_products(cve_id_upper, product_names)
+        logger.info("Linked CVE '%s' to %d products: %s",
+                     cve_id_upper, len(product_names), product_names)
+
+    # ── 3. Extract CWE weaknesses and map to MITRE ATT&CK Techniques ────────
+    # CWE IDs from NVD can be mapped to ATT&CK techniques already in the graph
+    # (e.g., CWE-78 → T1059 Command and Scripting Interpreter).
+    cwes = _extract_cwes(cve_data)
+    if cwes:
+        _link_cve_to_techniques_via_cwe(cve_id_upper, cwes)
+
+    # ── 4. Try to link to existing ThreatActors ─────────────────────────────
+    # If the graph already has ThreatActors that exploit similar CVEs or use
+    # techniques related to this CVE's weaknesses, bridge the connection.
+    _link_cve_to_existing_actors(cve_id_upper)
+
+    logger.info("Enriched CVE '%s' (severity=%s, cvss=%s, products=%d, cwes=%s)",
+                cve_id_upper, severity, cvss, len(product_names), cwes)
     return True
+
+
+def _extract_affected_products(cve_data: dict) -> list[str]:
+    """
+    Parse CPE match strings from NVD configurations to extract human-readable
+    product names. CPE format: cpe:2.3:a:VENDOR:PRODUCT:VERSION:...
+    Returns deduplicated list of 'product' names (or 'vendor/product' if useful).
+    """
+    products = set()
+    for cfg in cve_data.get("configurations", []):
+        for node in cfg.get("nodes", []):
+            for match in node.get("cpeMatch", []):
+                criteria = match.get("criteria", "")
+                # CPE 2.3 format: cpe:2.3:part:vendor:product:version:...
+                parts = criteria.split(":")
+                if len(parts) >= 5:
+                    vendor = parts[3]
+                    product = parts[4]
+                    if product and product != "*":
+                        # Use the product name, replacing underscores with hyphens
+                        # to match npm/PyPI naming conventions
+                        clean_name = product.replace("_", "-")
+                        products.add(clean_name)
+    return list(products)[:10]  # Cap to avoid bloat
+
+
+def _link_cve_to_products(cve_id: str, product_names: list[str]) -> None:
+    """
+    Create Package nodes for affected products and link them to the CVE.
+    This is the critical step that makes CVEs traversable — without
+    HAS_VULNERABILITY edges, the CVE node is an unreachable orphan.
+    """
+    cypher = """
+    MERGE (cve:CVE {id: $cve_id})
+    WITH cve
+    UNWIND $products AS prod_name
+    MERGE (pkg:Package {name: prod_name})
+    ON CREATE SET pkg.source      = 'nvd_cpe_enrichment',
+                  pkg.enriched_at = timestamp()
+    MERGE (pkg)-[:HAS_VULNERABILITY]->(cve)
+    """
+    with _get_driver().session() as s:
+        s.run(cypher, cve_id=cve_id, products=product_names)
+
+
+def _extract_cwes(cve_data: dict) -> list[str]:
+    """Extract CWE IDs from NVD weakness data (e.g., ['CWE-78', 'CWE-94'])."""
+    cwes = set()
+    for weakness in cve_data.get("weaknesses", []):
+        for desc in weakness.get("description", []):
+            value = desc.get("value", "")
+            if value.startswith("CWE-") and value != "CWE-noinfo":
+                cwes.add(value)
+    return list(cwes)
+
+
+# Maps common CWE IDs to MITRE ATT&CK technique IDs already in the graph.
+# This bridges NVD vulnerability data to ATT&CK-based threat intelligence.
+_CWE_TO_TECHNIQUE: dict[str, list[str]] = {
+    "CWE-78":  ["T1059"],         # OS Command Injection → Command and Scripting Interpreter
+    "CWE-79":  ["T1059.007"],     # XSS → JavaScript execution
+    "CWE-89":  ["T1190"],         # SQL Injection → Exploit Public-Facing Application
+    "CWE-94":  ["T1059"],         # Code Injection → Command and Scripting Interpreter
+    "CWE-119": ["T1203"],         # Buffer Overflow → Exploitation for Client Execution
+    "CWE-120": ["T1203"],         # Buffer Copy → Exploitation for Client Execution
+    "CWE-190": ["T1203"],         # Integer Overflow → Exploitation for Client Execution
+    "CWE-200": ["T1005"],         # Information Exposure → Data from Local System
+    "CWE-269": ["T1068"],         # Improper Privilege Management → Exploitation for Privilege Escalation
+    "CWE-287": ["T1078"],         # Improper Authentication → Valid Accounts
+    "CWE-306": ["T1190"],         # Missing Authentication → Exploit Public-Facing Application
+    "CWE-352": ["T1185"],         # CSRF → Browser Session Hijacking
+    "CWE-434": ["T1505.003"],     # Unrestricted Upload → Web Shell
+    "CWE-502": ["T1059"],         # Deserialization → Command and Scripting Interpreter
+    "CWE-611": ["T1190"],         # XXE → Exploit Public-Facing Application
+    "CWE-787": ["T1203"],         # Out-of-bounds Write → Exploitation for Client Execution
+    "CWE-918": ["T1190"],         # SSRF → Exploit Public-Facing Application
+}
+
+
+def _link_cve_to_techniques_via_cwe(cve_id: str, cwes: list[str]) -> None:
+    """
+    Map CWE weaknesses to MITRE ATT&CK Techniques already in the graph.
+    Creates RELATED_WEAKNESS edges from Technique to CVE, providing another
+    traversal path through the knowledge graph.
+    """
+    technique_ids = set()
+    for cwe in cwes:
+        for tid in _CWE_TO_TECHNIQUE.get(cwe, []):
+            technique_ids.add(tid)
+
+    if not technique_ids:
+        return
+
+    # Match Technique nodes by mitre_id prefix (T1059 matches T1059, T1059.001, etc.)
+    cypher = """
+    MERGE (cve:CVE {id: $cve_id})
+    WITH cve
+    UNWIND $technique_ids AS tid
+    OPTIONAL MATCH (t:Technique)
+    WHERE t.mitre_id = tid OR t.mitre_id STARTS WITH tid + '.'
+    WITH cve, t WHERE t IS NOT NULL
+    MERGE (cve)-[:RELATED_TECHNIQUE]->(t)
+    """
+    with _get_driver().session() as s:
+        s.run(cypher, cve_id=cve_id, technique_ids=list(technique_ids))
+    logger.info("Linked CVE '%s' to techniques via CWEs %s", cve_id, cwes)
+
+
+def _link_cve_to_existing_actors(cve_id: str) -> None:
+    """
+    Try to connect a newly-enriched CVE to ThreatActors already in the graph.
+
+    Strategy: if the CVE is now linked to a Package or Technique that already
+    has paths to ThreatActors, create an EXPLOITED_BY edge with lower
+    confidence. This makes the CVE discoverable via threat actor traversal.
+    """
+    # Path 1: CVE → Package → ... → ThreatActor (via existing supply chain paths)
+    cypher_via_package = """
+    MATCH (cve:CVE {id: $cve_id})<-[:HAS_VULNERABILITY]-(pkg:Package)
+    MATCH (pkg)-[*1..3]-(ta:ThreatActor)
+    WHERE NOT (cve)-[:EXPLOITED_BY]->(ta)
+    WITH cve, ta, count(*) AS strength ORDER BY strength DESC LIMIT 2
+    MERGE (cve)-[r:EXPLOITED_BY]->(ta)
+    ON CREATE SET r.confidence = 0.5,
+                  r.source     = 'graph_correlation',
+                  r.synthetic  = true
+    RETURN ta.name AS actor
+    """
+    # Path 2: CVE → Technique → ThreatActor (via ATT&CK technique usage)
+    cypher_via_technique = """
+    MATCH (cve:CVE {id: $cve_id})-[:RELATED_TECHNIQUE]->(t:Technique)<-[:USES]-(ta:ThreatActor)
+    WHERE NOT (cve)-[:EXPLOITED_BY]->(ta)
+    WITH cve, ta, count(t) AS overlap ORDER BY overlap DESC LIMIT 3
+    MERGE (cve)-[r:EXPLOITED_BY]->(ta)
+    ON CREATE SET r.confidence = 0.4,
+                  r.source     = 'technique_correlation',
+                  r.synthetic  = true
+    RETURN ta.name AS actor
+    """
+    with _get_driver().session() as s:
+        r1 = s.run(cypher_via_package, cve_id=cve_id)
+        actors_pkg = [r["actor"] for r in r1]
+        r2 = s.run(cypher_via_technique, cve_id=cve_id)
+        actors_tech = [r["actor"] for r in r2]
+        if actors_pkg or actors_tech:
+            logger.info("Linked CVE '%s' to actors: via-package=%s, via-technique=%s",
+                        cve_id, actors_pkg, actors_tech)
 
 
 # ── IP enrichment (Abuse.ch Feodo Tracker) ────────────────────────────────────
