@@ -83,22 +83,26 @@ async def query(req: QueryRequest):
     # On any failure it silently falls back to direct llm.py calls.
     if paths_found == 0:
         neighborhood = traversal.get("neighborhood", [])
-        if neighborhood:
-            neighbors_desc = ", ".join(
-                f"{n['neighbor_label']}:{n['neighbor_id']} (via {n['rel_type']})"
-                for n in neighborhood[:10]
+        try:
+            narrative = await asyncio.to_thread(
+                llm.generate_clean_assessment, entity, entity_type
             )
-            narrative = (
-                f"No full threat-actor chain found for {entity}, but it has "
-                f"{len(neighborhood)} connected entities in the graph: {neighbors_desc}. "
-                f"These connections may become traversable as more threat intel is ingested."
-            )
-        else:
+            llm_called = True
+            if neighborhood:
+                neighbors_desc = ", ".join(
+                    f"{n['neighbor_label']}:{n['neighbor_id']} (via {n['rel_type']})"
+                    for n in neighborhood[:10]
+                )
+                narrative += (
+                    f"\n\nNote: {len(neighborhood)} connected entities exist in the graph: "
+                    f"{neighbors_desc}."
+                )
+        except Exception:
             narrative = (
                 f"No threat paths found for {entity} in the current graph. "
                 f"The entity may not yet be ingested or has no known connections."
             )
-        llm_called = False
+            llm_called = False
     else:
         try:
             narrative  = await pipeline.generate_narrative_or_fallback(
@@ -181,19 +185,20 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
         if traversal["paths_found"] == 0:
             neighborhood = traversal.get("neighborhood", [])
             yield f"data: {json.dumps({'paths_found': 0, 'from_cache': False})}\n\n"
-            if neighborhood:
-                neighbors_desc = ", ".join(
-                    f"{n['neighbor_label']}:{n['neighbor_id']} (via {n['rel_type']})"
-                    for n in neighborhood[:10]
-                )
-                msg = (
-                    f"No full threat-actor chain found for {entity}, but it has "
-                    f"{len(neighborhood)} connected entities: {neighbors_desc}. "
-                    f"These connections may become traversable as more threat intel is ingested."
-                )
-            else:
-                msg = f"No threat paths found for {entity}."
-            yield f"data: {json.dumps({'text': msg})}\n\n"
+            yield f"data: {json.dumps({'stage': 'narrate'})}\n\n"
+            try:
+                for chunk in await asyncio.to_thread(
+                    lambda: list(llm.generate_clean_assessment_stream(entity, entity_type))
+                ):
+                    yield f"data: {json.dumps({'text': chunk})}\n\n"
+                if neighborhood:
+                    neighbors_desc = ", ".join(
+                        f"{n['neighbor_label']}:{n['neighbor_id']} (via {n['rel_type']})"
+                        for n in neighborhood[:10]
+                    )
+                    yield f"data: {json.dumps({'text': f'  Connected entities: {neighbors_desc}.'})}\n\n"
+            except Exception:
+                yield f"data: {json.dumps({'text': f'No threat paths found for {entity}.'})}\n\n"
             yield "data: [DONE]\n\n"
             return
 

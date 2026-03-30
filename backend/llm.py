@@ -90,3 +90,50 @@ def generate_narrative_stream(
     ) as stream:
         for text in stream.text_stream:
             yield text
+
+
+_CLEAN_ASSESSMENT_PROMPT = """\
+You are a senior threat intelligence analyst. A security analyst queried an entity
+and the system found NO threat paths, NO known vulnerabilities, and NO connections
+to threat actors in the cross-domain knowledge graph.
+
+Your task:
+- Briefly explain what the entity is (if recognizable).
+- State clearly that no threat intelligence was found.
+- Explain WHY this is likely benign — e.g. it's a well-known legitimate service,
+  not present in any threat feed, no CVEs linked, etc.
+- If the entity type is a domain or IP, mention whether it belongs to a known
+  legitimate organization.
+- Recommend any follow-up steps if relevant (e.g. "monitor for future advisories").
+- Keep it under 150 words. Be direct and professional.\
+"""
+
+
+def generate_clean_assessment(entity: str, entity_type: str) -> str:
+    """
+    Generate a brief explanation for why an entity has no threats.
+    Called when traversal returns 0 paths.
+    """
+    user_content = f"Entity: {entity}\nType: {entity_type}\nThreat paths found: 0"
+
+    message = _get_client().messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=200,
+        system=_CLEAN_ASSESSMENT_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
+    )
+    return message.content[0].text
+
+
+def generate_clean_assessment_stream(entity: str, entity_type: str):
+    """Streaming version of clean assessment for the SSE endpoint."""
+    user_content = f"Entity: {entity}\nType: {entity_type}\nThreat paths found: 0"
+
+    with _get_client().messages.stream(
+        model="claude-sonnet-4-20250514",
+        max_tokens=200,
+        system=_CLEAN_ASSESSMENT_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
+    ) as stream:
+        for text in stream.text_stream:
+            yield text
