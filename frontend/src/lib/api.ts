@@ -222,3 +222,20 @@ export async function fetchReport(
   }
   return res.json();
 }
+
+/** Generate a visual threat map image for an entity. */
+export async function generateThreatMap(req: {
+  entity: string;
+  entity_type: string;
+  narrative: string;
+}): Promise<{ entity: string; entity_type: string; svg: string; provider: string }> {
+  const res = await fetch(`${API_BASE}/api/threatmap`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) {
+    throw new Error(`Threat map failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
