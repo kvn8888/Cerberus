@@ -98,27 +98,32 @@ and the system found NO threat paths, NO known vulnerabilities, and NO connectio
 to threat actors in the cross-domain knowledge graph.
 
 Your task:
-- Briefly explain what the entity is (if recognizable).
-- State clearly that no threat intelligence was found.
-- Explain WHY this is likely benign — e.g. it's a well-known legitimate service,
-  not present in any threat feed, no CVEs linked, etc.
-- If the entity type is a domain or IP, mention whether it belongs to a known
-  legitimate organization.
-- Recommend any follow-up steps if relevant (e.g. "monitor for future advisories").
-- Keep it under 150 words. Be direct and professional.\
+- Briefly explain what the entity is (if recognizable). If the entity is a CVE,
+  note whether the ID format is valid and within a plausible allocation range.
+- State clearly that no threat intelligence was found in the current knowledge graph.
+- Do NOT assume the entity is benign or safe. Absence of evidence is not evidence
+  of absence — the entity may be newly disclosed, reserved but unpublished,
+  tracked in sources outside our feeds, or simply not yet ingested.
+- For CVEs: note that the ID may be reserved, recently assigned, or from a CNA
+  not yet reflected in our data. Never call an unknown CVE "fictitious" or "invalid"
+  unless the numeric range is provably unallocated.
+- For IPs/domains: note that lack of threat data does not confirm legitimacy.
+- Recommend concrete follow-up steps: check NVD/MITRE directly, query additional
+  threat feeds, set up monitoring alerts, or revisit after data refresh.
+- Keep it under 200 words. Be direct, professional, and cautious.\
 """
 
 
 def generate_clean_assessment(entity: str, entity_type: str) -> str:
     """
-    Generate a brief explanation for why an entity has no threats.
-    Called when traversal returns 0 paths.
+    Generate a cautious assessment when no threat paths are found.
+    Called when traversal returns 0 paths — does NOT assume the entity is safe.
     """
     user_content = f"Entity: {entity}\nType: {entity_type}\nThreat paths found: 0"
 
     message = _get_client().messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=200,
+        max_tokens=300,
         system=_CLEAN_ASSESSMENT_PROMPT,
         messages=[{"role": "user", "content": user_content}],
     )
@@ -126,12 +131,12 @@ def generate_clean_assessment(entity: str, entity_type: str) -> str:
 
 
 def generate_clean_assessment_stream(entity: str, entity_type: str):
-    """Streaming version of clean assessment for the SSE endpoint."""
+    """Streaming version of cautious assessment when no threat paths found."""
     user_content = f"Entity: {entity}\nType: {entity_type}\nThreat paths found: 0"
 
     with _get_client().messages.stream(
         model="claude-sonnet-4-20250514",
-        max_tokens=200,
+        max_tokens=300,
         system=_CLEAN_ASSESSMENT_PROMPT,
         messages=[{"role": "user", "content": user_content}],
     ) as stream:
