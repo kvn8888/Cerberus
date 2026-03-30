@@ -239,33 +239,67 @@ export function GraphPanel({ state }: GraphPanelProps) {
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center px-8">
             {state.status === "running" ? (
-              <div className="space-y-3">
-                <div className="h-16 w-16 mx-auto rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
-                <p className="text-sm text-muted-foreground font-mono">
+              <div className="space-y-4">
+                {/* Radar-style loading indicator */}
+                <div className="relative w-24 h-24 mx-auto">
+                  {/* Outer ring */}
+                  <div className="absolute inset-0 rounded-full border border-primary/20" />
+                  {/* Middle ring */}
+                  <div className="absolute inset-3 rounded-full border border-primary/15" />
+                  {/* Inner ring */}
+                  <div className="absolute inset-6 rounded-full border border-primary/10" />
+                  {/* Center dot */}
+                  <div className="absolute inset-[42%] rounded-full bg-primary/40 animate-pulse" />
+                  {/* Sweeping beam */}
+                  <div className="absolute inset-0 rounded-full radar-sweep" />
+                  {/* Blip dots */}
+                  {[0, 1, 2].map((i) => (
+                    <div
+                      key={i}
+                      className="absolute w-1.5 h-1.5 rounded-full bg-primary animate-pulse"
+                      style={{
+                        top: `${25 + Math.sin(i * 2.1) * 20}%`,
+                        left: `${30 + Math.cos(i * 1.7) * 25}%`,
+                        animationDelay: `${i * 0.5}s`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <p className="text-sm text-muted-foreground font-mono animate-pulse">
                   Traversing knowledge graph...
+                </p>
+                <p className="text-[10px] text-muted-foreground/50 font-mono">
+                  Mapping cross-domain attack chains
                 </p>
               </div>
             ) : (
-              <div className="space-y-3 opacity-40">
+              <div className="space-y-4 opacity-30">
+                {/* Abstract network icon */}
                 <svg
-                  className="h-24 w-24 mx-auto text-muted-foreground"
+                  className="h-28 w-28 mx-auto text-muted-foreground animate-float"
                   viewBox="0 0 100 100"
                   fill="none"
                   stroke="currentColor"
-                  strokeWidth="1"
+                  strokeWidth="0.8"
                 >
-                  {/* Simple graph icon */}
-                  <circle cx="50" cy="20" r="6" />
-                  <circle cx="25" cy="55" r="6" />
-                  <circle cx="75" cy="55" r="6" />
-                  <circle cx="50" cy="85" r="6" />
-                  <line x1="50" y1="26" x2="25" y2="49" />
-                  <line x1="50" y1="26" x2="75" y2="49" />
-                  <line x1="25" y1="61" x2="50" y2="79" />
-                  <line x1="75" y1="61" x2="50" y2="79" />
+                  {/* Nodes */}
+                  <circle cx="50" cy="18" r="5" fill="currentColor" opacity="0.3" />
+                  <circle cx="22" cy="50" r="4" fill="currentColor" opacity="0.2" />
+                  <circle cx="78" cy="50" r="4" fill="currentColor" opacity="0.2" />
+                  <circle cx="35" cy="82" r="4.5" fill="currentColor" opacity="0.25" />
+                  <circle cx="65" cy="82" r="4.5" fill="currentColor" opacity="0.25" />
+                  {/* Edges */}
+                  <line x1="50" y1="23" x2="22" y2="46" opacity="0.4" />
+                  <line x1="50" y1="23" x2="78" y2="46" opacity="0.4" />
+                  <line x1="22" y1="54" x2="35" y2="78" opacity="0.4" />
+                  <line x1="78" y1="54" x2="65" y2="78" opacity="0.4" />
+                  <line x1="35" y1="82" x2="65" y2="82" opacity="0.3" strokeDasharray="3 2" />
                 </svg>
                 <p className="text-sm text-muted-foreground">
-                  Graph visualization will appear here
+                  Attack chain visualization
+                </p>
+                <p className="text-[10px] text-muted-foreground/50">
+                  Start an investigation to map threat paths
                 </p>
               </div>
             )}
@@ -273,32 +307,34 @@ export function GraphPanel({ state }: GraphPanelProps) {
         </div>
       )}
 
-      {/* ── Legend overlay ───────────────────────────────── */}
+      {/* ── Legend overlay with enhanced styling ─────────── */}
       <div
         className={cn(
           "absolute bottom-4 left-4 p-3 rounded-lg",
-          "bg-surface/80 backdrop-blur-md border border-border/50",
-          "text-[10px] font-mono"
+          "glass-panel text-[10px] font-mono",
+          "transition-opacity duration-500",
+          hasGraph ? "opacity-90" : "opacity-60"
         )}
       >
-        <p className="text-muted-foreground uppercase tracking-wider mb-2 font-semibold">
+        <p className="text-muted-foreground uppercase tracking-[0.15em] mb-2 font-semibold flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-primary" />
           Node Types
         </p>
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        <div className="grid grid-cols-2 gap-x-5 gap-y-1.5">
           {LEGEND_ITEMS.map((item) => (
-            <div key={item.label} className="flex items-center gap-1.5">
+            <div key={item.label} className="flex items-center gap-2">
               <span
-                className="node-dot"
-                style={{ backgroundColor: item.color }}
+                className="node-dot flex-shrink-0"
+                style={{ backgroundColor: item.color, boxShadow: `0 0 6px ${item.color}40` }}
               />
-              <span className="text-muted-foreground">{item.label}</span>
+              <span className="text-muted-foreground/80">{item.label}</span>
             </div>
           ))}
         </div>
         {hasGraph && (
-          <div className="mt-2 pt-2 border-t border-border/50 flex items-center gap-1.5">
-            <span className="w-4 border-t border-dashed border-threat-medium" />
-            <span className="text-muted-foreground">Synthetic link</span>
+          <div className="mt-2.5 pt-2 border-t border-border/30 flex items-center gap-2">
+            <span className="w-5 border-t border-dashed border-threat-medium/60" />
+            <span className="text-muted-foreground/60">Synthetic (simulated)</span>
           </div>
         )}
       </div>

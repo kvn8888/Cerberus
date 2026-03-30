@@ -83,35 +83,56 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
         {(state.status === "running" || state.status === "complete") &&
           state.narrative && (
             <div className="space-y-4 animate-fade-in">
-              {/* Entity being investigated */}
-              <div className="flex items-center gap-2 mb-3">
-                <Shield className="h-4 w-4 text-primary" />
-                <span className="font-mono text-sm text-primary">
-                  {state.entity}
-                </span>
-                <span className="text-[10px] font-mono uppercase text-muted-foreground px-1.5 py-0.5 rounded bg-surface-raised">
-                  {state.entityType}
-                </span>
+              {/* Entity header card */}
+              <div className="flex items-center gap-2.5 p-3 rounded-lg bg-surface-raised/50 border border-border/50">
+                <div className="relative">
+                  <Shield className="h-5 w-5 text-primary relative z-10" />
+                  <div className="absolute inset-0 blur-md bg-primary/20 rounded-full" />
+                </div>
+                <div>
+                  <span className="font-mono text-sm font-semibold text-primary block">
+                    {state.entity}
+                  </span>
+                  <span className="text-[9px] font-mono uppercase text-muted-foreground tracking-wider">
+                    {state.entityType} investigation
+                  </span>
+                </div>
+                {state.fromCache && (
+                  <span className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono bg-success/10 text-success border border-success/20 animate-fade-in">
+                    <Zap className="h-2.5 w-2.5" />
+                    INSTANT
+                  </span>
+                )}
               </div>
 
-              {/* Narrative text — formatted with monospace for that terminal feel */}
-              <div
-                className={cn(
-                  "prose prose-invert prose-sm max-w-none",
-                  "font-mono text-sm leading-relaxed text-foreground/90",
-                  "[&_p]:mb-3"
-                )}
-              >
-                {state.narrative.split("\n").map((line, i) => (
-                  <p key={i} className="animate-fade-in" style={{ animationDelay: `${i * 0.02}s` }}>
-                    {line || "\u00A0"}
-                  </p>
-                ))}
+              {/* Narrative text with terminal-style rendering */}
+              <div className="relative">
+                {/* Vertical accent line */}
+                <div className="absolute left-0 top-0 bottom-0 w-px bg-primary/15" />
 
-                {/* Blinking cursor while streaming */}
+                <div
+                  className={cn(
+                    "pl-4 font-mono text-[13px] leading-[1.8] text-foreground/85",
+                    "selection:bg-primary/20"
+                  )}
+                >
+                  {state.narrative.split("\n").map((line, i) => (
+                    <p
+                      key={i}
+                      className="animate-text-reveal mb-2"
+                      style={{ animationDelay: `${i * 0.03}s` }}
+                    >
+                      {line || "\u00A0"}
+                    </p>
+                  ))}
+
+                {/* Animated cursor while streaming */}
                 {state.status === "running" && (
-                  <span className="inline-block w-2 h-4 bg-primary animate-pulse ml-0.5" />
+                  <span className="inline-flex items-center gap-1 text-primary">
+                    <span className="w-1.5 h-4 bg-primary animate-pulse" />
+                  </span>
                 )}
+                </div>
               </div>
             </div>
           )}
@@ -134,29 +155,43 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
       {/* ── Confirm button — only shown when investigation is complete ── */}
       {state.status === "complete" && state.pathsFound > 0 && (
         <div className="p-4 border-t border-border">
+          {/* Path count badge */}
+          <div className="flex items-center justify-center gap-2 mb-3">
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono bg-accent/50 text-accent-foreground border border-primary/15">
+              <Database className="h-3 w-3" />
+              {state.pathsFound} threat {state.pathsFound === 1 ? "path" : "paths"} discovered
+            </span>
+          </div>
+
           <button
             onClick={handleConfirm}
             disabled={confirmed || confirming}
             className={cn(
-              "w-full py-2.5 rounded-lg text-sm font-semibold",
-              "transition-all duration-300 flex items-center justify-center gap-2",
+              "w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
+              "transition-all duration-500 flex items-center justify-center gap-2",
               confirmed
                 ? "bg-success/15 text-success border border-success/30 cursor-default"
                 : confirming
                   ? "bg-muted text-muted-foreground cursor-wait"
-                  : "bg-surface-raised text-foreground border border-primary/30 hover:bg-primary/10 hover:border-primary/50 hover:shadow-glow"
+                  : "bg-surface-raised text-foreground border border-primary/30 hover:bg-primary/10 hover:border-primary/50 hover:shadow-glow active:scale-[0.98]"
             )}
           >
-            <CheckCircle2 className="h-4 w-4" />
+            <CheckCircle2 className={cn("h-4 w-4", confirmed && "animate-fade-in")} />
             {confirmed
-              ? "Pattern Confirmed — Future queries will be instant"
+              ? "Pattern Confirmed"
               : confirming
                 ? "Confirming..."
                 : "Confirm Threat Pattern"}
           </button>
-          <p className="text-[10px] text-muted-foreground mt-2 text-center font-mono">
-            Confirms this pattern for cache acceleration (self-improvement loop)
-          </p>
+          {confirmed ? (
+            <p className="text-[10px] text-success/60 mt-2 text-center font-mono animate-fade-in">
+              Future queries for this entity will skip LLM — instant cached response
+            </p>
+          ) : (
+            <p className="text-[10px] text-muted-foreground/40 mt-2 text-center font-mono">
+              Validates this pattern for the self-improvement cache
+            </p>
+          )}
         </div>
       )}
     </div>
@@ -165,20 +200,39 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
 
 /**
  * Idle state content — shown before any investigation is started.
- * Provides a hint about what the tool does.
+ * Provides an atmospheric hint about capabilities.
  */
 function IdleState() {
   return (
-    <div className="flex flex-col items-center justify-center h-full text-center px-6 opacity-60">
-      <Shield className="h-12 w-12 text-muted-foreground mb-4" />
-      <p className="text-sm text-muted-foreground mb-1">
+    <div className="flex flex-col items-center justify-center h-full text-center px-6">
+      {/* Animated shield with layered glow */}
+      <div className="relative mb-6">
+        <Shield className="h-16 w-16 text-muted-foreground/20 animate-float" />
+        <div className="absolute inset-0 blur-xl bg-primary/5 rounded-full" />
+      </div>
+
+      <p className="text-sm font-medium text-muted-foreground/60 mb-2">
         No active investigation
       </p>
-      <p className="text-xs text-muted-foreground/70 max-w-xs">
+      <p className="text-xs text-muted-foreground/40 max-w-[240px] leading-relaxed">
         Select an entity type and enter a target to begin cross-domain
-        threat analysis. The AI agent will traverse the knowledge graph
-        and generate a threat narrative.
+        threat analysis. The agent will traverse the knowledge graph,
+        reason about attack chains, and generate a narrative.
       </p>
+
+      {/* Decorative divider */}
+      <div className="mt-6 flex items-center gap-2">
+        <div className="w-8 h-px bg-border/50" />
+        <div className="w-1.5 h-1.5 rounded-full bg-muted-foreground/15" />
+        <div className="w-8 h-px bg-border/50" />
+      </div>
+
+      {/* Capability hints */}
+      <div className="mt-4 space-y-2 text-[10px] text-muted-foreground/30 font-mono">
+        <p>Package supply-chain analysis</p>
+        <p>IP/domain infrastructure mapping</p>
+        <p>MITRE ATT&CK technique correlation</p>
+      </div>
     </div>
   );
 }

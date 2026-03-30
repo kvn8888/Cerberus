@@ -1,12 +1,12 @@
 /**
  * components/layout/Header.tsx — Top navigation bar
  *
- * Displays the Cerberus brand, connection status indicator,
- * and a minimal nav. The three-headed dog motif is referenced
- * through the triple-dot icon next to the name.
+ * Displays the Cerberus brand with an animated shield icon,
+ * a subtle gradient bottom border, and live backend connection
+ * status with a pulsing indicator dot.
  */
 import { useEffect, useState } from "react";
-import { Shield, Wifi, WifiOff } from "lucide-react";
+import { Shield, Wifi, WifiOff, Activity } from "lucide-react";
 import { healthCheck } from "../../lib/api";
 import { cn } from "../../lib/utils";
 
@@ -15,7 +15,6 @@ export function Header() {
   const [online, setOnline] = useState(false);
 
   useEffect(() => {
-    /* Check health on mount and every 30 seconds */
     const check = () => healthCheck().then(setOnline);
     check();
     const id = setInterval(check, 30_000);
@@ -23,47 +22,97 @@ export function Header() {
   }, []);
 
   return (
-    <header
-      className={cn(
-        "flex items-center justify-between px-6 py-3",
-        "border-b border-border bg-surface/80 backdrop-blur-md",
-        "sticky top-0 z-50"
-      )}
-    >
-      {/* ── Brand ──────────────────────────────────────────── */}
-      <div className="flex items-center gap-3">
-        {/* Shield icon — represents the guardian aspect */}
-        <div className="relative">
-          <Shield className="h-7 w-7 text-primary" />
-          {/* Glow effect behind the icon */}
-          <div className="absolute inset-0 blur-md bg-primary/20 rounded-full" />
+    <header className="relative sticky top-0 z-50">
+      {/* Main header content */}
+      <div
+        className={cn(
+          "flex items-center justify-between px-6 py-3",
+          "bg-surface/90 backdrop-blur-xl"
+        )}
+      >
+        {/* ── Brand ──────────────────────────────────────────── */}
+        <div className="flex items-center gap-3.5">
+          {/* Animated shield icon with layered glow */}
+          <div className="relative group">
+            <Shield className="h-8 w-8 text-primary relative z-10 transition-transform duration-300 group-hover:scale-110" />
+            {/* Primary glow ring */}
+            <div className="absolute inset-0 blur-lg bg-primary/25 rounded-full animate-pulse-slow" />
+            {/* Secondary subtle ring */}
+            <div className="absolute -inset-1 blur-xl bg-primary/10 rounded-full" />
+          </div>
+          <div>
+            <h1 className="text-lg font-extrabold tracking-[0.08em] text-foreground">
+              CERBERUS
+            </h1>
+            <p className="text-[10px] font-mono uppercase tracking-[0.25em] text-muted-foreground">
+              Cross-Domain Threat Intel
+            </p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-lg font-bold tracking-tight text-foreground">
-            CERBERUS
-          </h1>
-          <p className="text-[10px] font-mono uppercase tracking-[0.2em] text-muted-foreground">
-            Cross-Domain Threat Intelligence
-          </p>
+
+        {/* ── Center — subtle activity pulse ───────────────── */}
+        <div className="hidden md:flex items-center gap-1.5 text-muted-foreground/30">
+          <Activity className="h-3.5 w-3.5" />
+          <div className="flex gap-0.5">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="w-0.5 bg-primary/20 rounded-full"
+                style={{
+                  height: `${8 + Math.sin(i * 1.2) * 6}px`,
+                  animation: `float ${2 + i * 0.3}s ease-in-out infinite`,
+                  animationDelay: `${i * 0.15}s`,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* ── Status indicator with pulsing dot ─────────────── */}
+        <div
+          className={cn(
+            "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono",
+            "transition-all duration-500",
+            online
+              ? "bg-success/10 text-success border border-success/20"
+              : "bg-threat-critical/10 text-threat-critical border border-threat-critical/20"
+          )}
+        >
+          {/* Live pulsing dot */}
+          <span className="relative flex h-2 w-2">
+            <span
+              className={cn(
+                "absolute inline-flex h-full w-full rounded-full opacity-75",
+                online ? "bg-success animate-ping" : "bg-threat-critical animate-ping"
+              )}
+              style={{ animationDuration: "2s" }}
+            />
+            <span
+              className={cn(
+                "relative inline-flex h-2 w-2 rounded-full",
+                online ? "bg-success" : "bg-threat-critical"
+              )}
+            />
+          </span>
+          {online ? (
+            <Wifi className="h-3 w-3" />
+          ) : (
+            <WifiOff className="h-3 w-3" />
+          )}
+          <span className="hidden sm:inline">
+            {online ? "CONNECTED" : "OFFLINE"}
+          </span>
         </div>
       </div>
 
-      {/* ── Status indicator ────────────────────────────────── */}
+      {/* Gradient bottom border — subtle cyan accent line */}
       <div
-        className={cn(
-          "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono",
-          online
-            ? "bg-success/10 text-success border border-success/20"
-            : "bg-threat-critical/10 text-threat-critical border border-threat-critical/20"
-        )}
-      >
-        {online ? (
-          <Wifi className="h-3.5 w-3.5" />
-        ) : (
-          <WifiOff className="h-3.5 w-3.5" />
-        )}
-        {online ? "CONNECTED" : "OFFLINE"}
-      </div>
+        className="h-px w-full"
+        style={{
+          background:
+            "linear-gradient(90deg, transparent 0%, hsl(var(--primary) / 0.4) 30%, hsl(var(--primary) / 0.6) 50%, hsl(var(--primary) / 0.4) 70%, transparent 100%)",
+        }}
+      />
     </header>
   );
 }

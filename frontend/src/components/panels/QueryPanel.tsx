@@ -14,6 +14,7 @@ import {
   Bug,
   UserX,
   Zap,
+  ChevronRight,
 } from "lucide-react";
 import type { EntityType } from "../../types/api";
 import { cn } from "../../lib/utils";
@@ -70,19 +71,21 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* ── Section header ─────────────────────────────────── */}
-      <div className="px-4 py-3 border-b border-border">
+      {/* ── Section header with decorative accent ──────────── */}
+      <div className="px-4 py-3 border-b border-border relative">
         <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
           <Zap className="h-4 w-4 text-primary" />
           Investigation
         </h2>
+        {/* Subtle left edge accent */}
+        <div className="absolute left-0 top-2 bottom-2 w-0.5 bg-primary/40 rounded-full" />
       </div>
 
       {/* ── Input form ─────────────────────────────────────── */}
       <form onSubmit={handleSubmit} className="p-4 space-y-4">
-        {/* Entity type selector — pill buttons */}
+        {/* Entity type selector — pill buttons with glow on active */}
         <div>
-          <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-2 block">
+          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2 block">
             Entity Type
           </label>
           <div className="flex flex-wrap gap-1.5">
@@ -96,13 +99,13 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
                   onClick={() => setEntityType(t.value)}
                   className={cn(
                     "flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium",
-                    "transition-all duration-200",
+                    "transition-all duration-300 hover-lift",
                     active
-                      ? "bg-primary/15 text-primary border border-primary/30"
-                      : "bg-surface-raised text-muted-foreground border border-border hover:text-foreground hover:border-muted-foreground/30"
+                      ? "bg-primary/15 text-primary border border-primary/40 shadow-glow"
+                      : "bg-surface-raised text-muted-foreground border border-border hover:text-foreground hover:border-primary/20 hover:bg-primary/5"
                   )}
                 >
-                  <Icon className="h-3 w-3" />
+                  <Icon className={cn("h-3 w-3 transition-transform duration-200", active && "scale-110")} />
                   {t.label}
                 </button>
               );
@@ -110,13 +113,13 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
           </div>
         </div>
 
-        {/* Entity name input */}
+        {/* Entity name input with enhanced focus states */}
         <div>
-          <label className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-2 block">
+          <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2 block">
             Entity
           </label>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <div className="relative group">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground transition-colors group-focus-within:text-primary" />
             <input
               type="text"
               value={entity}
@@ -125,61 +128,68 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
               className={cn(
                 "w-full pl-10 pr-4 py-2.5 rounded-lg text-sm font-mono",
                 "bg-surface-raised border border-border",
-                "text-foreground placeholder:text-muted-foreground/50",
-                "focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/20",
-                "transition-all duration-200"
+                "text-foreground placeholder:text-muted-foreground/40",
+                "focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15 focus:shadow-glow",
+                "transition-all duration-300"
               )}
             />
           </div>
         </div>
 
-        {/* Submit button */}
+        {/* Submit button with gradient and hover effects */}
         <button
           type="submit"
           disabled={!entity.trim() || isRunning}
           className={cn(
-            "w-full py-2.5 rounded-lg text-sm font-semibold",
-            "transition-all duration-300",
+            "w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
+            "transition-all duration-300 relative overflow-hidden",
             !entity.trim() || isRunning
               ? "bg-muted text-muted-foreground cursor-not-allowed"
-              : "bg-primary text-primary-foreground hover:shadow-glow active:scale-[0.98]"
+              : "bg-primary text-primary-foreground hover:shadow-glow-lg active:scale-[0.97] hover:tracking-wider"
           )}
         >
           {isRunning ? (
             <span className="flex items-center justify-center gap-2">
-              <span className="h-3 w-3 rounded-full border-2 border-primary-foreground border-t-transparent animate-spin" />
-              Investigating...
+              <span className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/60 border-t-transparent animate-spin" />
+              <span className="animate-pulse">Investigating...</span>
             </span>
           ) : (
-            "Investigate"
+            "INVESTIGATE"
           )}
         </button>
       </form>
 
-      {/* ── Quick examples ─────────────────────────────────── */}
+      {/* ── Quick examples with staggered animation ────────── */}
       <div className="px-4 pb-4 mt-auto">
-        <p className="text-xs font-mono text-muted-foreground uppercase tracking-wider mb-2">
+        <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2.5 flex items-center gap-1.5">
+          <span className="w-3 h-px bg-muted-foreground/30" />
           Quick Start
+          <span className="flex-1 h-px bg-muted-foreground/10" />
         </p>
         <div className="space-y-1">
-          {EXAMPLES.map((ex) => (
+          {EXAMPLES.map((ex, i) => (
             <button
               key={ex.entity}
               onClick={() => handleExample(ex)}
               disabled={isRunning}
               className={cn(
-                "w-full text-left px-3 py-2 rounded-md text-xs font-mono",
-                "bg-surface-raised/50 text-muted-foreground",
-                "hover:bg-primary/10 hover:text-primary",
-                "border border-transparent hover:border-primary/20",
-                "transition-all duration-200",
-                "disabled:opacity-50 disabled:cursor-not-allowed"
+                "w-full text-left px-3 py-2 rounded-md text-xs font-mono group",
+                "bg-surface-raised/30 text-muted-foreground",
+                "hover:bg-primary/8 hover:text-primary",
+                "border border-transparent hover:border-primary/15",
+                "transition-all duration-300",
+                "disabled:opacity-40 disabled:cursor-not-allowed"
               )}
+              style={{ animationDelay: `${i * 0.05}s` }}
             >
-              <span className="text-accent-foreground">{ex.label}</span>
-              <span className="text-muted-foreground/50 ml-2">
-                ({ex.type})
+              <span className="text-accent-foreground group-hover:text-primary transition-colors">
+                {ex.label}
               </span>
+              <span className="text-muted-foreground/40 ml-2 text-[10px]">
+                {ex.type}
+              </span>
+              {/* Hover arrow indicator */}
+              <ChevronRight className="h-3 w-3 inline-block ml-auto opacity-0 group-hover:opacity-100 transition-all duration-200 -translate-x-1 group-hover:translate-x-0" />
             </button>
           ))}
         </div>
