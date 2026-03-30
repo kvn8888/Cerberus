@@ -127,7 +127,6 @@ function generateDemoGraph(entity: string, entityType: EntityType) {
 }
 
 export function GraphPanel({ state }: GraphPanelProps) {
-  const viewMode = "graph" as const;
   const [mapPoints, setMapPoints] = useState<GeoPoint[]>([]);
   /* Ref for the container div — used to measure dimensions */
   const containerRef = useRef<HTMLDivElement>(null);
@@ -221,7 +220,6 @@ export function GraphPanel({ state }: GraphPanelProps) {
   }, [state.status, state.pathsFound, state.entity, state.entityType]);
 
   const hasGraph = graphData.nodes.length > 0;
-  const hasMap = mapPoints.length > 0;
 
   return (
     <div
@@ -234,7 +232,7 @@ export function GraphPanel({ state }: GraphPanelProps) {
       {/* View toggle is handled by the parent ViewNav component */}
 
       {/* ── Graph visualization ─────────────────────────── */}
-      {hasGraph && viewMode === "graph" && (
+      {hasGraph && (
         <ForceGraph2D
           ref={graphRef}
           graphData={graphData}
@@ -251,12 +249,8 @@ export function GraphPanel({ state }: GraphPanelProps) {
         />
       )}
 
-      {viewMode === "map" && hasMap && (
-        <GeoMap points={mapPoints} />
-      )}
-
       {/* ── Idle / waiting state ─────────────────────────── */}
-      {((viewMode === "graph" && !hasGraph) || (viewMode === "map" && !hasMap)) && (
+      {!hasGraph && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center px-8">
             {state.status === "running" ? (
