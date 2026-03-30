@@ -62,8 +62,8 @@ async def rocketride_health():
     Frontend polls this to show a second status indicator alongside the
     backend dot — judges see two green dots confirming both integrations live.
     """
-    import rocketride
-    available = await rocketride.is_available()
+    import pipeline
+    available = await pipeline.is_available()
     return {"status": "ok" if available else "unavailable", "available": available}
 
 

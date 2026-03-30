@@ -1,12 +1,9 @@
 /**
  * components/panels/QueryPanel.tsx — Left sidebar input panel
  *
- * Single search box that auto-detects entity type from user input.
- * No manual entity type selection needed — just type and hit Investigate.
- *
- * Two tabs:
- *  1. Investigate — single search box + quick-start examples
- *  2. Live Feed  — natural language input + fraud feed cards
+ * Two tabs with clearly distinct purposes:
+ *  1. Investigate — entity search (auto-detects type) + natural language fallback
+ *  2. Live Feed   — real-time fraud alerts you can investigate with one click
  */
 import { useEffect, useState } from "react";
 import {
@@ -23,6 +20,7 @@ import {
   Download,
   Crosshair,
   Rss,
+  MessageSquareText,
 } from "lucide-react";
 import type { EntityType } from "../../types/api";
 import type { FeedEvent } from "../../types/api";
@@ -185,7 +183,7 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
           )}
         >
           <Rss className="h-3 w-3" />
-          Alerts
+          Live Feed
           {feed.length > 0 && tab !== "livefeed" && (
             <span className="absolute top-1.5 right-3 w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
           )}

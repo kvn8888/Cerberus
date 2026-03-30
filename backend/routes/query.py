@@ -29,7 +29,7 @@ from fastapi.responses import StreamingResponse
 
 import neo4j_client as db
 import llm
-import rocketride
+import pipeline
 import enrich
 from models import EntityType, QueryRequest
 
@@ -79,7 +79,7 @@ async def query(req: QueryRequest):
             paths_found = traversal["paths_found"]
 
     # ── 3. LLM narrative (via RocketRide or direct Anthropic fallback) ───────
-    # rocketride.generate_narrative_or_fallback() tries RocketRide first.
+    # pipeline.generate_narrative_or_fallback() tries RocketRide first.
     # On any failure it silently falls back to direct llm.py calls.
     if paths_found == 0:
         neighborhood = traversal.get("neighborhood", [])
@@ -101,7 +101,7 @@ async def query(req: QueryRequest):
         llm_called = False
     else:
         try:
-            narrative  = await rocketride.generate_narrative_or_fallback(
+            narrative  = await pipeline.generate_narrative_or_fallback(
                 entity, entity_type, traversal
             )
             llm_called = bool(narrative)
@@ -200,13 +200,13 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
         yield f"data: {json.dumps({'paths_found': traversal['paths_found'], 'from_cache': False})}\n\n"
 
         # ── Stage: analyze → narrate (via RocketRide or direct LLM fallback) ──
-        # rocketride.stream_via_rocketride_or_fallback() tries RocketRide first.
+        # pipeline.stream_via_rocketride_or_fallback() tries RocketRide first.
         # If RocketRide is not running or returns an error, it silently falls
         # back to direct Anthropic calls. Either way it emits the same SSE
         # contract: {"stage":...}, {"text":...} chunks, then returns.
         narrative_chunks: list[str] = []
         try:
-            async for sse_line in rocketride.stream_via_rocketride_or_fallback(
+            async for sse_line in pipeline.stream_via_rocketride_or_fallback(
                 entity, entity_type, traversal
             ):
                 # Collect text chunks for write-back, then forward to client
