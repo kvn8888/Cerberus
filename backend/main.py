@@ -37,10 +37,27 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # tighten in production
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def cors_on_error(request, call_next):
+    """Ensure CORS headers are present even on 500 errors."""
+    try:
+        response = await call_next(request)
+    except Exception:
+        from fastapi.responses import JSONResponse
+        response = JSONResponse({"detail": "Internal server error"}, status_code=500)
+    origin = request.headers.get("origin")
+    if origin:
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+    return response
 
 app.include_router(query_router)
 app.include_router(confirm_router)
