@@ -41,6 +41,8 @@ export interface ConfirmResponse {
   success: boolean;
   entity: string;
   entity_type: EntityType;
+  relationships_confirmed: number;
+  message: string;
 }
 
 /** GET /api/schema response */

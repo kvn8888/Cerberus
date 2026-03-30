@@ -221,12 +221,29 @@ FOREACH (r IN relationships(path) |
 )
 """
 
-def confirm(entity: str, entity_type: str) -> None:
+def confirm(entity: str, entity_type: str) -> dict:
+    """
+    Mark all relationships on the shortest threat path as confirmed=true
+    and tag nodes as :ConfirmedThreat. Returns the count of confirmed relationships
+    so the frontend can display feedback about the self-improvement write-back.
+    """
     label  = _entity_label(entity_type)
     key    = _entity_key(entity_type)
     cypher = _CONFIRM.format(label=label, key=key)
+    # Run confirmation, then count how many relationships were tagged
+    count_cypher = f"""
+        MATCH path = shortestPath(
+            (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
+        )
+        WHERE ALL(r IN relationships(path) WHERE r.confirmed = true)
+        RETURN size(relationships(path)) AS rel_count
+        LIMIT 1
+    """
     with _get_driver().session() as s:
         s.run(cypher, value=entity)
+        result = s.run(count_cypher, value=entity).single()
+        rel_count = result["rel_count"] if result else 0
+    return {"count": rel_count}
 
 
 def get_graph(entity: str, entity_type: str) -> dict[str, Any]:

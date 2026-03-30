@@ -28,10 +28,19 @@ async def confirm(req: ConfirmRequest):
     if not entity:
         raise HTTPException(status_code=400, detail="entity must not be empty")
 
-    await asyncio.to_thread(db.confirm, entity, entity_type)
+    result = await asyncio.to_thread(db.confirm, entity, entity_type)
+    rel_count = result.get("count", 0)
 
     return {
-        "success":     True,
-        "entity":      entity,
-        "entity_type": entity_type,
+        "success":                  True,
+        "entity":                   entity,
+        "entity_type":              entity_type,
+        "relationships_confirmed":  rel_count,
+        "message": (
+            f"Marked {rel_count} relationship(s) as confirmed for {entity}. "
+            f"Future queries will skip the LLM and return instantly from cache."
+        ) if rel_count > 0 else (
+            f"No confirmed threat path found for {entity}. "
+            f"Run an investigation first, then confirm."
+        ),
     }
