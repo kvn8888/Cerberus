@@ -26,23 +26,18 @@ import json
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
 import neo4j_client as db
 import llm
+from models import EntityType, QueryRequest
 
 router = APIRouter(prefix="/api/query")
-
-
-class QueryRequest(BaseModel):
-    entity: str
-    type:   str = "package"
 
 
 @router.post("")
 async def query(req: QueryRequest):
     entity      = req.entity.strip()
-    entity_type = req.type.strip().lower()
+    entity_type = req.type.value
 
     if not entity:
         raise HTTPException(status_code=400, detail="entity must not be empty")
@@ -84,7 +79,7 @@ async def query(req: QueryRequest):
         llm_called = True
 
         # ── 4. Write-back: tag paths with analysis timestamp ─────────────────
-        await asyncio.to_thread(db.write_back, entity, entity_type)
+        await asyncio.to_thread(db.write_back, entity, entity_type, narrative)
 
     return {
         "entity":       entity,
@@ -98,10 +93,10 @@ async def query(req: QueryRequest):
 
 
 @router.get("/stream")
-async def query_stream(entity: str, type: str = "package"):
+async def query_stream(entity: str, type: EntityType = EntityType.package):
     """SSE endpoint for the React frontend."""
     entity      = entity.strip()
-    entity_type = type.strip().lower()
+    entity_type = type.value
 
     if not entity:
         raise HTTPException(status_code=400, detail="entity must not be empty")
@@ -130,15 +125,21 @@ async def query_stream(entity: str, type: str = "package"):
         yield f"data: {json.dumps({'paths_found': traversal['paths_found'], 'from_cache': False})}\n\n"
 
         # Stream LLM narrative
-        loop = asyncio.get_event_loop()
         gen  = llm.generate_narrative_stream(entity, entity_type, traversal)
+        narrative_chunks: list[str] = []
 
         for chunk in gen:
+            narrative_chunks.append(chunk)
             yield f"data: {json.dumps({'text': chunk})}\n\n"
             await asyncio.sleep(0)   # yield control to event loop
 
         # Write-back
-        await asyncio.to_thread(db.write_back, entity, entity_type)
+        await asyncio.to_thread(
+            db.write_back,
+            entity,
+            entity_type,
+            "".join(narrative_chunks),
+        )
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(
@@ -156,9 +157,9 @@ async def query_stream(entity: str, type: str = "package"):
 def _extract_cached_narrative(cached: list[dict]) -> str | None:
     """Pull a stored narrative from cached path nodes if present."""
     for record in cached:
-        for _key, node in (record.get("path") or {}).items():
-            if isinstance(node, dict) and "narrative" in node:
-                return node["narrative"]
+        narrative = record.get("narrative")
+        if isinstance(narrative, str) and narrative:
+            return narrative
     return None
 
 

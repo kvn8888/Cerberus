@@ -13,7 +13,7 @@ import anthropic
 
 import config
 
-_client = anthropic.Anthropic(api_key=config.ANTHROPIC_KEY)
+_client: anthropic.Anthropic | None = None
 
 SYSTEM_PROMPT = """\
 You are a senior threat intelligence analyst working in a security operations center.
@@ -35,6 +35,13 @@ Your task:
 """
 
 
+def _get_client() -> anthropic.Anthropic:
+    global _client
+    if _client is None:
+        _client = anthropic.Anthropic(api_key=config.require("ANTHROPIC_API_KEY"))
+    return _client
+
+
 def generate_narrative(
     entity: str,
     entity_type: str,
@@ -50,7 +57,7 @@ def generate_narrative(
         f"{json.dumps(traversal_result, indent=2, default=str)}"
     )
 
-    message = _client.messages.create(
+    message = _get_client().messages.create(
         model="claude-opus-4-6",
         max_tokens=600,
         system=SYSTEM_PROMPT,
@@ -75,7 +82,7 @@ def generate_narrative_stream(
         f"{json.dumps(traversal_result, indent=2, default=str)}"
     )
 
-    with _client.messages.stream(
+    with _get_client().messages.stream(
         model="claude-opus-4-6",
         max_tokens=600,
         system=SYSTEM_PROMPT,

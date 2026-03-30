@@ -17,6 +17,10 @@ config_stub.NEO4J_PASSWORD = "testpass"
 config_stub.ANTHROPIC_KEY  = "sk-ant-test"
 config_stub.NEO4J_MCP_URL  = "http://127.0.0.1:8787"
 config_stub.ROCKETRIDE_URL = "http://127.0.0.1:3000"
+config_stub.require = lambda key: getattr(
+    config_stub,
+    "ANTHROPIC_KEY" if key == "ANTHROPIC_API_KEY" else key,
+)
 sys.modules["config"] = config_stub
 
 neo4j_stub = types.ModuleType("neo4j")
@@ -79,6 +83,10 @@ class TestEntityRouting(unittest.TestCase):
     def test_threatactor_label(self):
         self.assertEqual(db._entity_label("threatactor"), "ThreatActor")
         self.assertEqual(db._entity_key("threatactor"), "name")
+
+    def test_fraudsignal_label_and_key(self):
+        self.assertEqual(db._entity_label("fraudsignal"), "FraudSignal")
+        self.assertEqual(db._entity_key("fraudsignal"), "juspay_id")
 
     def test_case_insensitive(self):
         self.assertEqual(db._entity_label("PACKAGE"), "Package")
@@ -199,9 +207,18 @@ class TestConfirmCypher(unittest.TestCase):
     def test_write_back_sets_last_analyzed(self):
         session = _make_session()
         with patch.object(db, "_driver", _mock_driver(session)):
-            db.write_back("ua-parser-js", "package")
+            db.write_back("ua-parser-js", "package", "narrative")
         cypher = session.run.call_args[0][0]
         self.assertIn("last_analyzed", cypher)
+        self.assertIn("cached_narrative", cypher)
+
+    def test_write_back_passes_narrative_fields(self):
+        session = _make_session()
+        with patch.object(db, "_driver", _mock_driver(session)):
+            db.write_back("ua-parser-js", "package", "narrative")
+        kwargs = session.run.call_args[1]
+        self.assertEqual(kwargs.get("narrative"), "narrative")
+        self.assertIn("narrative_hash", kwargs)
 
     def test_confirm_passes_entity_value(self):
         session = _make_session()

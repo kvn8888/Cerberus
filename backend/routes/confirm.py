@@ -13,22 +13,17 @@ This is the self-improvement write-back triggered by analyst validation.
 import asyncio
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 import neo4j_client as db
+from models import ConfirmRequest
 
 router = APIRouter(prefix="/api/confirm")
-
-
-class ConfirmRequest(BaseModel):
-    entity: str
-    type:   str = "package"
 
 
 @router.post("")
 async def confirm(req: ConfirmRequest):
     entity      = req.entity.strip()
-    entity_type = req.type.strip().lower()
+    entity_type = req.type.value
 
     if not entity:
         raise HTTPException(status_code=400, detail="entity must not be empty")

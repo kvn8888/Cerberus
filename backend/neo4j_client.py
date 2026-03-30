@@ -13,21 +13,34 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
-from neo4j import GraphDatabase, ManagedTransaction
+from neo4j import GraphDatabase
 
 import config
 
 
 # ── Driver (module-level singleton) ───────────────────────────────────────────
 
-_driver = GraphDatabase.driver(
-    config.NEO4J_URI,
-    auth=(config.NEO4J_USERNAME, config.NEO4J_PASSWORD),
-)
+_driver = None
+
+
+def _get_driver():
+    global _driver
+    if _driver is None:
+        _driver = GraphDatabase.driver(
+            config.require("NEO4J_URI"),
+            auth=(
+                config.require("NEO4J_USERNAME"),
+                config.require("NEO4J_PASSWORD"),
+            ),
+        )
+    return _driver
 
 
 def close():
-    _driver.close()
+    global _driver
+    if _driver is not None:
+        _driver.close()
+        _driver = None
 
 
 # ── Entity-type routing ───────────────────────────────────────────────────────
@@ -40,6 +53,7 @@ def _entity_key(entity_type: str) -> str:
         "domain":       "name",
         "cve":          "id",
         "threatactor":  "name",
+        "fraudsignal":  "juspay_id",
     }.get(entity_type.lower(), "name")
 
 
@@ -50,6 +64,7 @@ def _entity_label(entity_type: str) -> str:
         "domain":      "Domain",
         "cve":         "CVE",
         "threatactor": "ThreatActor",
+        "fraudsignal": "FraudSignal",
     }.get(entity_type.lower(), "Package")
 
 
@@ -60,7 +75,7 @@ MATCH path = shortestPath(
   (start:{label} {{{key}: $value}})-[*]-(ta:ThreatActor)
 )
 WHERE ALL(r IN relationships(path) WHERE r.confirmed = true)
-RETURN path, true AS from_cache
+RETURN path, true AS from_cache, start.cached_narrative AS narrative
 LIMIT 1
 """
 
@@ -68,7 +83,7 @@ def cache_check(entity: str, entity_type: str) -> list[dict] | None:
     label = _entity_label(entity_type)
     key   = _entity_key(entity_type)
     cypher = _CACHE_CHECK_TMPL.format(label=label, key=key)
-    with _driver.session() as s:
+    with _get_driver().session() as s:
         result = s.run(cypher, value=entity)
         records = [r.data() for r in result]
         return records if records else None
@@ -138,7 +153,7 @@ def traverse(entity: str, entity_type: str) -> dict[str, Any]:
     paths: list[dict]       = []
     cross_domain: list[dict] = []
 
-    with _driver.session() as s:
+    with _get_driver().session() as s:
         if etype == "package":
             r1 = s.run(_TRAVERSE_PACKAGE, value=entity)
             paths = [r.data() for r in r1]
@@ -147,6 +162,10 @@ def traverse(entity: str, entity_type: str) -> dict[str, Any]:
 
         elif etype == "ip":
             r1 = s.run(_TRAVERSE_IP, value=entity)
+            paths = [r.data() for r in r1]
+
+        elif etype == "fraudsignal":
+            r1 = s.run(_TRAVERSE_FRAUD, value=entity)
             paths = [r.data() for r in r1]
 
         else:
@@ -173,14 +192,22 @@ WHERE length(path) <= 6
 WITH nodes(path) AS ns, relationships(path) AS rs
 FOREACH (n IN ns | SET n.last_analyzed = timestamp())
 FOREACH (r IN rs | SET r.last_analyzed = timestamp())
+SET start.cached_narrative = $narrative,
+    start.cached_narrative_hash = $narrative_hash
 """
 
-def write_back(entity: str, entity_type: str) -> None:
+def write_back(entity: str, entity_type: str, narrative: str | None = None) -> None:
     label  = _entity_label(entity_type)
     key    = _entity_key(entity_type)
     cypher = _WRITE_BACK.format(label=label, key=key)
-    with _driver.session() as s:
-        s.run(cypher, value=entity)
+    narrative = narrative or ""
+    with _get_driver().session() as s:
+        s.run(
+            cypher,
+            value=entity,
+            narrative=narrative,
+            narrative_hash=hashlib.sha256(narrative.encode("utf-8")).hexdigest(),
+        )
 
 
 # ── Confirm pattern (analyst-validated, triggers cache) ──────────────────────
@@ -202,5 +229,18 @@ def confirm(entity: str, entity_type: str) -> None:
     label  = _entity_label(entity_type)
     key    = _entity_key(entity_type)
     cypher = _CONFIRM.format(label=label, key=key)
-    with _driver.session() as s:
+    with _get_driver().session() as s:
         s.run(cypher, value=entity)
+
+
+def get_schema() -> dict[str, list[dict[str, Any]] | list[str]]:
+    with _get_driver().session() as s:
+        labels = [r["label"] for r in s.run("CALL db.labels() YIELD label")]
+        rel_types = [
+            r["relationshipType"]
+            for r in s.run("CALL db.relationshipTypes() YIELD relationshipType")
+        ]
+        counts = s.run(
+            "MATCH (n) RETURN labels(n)[0] AS label, count(n) AS count"
+        ).data()
+    return {"labels": labels, "relationship_types": rel_types, "counts": counts}

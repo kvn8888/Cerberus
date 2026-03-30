@@ -1,4 +1,4 @@
- """
+"""
 main.py — Cerberus FastAPI backend entry point.
 
 Start with:
@@ -51,16 +51,5 @@ def health():
 async def schema():
     """Return node labels and relationship types from the live graph."""
     import asyncio
-    import neo4j_client as db
 
-    def _query():
-        with db._driver.session() as s:
-            labels = [r["label"] for r in s.run("CALL db.labels() YIELD label")]
-            rel_types = [r["relationshipType"] for r in
-                         s.run("CALL db.relationshipTypes() YIELD relationshipType")]
-            counts = s.run(
-                "MATCH (n) RETURN labels(n)[0] AS label, count(n) AS count"
-            ).data()
-        return {"labels": labels, "relationship_types": rel_types, "counts": counts}
-
-    return await asyncio.to_thread(_query)
+    return await asyncio.to_thread(db.get_schema)

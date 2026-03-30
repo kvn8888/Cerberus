@@ -8,7 +8,7 @@ import sys
 import os
 import types
 import unittest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 
 # ── Stub config ───────────────────────────────────────────────────────────────
 config_stub = types.ModuleType("config")
@@ -18,6 +18,10 @@ config_stub.NEO4J_PASSWORD = "testpass"
 config_stub.ANTHROPIC_KEY  = "sk-ant-test"
 config_stub.NEO4J_MCP_URL  = "http://127.0.0.1:8787"
 config_stub.ROCKETRIDE_URL = "http://127.0.0.1:3000"
+config_stub.require = lambda key: getattr(
+    config_stub,
+    "ANTHROPIC_KEY" if key == "ANTHROPIC_API_KEY" else key,
+)
 sys.modules["config"] = config_stub
 
 # ── Stub neo4j ────────────────────────────────────────────────────────────────
@@ -67,7 +71,10 @@ class TestQueryEndpointCacheHit(unittest.TestCase):
     """cache_check returns records → from_cache=True, LLM must NOT be called."""
 
     def _post(self):
-        with patch(CACHE_CHECK, return_value=[{"from_cache": True}]), \
+        with patch(
+            CACHE_CHECK,
+            return_value=[{"from_cache": True, "narrative": "cached narrative"}],
+        ), \
              patch(GENERATE) as mock_llm:
             resp = CLIENT.post(
                 "/api/query",
@@ -81,6 +88,7 @@ class TestQueryEndpointCacheHit(unittest.TestCase):
         body = resp.json()
         self.assertTrue(body["from_cache"])
         self.assertFalse(body["llm_called"])
+        self.assertEqual(body["narrative"], "cached narrative")
 
     def test_cache_hit_skips_llm(self):
         _, mock_llm = self._post()
@@ -155,7 +163,7 @@ class TestQueryEndpointCacheMissWithPaths(unittest.TestCase):
              patch(WRITE_BACK) as mock_wb, \
              patch(GENERATE, return_value="narrative"):
             CLIENT.post("/api/query", json={"entity": "ua-parser-js", "type": "package"})
-        mock_wb.assert_called_once_with("ua-parser-js", "package")
+        mock_wb.assert_called_once_with("ua-parser-js", "package", "narrative")
 
 
 class TestQueryEndpointEmptyGraph(unittest.TestCase):
@@ -208,6 +216,10 @@ class TestQueryValidation(unittest.TestCase):
         resp = CLIENT.post("/api/query", json={"entity": "   ", "type": "package"})
         self.assertEqual(resp.status_code, 400)
 
+    def test_invalid_type_returns_422(self):
+        resp = CLIENT.post("/api/query", json={"entity": "ua-parser-js", "type": "nope"})
+        self.assertEqual(resp.status_code, 422)
+
 
 class TestConfirmEndpoint(unittest.TestCase):
     def test_confirm_returns_success_true(self):
@@ -247,6 +259,13 @@ class TestConfirmEndpoint(unittest.TestCase):
             )
         self.assertEqual(resp.status_code, 200)
         mock_confirm.assert_called_once_with("203.0.113.42", "ip")
+
+    def test_confirm_invalid_type_returns_422(self):
+        resp = CLIENT.post(
+            "/api/confirm",
+            json={"entity": "ua-parser-js", "type": "nope"},
+        )
+        self.assertEqual(resp.status_code, 422)
 
 
 if __name__ == "__main__":
