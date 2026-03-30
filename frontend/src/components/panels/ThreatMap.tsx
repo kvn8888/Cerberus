@@ -285,7 +285,6 @@ export function ThreatMap({ state }: ThreatMapProps) {
         const nodes: ThreatNode[] = [];
         const conns: ThreatConnection[] = [];
         const seenActors = new Set<string>();
-        const staticIds = new Set(THREAT_NODES.map((n) => n.id));
 
         for (const pt of data.points) {
           const actors: string[] = pt.actors || [];
