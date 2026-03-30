@@ -320,10 +320,17 @@ Cerberus/
 │   ├── threat_ips.json         # Cached IPs
 │   └── threat_domains.json     # Cached domains
 │
-├── neo4j-mcp_Darwin_arm64/     # MCP server binary
+├── neo4j-mcp_Darwin_arm64/     # MCP server binary (macOS)
 │   └── neo4j-mcp
 │
+├── neo4j-mcp_Linux_arm64/      # MCP server binary (Linux Docker)
+│   ├── neo4j-mcp
+│   └── Dockerfile              # Alpine + binary, HTTP mode
+│
 ├── frontend/                   # React + Vite + Tailwind app
+│   ├── Dockerfile              # Multi-stage: dev (hot-reload) + prod (nginx)
+│   ├── nginx.conf              # SPA routing + API reverse proxy
+│   ├── .dockerignore
 │   ├── src/
 │   │   ├── components/
 │   │   │   ├── Header.tsx
@@ -353,6 +360,7 @@ Cerberus/
 - [x] eval_improvement.py (robust error handling + batched deletion)
 - [x] seed_data/ — MITRE data pre-downloaded (~43MB)
 - [x] docker-compose.yml (3 services: mcp + backend + frontend)
+- [x] Docker fully working — all 3 images build and containers start healthy
 - [x] Entity JSON schema
 - [x] Backend API (FastAPI) — main, config, neo4j_client, llm, routes
 - [x] RocketRide pipeline YAML definitions (ingest, query, juspay)
@@ -366,6 +374,33 @@ Cerberus/
 - [x] RocketRide integration (rocketride.py with LLM fallback)
 - [x] Demo APIs (NLP, comparison, feed, map, report)
 - [x] 97 tests passing
+
+## Docker Setup
+
+### Architecture
+
+| Service | Image | Port | Notes |
+|---------|-------|------|-------|
+| `neo4j-mcp` | Alpine 3.20 + pre-built binary | 8787 | HTTP mode, per-request Basic Auth |
+| `backend` | Python 3.12-slim | 8000 | Build context = project root |
+| `frontend` | Node 20-alpine (multi-stage) | 5173 (dev) / 80 (prod) | Dev: hot-reload, Prod: nginx |
+
+### Quick Start
+
+```bash
+cp .env.example .env           # fill in Neo4j Aura + Anthropic creds
+docker compose up --build      # starts all 3 services
+```
+
+### Docker Gotchas
+
+1. **neo4j-mcp in HTTP mode** — In HTTP transport mode, Neo4j credentials must NOT be set as env vars on the MCP container. They're passed per-request via Basic Auth headers from the backend.
+2. **Backend build context** — Set to project root (`.`) not `./backend`, because `requirements.txt` lives at root. Dockerfile is at `backend/Dockerfile`.
+3. **neo4j-mcp binary** — The Darwin (macOS) binary won't work in Linux containers. A separate `neo4j-mcp_Linux_arm64/` directory contains the Linux binary + its own Dockerfile.
+4. **neo4j-mcp CLI flags** — v1.5.0 uses `--neo4j-transport-mode`, `--neo4j-http-port`, `--neo4j-http-host` (not `--transport`, `--port`, `--host`).
+5. **neo4j-mcp healthcheck** — No GET health endpoint. The `/mcp` endpoint returns 405 on GET (only accepts POST), which we grep for to confirm the server is alive.
+6. **Frontend multi-stage** — docker-compose targets the `dev` stage. For production: `docker build --target prod -t cerberus-frontend frontend/` uses nginx with SPA routing.
+7. **VITE_API_URL** — Baked into JS bundle at build time for prod stage. Dev uses env var.
 - [ ] End-to-end integration tested with real Anthropic API key
 - [ ] Demo rehearsed + pre-cached
 

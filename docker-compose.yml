@@ -1,14 +1,17 @@
 # ============================================================
-# Cerberus — Docker Compose for local development
+# Cerberus — Docker Compose for local development & deployment
 # ============================================================
-# Runs: neo4j-mcp server + backend + frontend dev server
+# Services: neo4j-mcp bridge + FastAPI backend + React frontend
 #
 # Neo4j itself runs on Aura (cloud) — not in this compose file.
 # The neo4j-mcp server bridges between the backend and Aura.
 #
-# Usage:
+# Usage (dev):
 #   cp .env.example .env  # fill in your Aura credentials
-#   docker compose up
+#   docker compose up --build
+#
+# Usage (production frontend):
+#   docker compose --profile prod up --build
 # ============================================================
 
 services:
@@ -17,34 +20,31 @@ services:
   # Exposes tools: get-schema, read-cypher, write-cypher
   # Runs in HTTP mode (not stdio) so backend can reach it.
   neo4j-mcp:
-    image: alpine:latest
+    build:
+      context: ./neo4j-mcp_Linux_arm64
+      dockerfile: Dockerfile
     container_name: cerberus-neo4j-mcp
     ports:
       - "8787:8787"
-    volumes:
-      # Pre-built binary for macOS ARM64 (included in repo)
-      - ./neo4j-mcp_Darwin_arm64/neo4j-mcp:/usr/local/bin/neo4j-mcp
     environment:
+      # In HTTP mode, Neo4j credentials come per-request via Basic Auth.
+      # Only NEO4J_URI is needed so the server knows where to connect.
       - NEO4J_URI=${NEO4J_URI}
-      - NEO4J_USERNAME=${NEO4J_USERNAME}
-      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
-    command: >
-      /usr/local/bin/neo4j-mcp
-      --transport http
-      --port 8787
-      --host 0.0.0.0
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8787"]
+      # The MCP server only has a POST /mcp endpoint — no GET health path.
+      # We check TCP connectivity to confirm the server is up and listening.
+      test: ["CMD-SHELL", "wget -q --spider http://localhost:8787/mcp 2>&1 || wget -S -O /dev/null http://localhost:8787/mcp 2>&1 | grep -q '405'"]
       interval: 10s
       timeout: 5s
       retries: 3
 
   # ── Cerberus FastAPI backend ──────────────────────────────────
+  # Build context is project root so requirements.txt is accessible.
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: cerberus-backend
     ports:
       - "8000:8000"
@@ -66,20 +66,20 @@ services:
       retries: 5
 
   # ── Frontend dev server ───────────────────────────────────────
-  # React 18 + Vite + Tailwind + shadcn/ui
+  # React 18 + Vite + Tailwind + shadcn/ui (hot-reload via volume mount)
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: dev
     container_name: cerberus-frontend
     ports:
       - "5173:5173"
     volumes:
+      # Mount source for hot-reload; exclude node_modules
       - ./frontend:/app
       - /app/node_modules
     environment:
       - VITE_API_URL=http://localhost:8000
     depends_on:
-      neo4j-mcp:
-        condition: service_healthy
-    command: npm run dev -- --host 0.0.0.0
+      - backend
