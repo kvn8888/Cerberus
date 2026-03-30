@@ -31,7 +31,7 @@ ROCKETRIDE PIPELINE ("thoughtful agent")
 SELF-IMPROVEMENT LOOP
   Confirmed patterns → labeled subgraph → cache hits skip LLM
        ↓
-FRONTEND (React + Tailwind + shadcn/ui + neovis.js)
+FRONTEND (React + Tailwind + shadcn/ui + react-force-graph-2d + SVG ThreatMap)
 ```
 
 ## Key Tech Stack
@@ -43,7 +43,7 @@ FRONTEND (React + Tailwind + shadcn/ui + neovis.js)
 | Backend | FastAPI + uvicorn (port 8000) |
 | Orchestration | RocketRide AI |
 | Frontend | React 18 + Vite + Tailwind + shadcn/ui |
-| Graph Viz | neovis.js (via backend proxy — never direct Aura connection) |
+| Graph Viz | react-force-graph-2d + custom SVG ThreatMap |
 | Streaming | SSE (via sse-starlette + FastAPI StreamingResponse) |
 | LLM | Anthropic Claude (claude-sonnet-4-20250514, via anthropic SDK) |
 | HTTP client | httpx (async) |
@@ -203,7 +203,7 @@ ANALYZE, with a cloud-download icon. Only lights up when enrichment is triggered
 ## Critical Gotchas
 
 - **APOC availability:** Test `RETURN apoc.version()` hour 1. If missing, `get-schema` won't work — use `read-cypher` with manual schema queries.
-- **neovis.js credentials:** Always proxy through backend. Never expose Neo4j creds in frontend JS.
+- **Frontend build-time API base:** `VITE_API_URL` is baked at build time. If it changes, rebuild the frontend image/bundle.
 - **Cypher patterns:** Always use `shortestPath` + directed patterns. Never unbounded undirected traversals.
 - **Node IDs:** Use domain keys (`{name: $startName}`), never `id()` internal IDs.
 - **Uniqueness constraints:** Run ALL 8 constraints before ANY import.
@@ -236,11 +236,13 @@ CERBERUS_API=http://localhost:8000
 | POST | `/api/query` | Main query: cache check → traverse → LLM narrative |
 | GET | `/api/query/stream` | SSE streaming version of query endpoint |
 | POST | `/api/confirm` | Analyst confirms threat pattern → write-back (returns count + message) |
-| GET | `/api/graph` | Force-directed graph data (nodes + edges) for vis |
+| GET | `/api/query/graph` | Force-directed graph data (nodes + edges) for vis |
 | POST | `/api/demo/natural` | NLP entity extraction from free-text |
 | POST | `/api/demo/compare` | Multi-entity comparison (side-by-side) |
 | GET | `/api/demo/feed` | Synthetic fraud event stream |
 | POST | `/api/demo/feed/ingest` | Upsert fraud signals into graph |
+| POST | `/api/juspay/ingest` | Ingest normalized Juspay-style fraud signals |
+| GET | `/api/juspay/signals` | Summarize FraudSignal layer (counts, actor links, recent) |
 | GET | `/api/demo/map` | Geo-IP map data (lat/lng points) |
 | GET | `/api/demo/report` | Full investigation report (Juspay summary) |
 
@@ -329,15 +331,16 @@ Pipeline stages rendered in UI: `input → ner → classify → route → traver
 
 | Panel | Features |
 |-------|---------|
-| `QueryPanel` | NLP free-text input, entity type pills, live fraud feed carousel, quick-start buttons |
+| `QueryPanel` | Entity input with auto-detected type badge, NLP mode, live fraud feed, quick-start buttons |
 | `NarrativePanel` | Streaming text animation, confirm button, PDF export, comparison mode |
-| `GraphPanel` | Force-directed graph (d3-force), geo IP map, node color painters, legends |
+| `GraphPanel` | Force-directed graph (react-force-graph-2d), custom node/link painters, legends |
+| `ThreatMap` | Standalone geo threat map view (separate from GraphPanel) |
 
 ### API Client (api.ts)
 
-12 typed functions including: `queryEntity()`, `queryStream()`, `confirmEntity()`, `getSchema()`, `getGraph()`, `demoNatural()`, `demoCompare()`, `demoFeed()`, `demoMap()`, `demoReport()`, `ingestFraudSignals()`, `getJuspaySummary()`.
+Typed functions include: `queryEntity()`, `queryEntityStream()`, `confirmEntity()`, `fetchGraph()`, `fetchSchema()`, `parseNaturalLanguage()`, `compareEntities()`, `fetchLiveFeed()`, `ingestFeedEvent()`, `fetchGeoMap()`, `fetchReport()`, `generateThreatMap()`.
 
-Base URL hardcoded as `http://localhost:8000` — uses the backend's CORS `allow_origins=["*"]`.
+Base URL uses `VITE_API_URL` when provided, otherwise defaults to `http://localhost:8000`. In unified Docker builds, `VITE_API_URL=""` makes all frontend API calls same-origin (`/api/...`).
 
 ## RocketRide Integration (rocketride.py)
 
@@ -467,7 +470,8 @@ Cerberus/
 - [x] Docker fully working — all 3 images build and containers start healthy
 - [x] Entity JSON schema
 - [x] Backend API (FastAPI) — main, config, neo4j_client, llm, routes
-- [x] RocketRide pipeline YAML definitions (ingest, query, juspay)
+- [x] RocketRide `.pipe` definitions (threat-agent, ingest, query)
+- [x] Backend Juspay routes (`/api/juspay/ingest`, `/api/juspay/signals`)
 - [x] Test suite (API routes, import scripts, neo4j client)
 - [x] hashlib import verified needed (used in write_back for narrative_hash)
 - [x] neo4j Aura connected (SSL_CERT_FILE fix on macOS)

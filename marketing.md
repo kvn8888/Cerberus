@@ -293,7 +293,7 @@ All APIs are **free, public, and require no API keys**. The enrichment adds ~1-2
 
 ### Why this matters
 
-This turns Cerberus from a "what's in the database" tool into a **live threat intelligence platform**. An analyst can query any CVE published today, any npm package, any suspicious IP — and get results even if Cerberus has never seen it before. The graph grows organically with every investigation.
+This turns Cerberus from a "what's in the database" tool into a **live threat intelligence platform**. An analyst can query recently published CVEs, npm packages, and suspicious IPs — and get results even if Cerberus has never seen them before. The graph grows organically with every investigation.
 
 ---
 
@@ -390,7 +390,7 @@ Frontend receives:
 | **Enrichment** | OSV.dev, NVD, Abuse.ch | Real-time threat intel for unknown entities (free, no keys) |
 | **LLM** | Anthropic Claude Sonnet | Narrative generation from graph context |
 | **Frontend** | React 18 + Vite + Tailwind + shadcn/ui | Modern, fast, component library |
-| **Graph Viz** | D3-force (via custom component) | Force-directed layout for attack chain visualization |
+| **Graph Viz** | react-force-graph-2d + SVG ThreatMap | Force-directed graph + separate geo threat map visualization |
 | **Streaming** | SSE (Server-Sent Events) | Real-time pipeline progress + narrative streaming |
 
 ### Why These Choices
@@ -408,7 +408,7 @@ The LLM receives structured graph paths and converts them to analyst-readable th
 
 ## 10. Input Types
 
-Cerberus accepts 5 entity types as input. The agent identifies the type and routes the traversal accordingly:
+Cerberus accepts 6 entity types as input. The agent identifies the type and routes the traversal accordingly:
 
 | Input Type | Example | Starting Traversal |
 |---|---|---|
@@ -417,6 +417,7 @@ Cerberus accepts 5 entity types as input. The agent identifies the type and rout
 | **Domain** | `evil-cdn.example.com` | Domain → IP → ThreatActor → Techniques |
 | **CVE** | `CVE-2021-27292` | CVE → Package + CVE → ThreatActor → IP |
 | **Threat Actor** | `APT41` | ThreatActor → Techniques + IPs + Domains + CVEs |
+| **FraudSignal** | `JSPY-2026-0091` | FraudSignal → IP → ThreatActor / Account / Package |
 
 Each input type triggers a different **route decision**, which the UI displays as part of the pipeline stages. The traversal pattern adapts to the starting domain — this is the "thoughtful" part of the agent.
 
@@ -447,10 +448,13 @@ In the visualization, these edges render as **dashed lines** to distinguish them
 | `/api/query` | POST | Main investigation: entity + type → graph + narrative |
 | `/api/query/stream` | GET | SSE streaming version of the above |
 | `/api/confirm` | POST | Analyst confirms a threat pattern |
-| `/api/graph` | GET | Full graph data for visualization |
+| `/api/query/graph` | GET | Full graph data for visualization |
 | `/api/demo/natural` | POST | Free-text NLP entity extraction |
 | `/api/demo/compare` | POST | Multi-entity side-by-side comparison |
 | `/api/demo/feed` | GET | Live synthetic fraud event stream |
+| `/api/demo/feed/ingest` | POST | Ingest selected feed event into Neo4j |
+| `/api/juspay/ingest` | POST | Ingest normalized Juspay-style fraud payload(s) |
+| `/api/juspay/signals` | GET | FraudSignal summary (counts, actor links, recent signals) |
 | `/api/demo/map` | GET | Geo-IP data for map visualization |
 | `/api/demo/report` | GET | Full investigation report |
 
@@ -488,11 +492,20 @@ The current demo graph has ~1,060 nodes. Neo4j Aura scales to millions. The arch
 
 ### "What happens when I query something not in the database?"
 
-Cerberus automatically enriches from public threat intel APIs. If you query an npm package that's not in the graph, it hits OSV.dev to find any known CVEs, creates the nodes in Neo4j, and completes the investigation — all in one request. It supports live lookups for packages (OSV.dev), CVEs (NVD), IPs (Abuse.ch Feodo Tracker), and domains (Abuse.ch URLhaus). No API keys needed.
+Cerberus automatically enriches from public threat intel APIs. If you query an npm package that's not in the graph, it hits OSV.dev to find known CVEs, writes new nodes/edges to Neo4j, and re-traverses in the same request. For CVEs, it queries NVD and creates/updates the CVE node. If that CVE has no connected package/actor edges yet, Cerberus still returns a clean assessment and neighborhood context instead of failing. Supported live lookups: packages (OSV.dev), CVEs (NVD), IPs (Abuse.ch Feodo Tracker/URLhaus), and domains (Abuse.ch URLhaus). No API keys needed.
 
 ### "How current is the threat data?"
 
-The seed data includes MITRE ATT&CK (updated March 2025) and ~50 known CVEs. But more importantly, the real-time enrichment layer fetches live data from OSV.dev, NVD, and Abuse.ch on every query for unknown entities. This means Cerberus can investigate a CVE published today. The graph grows with every investigation.
+The seed data includes MITRE ATT&CK (updated March 2025) and ~50 known CVEs. More importantly, the enrichment layer fetches live data from OSV.dev, NVD, and Abuse.ch whenever an entity is missing. In practice this means Cerberus can ingest a newly published CVE quickly (subject to upstream source freshness/propagation), persist it, and include it in future traversals.
+
+### "Is FraudSignal integrated, and are we using Juspay?"
+
+Yes on graph integration: `FraudSignal` is a first-class node label, linked via `(:IP)-[:ASSOCIATED_WITH]->(:FraudSignal)`, and included in traversal/cross-domain output and reporting.
+
+Current runtime status:
+- Frontend live feed currently uses demo endpoints (`/api/demo/feed`, `/api/demo/feed/ingest`) for hackathon UX.
+- Backend has real Juspay-style ingestion endpoints (`/api/juspay/ingest`, `/api/juspay/signals`) that normalize payloads and write to Neo4j.
+- So Juspay is integrated at the data/API layer; the default UI feed is still demo-simulated unless explicitly wired to the `/api/juspay/*` routes.
 
 ---
 
