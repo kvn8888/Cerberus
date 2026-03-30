@@ -119,6 +119,10 @@ async def query(req: QueryRequest):
     if paths_found == 0:
         enriched = await enrich.try_enrich(entity, entity_type)
         if enriched:
+            # Geolocate any new IPs so the geomap can plot them.
+            # First try real geolocation, then fall back to actor attribution.
+            await enrich.geolocate_ips_in_graph(entity, entity_type)
+            await enrich.set_geo_from_actor_attribution(entity, entity_type)
             traversal = await asyncio.to_thread(db.traverse, entity, entity_type)
             paths_found = traversal["paths_found"]
 
@@ -224,6 +228,9 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
             yield f"data: {json.dumps({'stage': 'enrich'})}\n\n"
             enriched = await enrich.try_enrich(entity, entity_type)
             if enriched:
+                # Geolocate new IPs for the geomap
+                await enrich.geolocate_ips_in_graph(entity, entity_type)
+                await enrich.set_geo_from_actor_attribution(entity, entity_type)
                 # Re-traverse now that new nodes exist
                 traversal = await asyncio.to_thread(db.traverse, entity, entity_type)
 

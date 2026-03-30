@@ -733,3 +733,180 @@ def _extract_nvd_severity(cve_data: dict) -> tuple[str, float]:
             return severity.upper(), score
 
     return "UNKNOWN", 0.0
+
+
+# ── IP geolocation (ip-api.com) ─────────────────────────────────────────────
+# Free API, no key needed, 45 requests/minute rate limit.
+# Used to set the `geo` property on IP nodes so they appear on the geomap.
+
+
+async def geolocate_ip(ip_address: str) -> str | None:
+    """
+    Look up the country code for an IP address using ip-api.com.
+    Returns a 2-letter country code (e.g., 'US', 'CN') or None on failure.
+    Sets the geo property on the IP node in Neo4j so the geomap can plot it.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"http://ip-api.com/json/{ip_address}",
+                params={"fields": "status,countryCode"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+        if data.get("status") != "success":
+            return None
+
+        country_code = data.get("countryCode")
+        if not country_code:
+            return None
+
+        # Write the geo property back to Neo4j
+        cypher = """
+        MATCH (ip:IP {address: $address})
+        SET ip.geo = $geo
+        """
+        with _get_driver().session() as s:
+            s.run(cypher, address=ip_address, geo=country_code)
+
+        logger.info("Geolocated IP '%s' → %s", ip_address, country_code)
+        return country_code
+
+    except Exception as exc:
+        logger.debug("Geolocation failed for %s: %s", ip_address, exc)
+        return None
+
+
+async def geolocate_ips_in_graph(entity: str, entity_type: str) -> int:
+    """
+    Find all IP nodes connected to an entity that are missing geo data,
+    and geolocate them via ip-api.com. Called after enrichment to ensure
+    the geomap has data to plot.
+
+    Returns the count of IPs successfully geolocated.
+    """
+    label = _entity_label(entity_type)
+    key = _entity_key(entity_type)
+
+    # Find IPs reachable from this entity that lack geo data
+    cypher = """
+    MATCH (start:{label} {{{key}: $value}})-[*1..6]-(ip:IP)
+    WHERE ip.geo IS NULL OR ip.geo = 'UN'
+    RETURN DISTINCT ip.address AS address
+    LIMIT 10
+    """.format(label=label, key=key)
+
+    ips_to_locate: list[str] = []
+    with _get_driver().session() as s:
+        for record in s.run(cypher, value=entity):
+            addr = record["address"]
+            if addr and not addr.startswith(("10.", "172.16.", "192.168.", "203.0.113.")):
+                ips_to_locate.append(addr)
+
+    count = 0
+    for ip_addr in ips_to_locate:
+        result = await geolocate_ip(ip_addr)
+        if result:
+            count += 1
+
+    if count:
+        logger.info("Geolocated %d/%d IPs for %s/%s",
+                     count, len(ips_to_locate), entity_type, entity)
+    return count
+
+
+def _entity_label(entity_type: str) -> str:
+    """Map entity_type string to Neo4j node label."""
+    return {
+        "package":     "Package",
+        "ip":          "IP",
+        "domain":      "Domain",
+        "cve":         "CVE",
+        "threatactor": "ThreatActor",
+        "fraudsignal": "FraudSignal",
+    }.get(entity_type.lower(), "Package")
+
+
+def _entity_key(entity_type: str) -> str:
+    """Map entity_type string to Neo4j node property key."""
+    return {
+        "package":      "name",
+        "ip":           "address",
+        "domain":       "name",
+        "cve":          "id",
+        "threatactor":  "name",
+        "fraudsignal":  "juspay_id",
+    }.get(entity_type.lower(), "name")
+
+
+# ── Threat actor origin country mapping ─────────────────────────────────────
+# Maps known threat actors to their attributed country of origin.
+# Used to set geo on IPs operated by these actors when no geolocation is
+# available, ensuring the geomap shows actor-correlated activity.
+
+_ACTOR_COUNTRY_MAP: dict[str, str] = {
+    # Chinese state-sponsored
+    "APT41":           "CN", "APT40":           "CN", "APT31":           "CN",
+    "APT10":           "CN", "APT1":            "CN", "APT3":            "CN",
+    "APT17":           "CN", "APT27":           "CN", "APT30":           "CN",
+    "Mustang Panda":   "CN", "Winnti Group":    "CN", "Ke3chang":        "CN",
+    "HAFNIUM":         "CN", "LuminousMoth":    "CN", "Naikon":          "CN",
+    "Stone Panda":     "CN", "Emissary Panda":  "CN",
+    # Russian state-sponsored
+    "APT28":           "RU", "APT29":           "RU", "Sandworm Team":   "RU",
+    "Turla":           "RU", "Gamaredon Group": "RU", "Ember Bear":      "RU",
+    "Wizard Spider":   "RU", "Indrik Spider":   "RU",
+    # North Korean
+    "Lazarus Group":   "KP", "Kimsuky":         "KP", "APT43":           "KP",
+    "Andariel":        "KP", "BlueNoroff":      "KP",
+    # Iranian
+    "APT33":           "IR", "APT34":           "IR", "APT35":           "IR",
+    "MuddyWater":      "IR", "Charming Kitten": "IR", "OilRig":          "IR",
+    # Vietnamese
+    "APT32":           "VN", "OceanLotus":      "VN",
+    # Financially motivated (attributed locations)
+    "FIN7":            "RU", "FIN11":           "RU", "Cl0p":            "RU",
+    "Evil Corp":       "RU", "Mummy Spider":    "RU",
+    "TA570":           "RU", "TA551":           "RU", "TA577":           "RU",
+    "Scattered Spider": "US",
+}
+
+
+async def set_geo_from_actor_attribution(entity: str, entity_type: str) -> int:
+    """
+    For IPs connected to known threat actors that still lack geo data,
+    set the geo property based on the actor's attributed country of origin.
+    This is a fallback when ip-api.com can't geolocate (e.g., for private
+    or synthetic IPs like 203.0.113.x used in demo data).
+
+    Returns the count of IPs updated.
+    """
+    # Find IPs missing geo that are operated by known actors
+    cypher_find = """
+    MATCH (ta:ThreatActor)-[:OPERATES]->(ip:IP)
+    WHERE (ip.geo IS NULL OR ip.geo = 'UN')
+    RETURN DISTINCT ip.address AS address, collect(DISTINCT ta.name) AS actors
+    LIMIT 20
+    """
+    cypher_set = """
+    MATCH (ip:IP {address: $address})
+    SET ip.geo = $geo
+    """
+
+    count = 0
+    with _get_driver().session() as s:
+        records = list(s.run(cypher_find))
+        for record in records:
+            actors = record["actors"]
+            # Use the first actor with a known country
+            for actor in actors:
+                country = _ACTOR_COUNTRY_MAP.get(actor)
+                if country:
+                    s.run(cypher_set, address=record["address"], geo=country)
+                    logger.info("Set geo for IP '%s' → %s (via actor %s)",
+                                record["address"], country, actor)
+                    count += 1
+                    break
+
+    return count
