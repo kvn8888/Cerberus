@@ -70,4 +70,6 @@ services:
         sync: false
       - key: NEO4J_MCP_ENDPOINT
         sync: false
+      - key: ROCKETRIDE_NEO4J_BASIC_AUTH
+        sync: false
     healthCheckPath: /health

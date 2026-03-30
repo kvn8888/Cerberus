@@ -186,6 +186,7 @@ This loads ~200 MITRE ATT&CK techniques, ~100 threat groups, ~50 CVEs, ~100 mali
 | `ROCKETRIDE_APIKEY` | No | — | RocketRide auth key |
 | `ROCKETRIDE_ANTHROPIC_KEY` | No | — | Anthropic key for pipeline LLM nodes |
 | `NEO4J_MCP_ENDPOINT` | No | — | MCP endpoint for RocketRide's MCP Client |
+| `ROCKETRIDE_NEO4J_BASIC_AUTH` | No | — | Base64-encoded `user:pass` for neo4j-mcp auth |
 | `VITE_API_URL` | No | `http://localhost:8000` | Backend URL (baked into frontend at build time) |
 
 ---

@@ -124,6 +124,7 @@ ROCKETRIDE_URI=http://localhost:5565      # RocketRide engine (local or cloud)
 ROCKETRIDE_APIKEY=...                     # Auth key
 ROCKETRIDE_ANTHROPIC_KEY=sk-ant-...       # Anthropic key interpolated into pipeline LLM nodes
 NEO4J_MCP_ENDPOINT=http://localhost:8787/mcp  # MCP endpoint for RocketRide's MCP Client node
+ROCKETRIDE_NEO4J_BASIC_AUTH=...           # Base64-encoded "user:pass" for neo4j-mcp Basic Auth
 ```
 
 ## Self-Improvement Loop
@@ -220,6 +221,7 @@ ROCKETRIDE_URI=http://localhost:5565    # RocketRide SDK server
 ROCKETRIDE_APIKEY=...                   # RocketRide auth key
 ROCKETRIDE_ANTHROPIC_KEY=sk-ant-...     # Anthropic key for pipeline LLM nodes
 NEO4J_MCP_ENDPOINT=http://localhost:8787/mcp  # MCP endpoint for RocketRide's MCP Client node
+ROCKETRIDE_NEO4J_BASIC_AUTH=...         # Base64-encoded "user:pass" for neo4j-mcp Basic Auth
 CERBERUS_API=http://localhost:8000
 ```
 

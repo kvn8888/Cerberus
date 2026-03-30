@@ -62,6 +62,8 @@ services:
       # Default: localhost:8787 (host-mapped port) since RocketRide engine
       # runs on the host, not inside Docker.
       - NEO4J_MCP_ENDPOINT=${NEO4J_MCP_ENDPOINT:-http://localhost:8787/mcp}
+      # Base64-encoded Neo4j credentials for MCP Client auth (base64 of "user:pass")
+      - ROCKETRIDE_NEO4J_BASIC_AUTH=${ROCKETRIDE_NEO4J_BASIC_AUTH}
     depends_on:
       neo4j-mcp:
         condition: service_healthy

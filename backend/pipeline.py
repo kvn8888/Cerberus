@@ -1,5 +1,5 @@
 """
-rocketride.py — RocketRide AI pipeline integration with direct-LLM fallback.
+pipeline.py — RocketRide AI pipeline integration with direct-LLM fallback.
 
 Architecture:
   The cerberus-threat-agent pipeline runs a CrewAI agent inside RocketRide
@@ -7,16 +7,19 @@ Architecture:
   connected to our neo4j-mcp server.  The agent uses Claude Sonnet 4.6 for
   reasoning and generates the threat narrative.
 
-  Pipeline shape:
+  Pipeline shape (cerberus-threat-agent.pipe):
     chat → agent_crewai → [invoke] → mcp_client (neo4j-mcp)
-                        → [invoke] → llm_anthropic (Claude)
+                        → [invoke] → llm_anthropic (Claude Sonnet 4.6)
              ↓
         response_answers
 
+  Fallback pipeline (cerberus-query.pipe):
+    chat → prompt → llm_anthropic (Claude Sonnet 4.6) → response_answers
+
 Flow:
-  1. Backend sends the entity name + type to RocketRide via SDK send()
-  2. RocketRide's CrewAI agent queries Neo4j via MCP tools (get-schema,
-     read-cypher) — it explores the graph autonomously
+  1. Backend sends the entity name + type to RocketRide via SDK chat()
+  2. RocketRide's CrewAI agent queries Neo4j via MCP tools (get-neo4j-schema,
+     read-neo4j-cypher) — it explores the graph autonomously
   3. Agent generates a cross-domain threat intelligence narrative
   4. Answer is returned to the backend and streamed to the frontend as SSE
 
@@ -27,7 +30,7 @@ When RocketRide is unavailable (server not running, SDK import error, timeout),
 the backend falls back to calling Anthropic directly via llm.py.
 
 Usage in routes/query.py:
-    from rocketride import stream_via_rocketride_or_fallback
+    from pipeline import stream_via_rocketride_or_fallback
 
     async for chunk in stream_via_rocketride_or_fallback(entity, entity_type, traversal):
         yield chunk
@@ -224,12 +227,18 @@ async def _stream_via_sdk(
     """
     Send a query to the loaded RocketRide pipeline and stream the answer.
 
+    Both pipelines use a ``chat`` source, so we use the SDK ``chat()`` method
+    with a ``Question`` object.
+
     If the agent pipeline is active, we send just the entity name — the
     agent will autonomously explore Neo4j via MCP tools.
 
     If the simple query pipeline is active (fallback), we send the full
     traversal data as context, same as before.
     """
+    # Lazy import — only needed when RocketRide is actually reachable
+    from rocketride.schema import Question  # type: ignore
+
     client = _get_client()
     await client.connect()
     token = await _load_pipeline(client)
@@ -250,11 +259,13 @@ async def _stream_via_sdk(
     yield f"data: {json.dumps({'stage': 'analyze'})}\n\n"
     await asyncio.sleep(0)
 
-    # ── Build and send the question ───────────────────────────────────────
+    # ── Build and send the question via SDK chat() ────────────────────────
+    question = Question()
+
     if _active_pipeline == "agent":
         # Agent pipeline: send just the entity name — the CrewAI agent
         # will use MCP tools to query Neo4j and explore the graph itself.
-        message = (
+        question.addQuestion(
             f"Investigate the threat entity '{entity}' (type: {entity_type}). "
             f"Use your Neo4j MCP tools to explore the graph and generate "
             f"a cross-domain threat intelligence narrative."
@@ -262,23 +273,23 @@ async def _stream_via_sdk(
     else:
         # Simple query pipeline: send the full traversal data as context
         # because this pipeline has no MCP access.
-        message = (
-            f"Entity to investigate: {entity} (type: {entity_type})\n\n"
-            f"Graph traversal result:\n{json.dumps(traversal, indent=2)}\n\n"
-            f"Analyze the threat entity using the graph traversal data above. "
-            f"Generate a threat intelligence narrative."
+        question.addContext(
+            f"Graph traversal result:\n{json.dumps(traversal, indent=2)}"
+        )
+        question.addQuestion(
+            f"Investigate the threat entity '{entity}' (type: {entity_type}). "
+            f"Analyze it using the graph traversal data above. "
+            f"Generate a cross-domain threat intelligence narrative."
         )
 
-    # Use SDK send() — works with both chat and webhook source nodes.
-    # send() posts data to the running pipeline and returns the result.
-    response = await client.send(token, message)
+    # Both pipelines use a chat source → use chat() method
+    response = await client.chat(token=token, question=question)
 
     yield f"data: {json.dumps({'stage': 'narrate'})}\n\n"
     await asyncio.sleep(0)
 
     # ── Extract the answer from the response ──────────────────────────────
-    # Response format: {"data": {"objects": {"<id>": {"text": "..."}}}}
-    # or: {"answers": ["..."]}
+    # chat() response format: {"answers": ["..."]}
     narrative = _extract_narrative(response)
 
     if not narrative:
@@ -299,9 +310,8 @@ def _extract_narrative(response: dict[str, Any]) -> str:
     """
     Pull the narrative text out of a RocketRide pipeline response.
 
-    Handles two response formats:
-      - SDK chat():  {"answers": ["text..."]}
-      - SDK send():  {"data": {"objects": {"<uuid>": {"text": "..."}}}}
+    Primary format from chat():  {"answers": ["text..."]}
+    Fallback format from send(): {"data": {"objects": {"<uuid>": {"text": "..."}}}}
     """
     # Try answers format first (from chat())
     answers = response.get("answers", [])
