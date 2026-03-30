@@ -127,7 +127,7 @@ function generateDemoGraph(entity: string, entityType: EntityType) {
 }
 
 export function GraphPanel({ state }: GraphPanelProps) {
-  const [viewMode, setViewMode] = useState<"graph" | "map">("graph");
+  const viewMode = "graph" as const;
   const [mapPoints, setMapPoints] = useState<GeoPoint[]>([]);
   /* Ref for the container div — used to measure dimensions */
   const containerRef = useRef<HTMLDivElement>(null);
