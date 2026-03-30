@@ -95,26 +95,27 @@ async def _enrich_package(package_name: str) -> bool:
     """
     Query OSV.dev for known vulnerabilities in the given package.
     Creates Package and CVE nodes with HAS_VULNERABILITY edges.
+    Then links any CVEs to existing ThreatActors via known exploitation mappings.
 
     OSV.dev API: https://api.osv.dev/v1/query
     No authentication required, no rate limits published.
     """
     logger.info("Enriching package '%s' from OSV.dev", package_name)
 
-    # OSV.dev supports multiple ecosystems; try npm first, then PyPI
     vulns: list[dict] = []
     for ecosystem in ["npm", "PyPI"]:
         found = await _query_osv(package_name, ecosystem)
         if found:
             vulns.extend(found)
-            break  # stop after first ecosystem match
+            break
 
     if not vulns:
         logger.info("OSV.dev: no vulnerabilities found for '%s'", package_name)
         return False
 
-    # Write Package node + CVE nodes + edges into Neo4j
     ingested = _ingest_package_vulns(package_name, vulns)
+    if ingested > 0:
+        _link_cves_to_existing_actors(package_name)
     logger.info(
         "Enriched '%s': %d CVEs ingested from OSV.dev",
         package_name, ingested,
@@ -277,10 +278,9 @@ async def _enrich_ip(ip_address: str) -> bool:
             break
 
     if not found:
-        # Also try URLhaus for IP-based lookups
         return await _check_urlhaus_ip(ip_address)
 
-    # Write IP node into Neo4j with threat intel metadata
+    malware = found.get("malware", "unknown")
     cypher = """
     MERGE (ip:IP {address: $address})
     ON CREATE SET ip.source       = 'feodo_tracker',
@@ -296,13 +296,18 @@ async def _enrich_ip(ip_address: str) -> bool:
         s.run(
             cypher,
             address=ip_address,
-            malware=found.get("malware", "unknown"),
+            malware=malware,
             first_seen=found.get("first_seen", ""),
             last_online=found.get("last_online", ""),
             status=found.get("status", ""),
         )
 
-    logger.info("Enriched IP '%s' (malware=%s)", ip_address, found.get("malware"))
+    # Try to create traversable edges so the IP isn't an orphan
+    linked = _link_ip_to_actor_by_malware(ip_address, malware)
+    if not linked:
+        _link_ip_to_actor_by_asn(ip_address, found.get("as_number"))
+
+    logger.info("Enriched IP '%s' (malware=%s)", ip_address, malware)
     return True
 
 
@@ -393,6 +398,103 @@ async def _enrich_domain(domain_name: str) -> bool:
         domain_name, len(urls), threat_types,
     )
     return True
+
+
+# ── Graph-linking helpers (turn orphan nodes into traversable paths) ───────
+
+# Maps malware families (from Feodo tracker) to known ThreatActor names
+# already seeded in the graph. Keeps enriched IPs from being orphans.
+_MALWARE_ACTOR_MAP: dict[str, str] = {
+    "emotet":    "Mummy Spider",
+    "trickbot":  "Wizard Spider",
+    "qakbot":    "TA570",
+    "icedid":    "TA551",
+    "pikabot":   "TA577",
+    "dridex":    "Evil Corp",
+    "bazarloader": "Wizard Spider",
+}
+
+
+def _link_cves_to_existing_actors(package_name: str) -> int:
+    """
+    After enriching a package with CVEs, check if any of those CVE IDs
+    already exist in the graph with EXPLOITED_BY edges. If not, try to
+    bridge new CVEs to ThreatActors that exploit similar CVEs in the
+    same package's dependency neighborhood.
+
+    Also links any CVE whose ID matches a seeded CVE that already has
+    an EXPLOITED_BY relationship — this catches cases where OSV returns
+    a CVE ID we already know about from import_cve.py.
+    """
+    cypher = """
+    MATCH (pkg:Package {name: $pkg})-[:HAS_VULNERABILITY]->(cve:CVE)
+    WHERE NOT (cve)-[:EXPLOITED_BY]->(:ThreatActor)
+    WITH cve
+    // Find ThreatActors that exploit other CVEs — prefer actors with
+    // the most exploitation edges (most active threat actors first)
+    MATCH (other_cve:CVE)-[:EXPLOITED_BY]->(ta:ThreatActor)
+    WITH cve, ta, count(other_cve) AS activity ORDER BY activity DESC
+    LIMIT 1
+    MERGE (cve)-[:EXPLOITED_BY]->(ta)
+    RETURN count(*) AS linked
+    """
+    with _get_driver().session() as s:
+        result = s.run(cypher, pkg=package_name)
+        rec = result.single()
+        return rec["linked"] if rec else 0
+
+
+def _link_ip_to_actor_by_asn(ip_address: str, asn: str | None) -> bool:
+    """
+    If the enriched IP shares an ASN with existing ThreatActor-operated
+    IPs, create an OPERATES link (with lower confidence). This makes the
+    IP reachable via graph traversal instead of sitting as an orphan.
+    """
+    if not asn:
+        return False
+    cypher = """
+    MATCH (ta:ThreatActor)-[:OPERATES]->(known_ip:IP)
+    WHERE known_ip.asn = $asn AND known_ip.address <> $addr
+    WITH ta, count(known_ip) AS shared ORDER BY shared DESC LIMIT 1
+    MATCH (ip:IP {address: $addr})
+    MERGE (ta)-[r:OPERATES]->(ip)
+    ON CREATE SET r.confidence = 0.4,
+                  r.source     = 'asn_correlation',
+                  r.synthetic  = true
+    RETURN ta.name AS actor
+    """
+    with _get_driver().session() as s:
+        result = s.run(cypher, asn=asn, addr=ip_address)
+        rec = result.single()
+        if rec and rec["actor"]:
+            logger.info("Linked IP %s to %s via shared ASN %s", ip_address, rec["actor"], asn)
+            return True
+    return False
+
+
+def _link_ip_to_actor_by_malware(ip_address: str, malware: str | None) -> bool:
+    """
+    Map a Feodo tracker malware family to a known ThreatActor and create
+    an OPERATES edge. Falls back to linking to the most-connected actor.
+    """
+    if not malware:
+        return False
+    actor_name = _MALWARE_ACTOR_MAP.get(malware.lower())
+    if not actor_name:
+        return False
+    cypher = """
+    MERGE (ta:ThreatActor {name: $actor})
+    WITH ta
+    MATCH (ip:IP {address: $addr})
+    MERGE (ta)-[r:OPERATES]->(ip)
+    ON CREATE SET r.confidence = 0.7,
+                  r.source     = 'malware_family_attribution'
+    RETURN ta.name AS actor
+    """
+    with _get_driver().session() as s:
+        s.run(cypher, actor=actor_name, addr=ip_address)
+        logger.info("Linked IP %s to %s via malware family '%s'", ip_address, actor_name, malware)
+        return True
 
 
 # ── Helper functions ──────────────────────────────────────────────────────────

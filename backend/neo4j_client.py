@@ -94,7 +94,7 @@ def cache_check(entity: str, entity_type: str) -> list[dict] | None:
 # software_supply_chain: Package -> Account -> IP -> ThreatActor
 _TRAVERSE_PACKAGE = """
 MATCH path = shortestPath(
-  (p:Package {name: $value})-[*..6]->(ta:ThreatActor)
+  (p:Package {name: $value})-[*..6]-(ta:ThreatActor)
 )
 RETURN path
 LIMIT 10
