@@ -100,6 +100,15 @@ async def memory():
     return await asyncio.to_thread(db.get_memory)
 
 
+@app.get("/api/memory/geo")
+async def memory_geo():
+    """Return geo-plottable points from all memorized (confirmed) entities."""
+    import asyncio
+
+    points = await asyncio.to_thread(db.get_memory_geo)
+    return {"points": points}
+
+
 @app.get("/api/memory/expand")
 async def memory_expand(node: str):
     """Return the children of a specific memorized node (click-to-expand)."""

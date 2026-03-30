@@ -8,7 +8,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Shield, Activity, AlertTriangle, Crosshair, X } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { fetchGeoMap } from "../../lib/api";
+import { fetchGeoMap, fetchMemoryGeo } from "../../lib/api";
 import type { InvestigationState } from "../../types/api";
 import { geoEquirectangular, geoPath, type GeoPermissibleObjects } from "d3-geo";
 import { feature } from "topojson-client";
@@ -228,9 +228,115 @@ export function ThreatMap({ state }: ThreatMapProps) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
 
   const [liveNodes, setLiveNodes] = useState<ThreatNode[]>([]);
   const [liveConnections, setLiveConnections] = useState<ThreatConnection[]>([]);
+
+  /* Memorized entities loaded on mount */
+  const [memoryNodes, setMemoryNodes] = useState<ThreatNode[]>([]);
+  const [memoryConns, setMemoryConns] = useState<ThreatConnection[]>([]);
+
+  /* ── Zoom / Pan state ─────────────────────────────── */
+  const [viewBox, setViewBox] = useState({ x: 0, y: 0, w: MAP_W, h: MAP_H });
+  const isPanning = useRef(false);
+  const panStart = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
+
+  const handleWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
+    e.preventDefault();
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    // Cursor position as fraction of SVG element
+    const fx = (e.clientX - rect.left) / rect.width;
+    const fy = (e.clientY - rect.top) / rect.height;
+    const zoomFactor = e.deltaY > 0 ? 1.12 : 0.88;
+
+    setViewBox((vb) => {
+      const newW = Math.max(100, Math.min(MAP_W * 2, vb.w * zoomFactor));
+      const newH = Math.max(50, Math.min(MAP_H * 2, vb.h * zoomFactor));
+      const newX = vb.x + (vb.w - newW) * fx;
+      const newY = vb.y + (vb.h - newH) * fy;
+      return { x: newX, y: newY, w: newW, h: newH };
+    });
+  }, []);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (e.button !== 0) return;
+    isPanning.current = true;
+    panStart.current = { x: e.clientX, y: e.clientY, vx: viewBox.x, vy: viewBox.y };
+  }, [viewBox.x, viewBox.y]);
+
+  const handleMouseMove = useCallback((e: React.MouseEvent<SVGSVGElement>) => {
+    if (!isPanning.current || !svgRef.current) return;
+    const rect = svgRef.current.getBoundingClientRect();
+    const dx = (e.clientX - panStart.current.x) / rect.width * viewBox.w;
+    const dy = (e.clientY - panStart.current.y) / rect.height * viewBox.h;
+    setViewBox((vb) => ({ ...vb, x: panStart.current.vx - dx, y: panStart.current.vy - dy }));
+  }, [viewBox.w, viewBox.h]);
+
+  const handleMouseUp = useCallback(() => { isPanning.current = false; }, []);
+
+  /* Load memorized geo points on mount */
+  useEffect(() => {
+    fetchMemoryGeo()
+      .then((data) => {
+        if (!data.points?.length) return;
+        const nodes: ThreatNode[] = [];
+        const conns: ThreatConnection[] = [];
+        const seenActors = new Set<string>();
+        const staticIds = new Set(THREAT_NODES.map((n) => n.id));
+
+        for (const pt of data.points) {
+          const actors: string[] = pt.actors || [];
+          const actorName = actors[0] || "";
+          const ipId = `mem-ip-${pt.ip}`;
+
+          nodes.push({
+            id: ipId,
+            name: pt.ip,
+            type: "infrastructure",
+            coordinates: [pt.lon ?? 0, pt.lat ?? 0],
+            severity: actorName ? "high" : "medium",
+            region: pt.geo || "Unknown",
+            active: true,
+          });
+
+          for (const actor of actors) {
+            if (!actor || seenActors.has(actor)) continue;
+            seenActors.add(actor);
+            const matchingStatic = THREAT_NODES.find(
+              (n) => n.type === "apt" && n.name.toLowerCase().includes(actor.toLowerCase().split(" ")[0])
+            );
+            if (!matchingStatic) {
+              const actorId = `mem-actor-${actor.replace(/\s+/g, "-").toLowerCase()}`;
+              nodes.push({
+                id: actorId,
+                name: actor,
+                type: "apt",
+                coordinates: [(pt.lon ?? 0) + 5, (pt.lat ?? 0) + 3],
+                severity: "critical",
+                region: pt.geo || "Unknown",
+                active: true,
+              });
+            }
+          }
+
+          if (actorName) {
+            const matchStatic = THREAT_NODES.find(
+              (n) => n.type === "apt" && n.name.toLowerCase().includes(actorName.toLowerCase().split(" ")[0])
+            );
+            const targetId = matchStatic
+              ? matchStatic.id
+              : `mem-actor-${actorName.replace(/\s+/g, "-").toLowerCase()}`;
+            conns.push({ from: ipId, to: targetId, active: true, type: "c2" });
+          }
+        }
+        setMemoryNodes(nodes);
+        setMemoryConns(conns);
+      })
+      .catch((err) => console.error("Memory geo fetch failed:", err));
+  }, []);
 
   /* Fetch geo data when an investigation completes */
   useEffect(() => {
@@ -271,7 +377,7 @@ export function ThreatMap({ state }: ThreatMapProps) {
                 id: actorId,
                 name: actor,
                 type: "apt",
-                coordinates: [pt.lon ?? 0 + 5, pt.lat ?? 0 + 3],
+                coordinates: [(pt.lon ?? 0) + 5, (pt.lat ?? 0) + 3],
                 severity: "critical",
                 region: pt.geo || "Unknown",
                 active: true,
@@ -297,8 +403,17 @@ export function ThreatMap({ state }: ThreatMapProps) {
     return () => { cancelled = true; };
   }, [state.status, state.entity, state.entityType]);
 
-  const allNodes = useMemo(() => [...THREAT_NODES, ...liveNodes], [liveNodes]);
-  const allConnections = useMemo(() => [...THREAT_CONNECTIONS, ...liveConnections], [liveConnections]);
+  /* Deduplicate: memory + live → merge by IP/actor id */
+  const allNodes = useMemo(() => {
+    const seen = new Set<string>();
+    const merged: ThreatNode[] = [];
+    for (const n of [...THREAT_NODES, ...liveNodes, ...memoryNodes]) {
+      if (!seen.has(n.id)) { seen.add(n.id); merged.push(n); }
+    }
+    return merged;
+  }, [liveNodes, memoryNodes]);
+
+  const allConnections = useMemo(() => [...THREAT_CONNECTIONS, ...liveConnections, ...memoryConns], [liveConnections, memoryConns]);
 
   const nodeMap = useMemo(() => {
     const map = new Map<string, ThreatNode>();
@@ -327,8 +442,18 @@ export function ThreatMap({ state }: ThreatMapProps) {
         <StatBadge icon={<AlertTriangle className="h-3 w-3" />} label="CRITICAL" value={stats.criticalCount} color="text-threat-critical" />
       </div>
 
-      {/* Main SVG map */}
-      <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} className="absolute inset-0 w-full h-full" preserveAspectRatio="xMidYMid meet">
+      {/* Main SVG map — zoom with scroll, pan with drag */}
+      <svg
+        ref={svgRef}
+        viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`}
+        className="absolute inset-0 w-full h-full"
+        preserveAspectRatio="xMidYMid meet"
+        onWheel={handleWheel}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onMouseLeave={handleMouseUp}
+      >
         <defs>
           <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
             <feGaussianBlur stdDeviation="3" result="blur" />

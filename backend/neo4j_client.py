@@ -711,6 +711,61 @@ def get_geo_points(entity: str, entity_type: str) -> list[dict[str, Any]]:
     return points
 
 
+def get_memory_geo() -> list[dict[str, Any]]:
+    """
+    Return geo-plottable points from all confirmed/memorized entities.
+    Finds confirmed IP nodes and confirmed ThreatActors with their OPERATES->IP
+    connections so saved investigations appear on the map.
+    """
+    points: list[dict[str, Any]] = []
+    seen_ips: set[str] = set()
+
+    with _get_driver().session() as s:
+        # 1) Confirmed IPs that have a geo property
+        for record in s.run("""
+            MATCH (ip:IP:ConfirmedThreat)
+            WHERE ip.address IS NOT NULL
+            OPTIONAL MATCH (ta:ThreatActor:ConfirmedThreat)-[:OPERATES]->(ip)
+            RETURN ip.address AS ip, coalesce(ip.geo, 'UN') AS geo,
+                   collect(DISTINCT ta.name) AS actors
+        """):
+            geo = record["geo"]
+            if geo not in _COUNTRY_COORDS:
+                continue
+            addr = record["ip"]
+            if addr in seen_ips:
+                continue
+            seen_ips.add(addr)
+            lat, lon = _COUNTRY_COORDS[geo]
+            points.append({
+                "ip": addr, "geo": geo, "lat": lat, "lon": lon,
+                "actors": [a for a in record["actors"] if a],
+                "memorized": True,
+            })
+
+        # 2) Confirmed ThreatActors → find their IPs (even if IP isn't confirmed)
+        for record in s.run("""
+            MATCH (ta:ThreatActor:ConfirmedThreat)
+            OPTIONAL MATCH (ta)-[:OPERATES]->(ip:IP)
+            WHERE ip.address IS NOT NULL
+            RETURN ta.name AS actor, ip.address AS ip,
+                   coalesce(ip.geo, 'UN') AS geo
+        """):
+            geo = record["geo"]
+            addr = record["ip"]
+            if not addr or geo not in _COUNTRY_COORDS or addr in seen_ips:
+                continue
+            seen_ips.add(addr)
+            lat, lon = _COUNTRY_COORDS[geo]
+            points.append({
+                "ip": addr, "geo": geo, "lat": lat, "lon": lon,
+                "actors": [record["actor"]] if record["actor"] else [],
+                "memorized": True,
+            })
+
+    return points
+
+
 _COUNTRY_COORDS: dict[str, tuple[float, float]] = {
     "US": (39.5, -98.35),
     "CN": (35.9, 104.2),

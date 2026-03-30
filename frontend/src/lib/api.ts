@@ -309,6 +309,15 @@ export async function fetchReport(
   return res.json();
 }
 
+/** Fetch geo-plottable points from all memorized/confirmed entities. */
+export async function fetchMemoryGeo(): Promise<MapResponse> {
+  const res = await fetch(`${API_BASE}/api/memory/geo`);
+  if (!res.ok) {
+    throw new Error(`Memory geo failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
 /** Fetch all memorized entities and their confirmed connections. */
 export async function fetchMemory(): Promise<{
   nodes: Array<{ id: string; label: string; type: string; val: number; confirmed: boolean }>;
