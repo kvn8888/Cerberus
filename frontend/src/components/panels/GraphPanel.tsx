@@ -380,36 +380,180 @@ export function GraphPanel({ state }: GraphPanelProps) {
 }
 
 function GeoMap({ points }: { points: GeoPoint[] }) {
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [dragging, setDragging] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [hoveredIdx, setHoveredIdx] = useState<number | null>(null);
+
+  /* Convert lat/lon to Mercator-projected SVG coordinates */
+  const project = (lat: number, lon: number) => {
+    const x = ((lon + 180) / 360) * 1000;
+    const latRad = (lat * Math.PI) / 180;
+    const mercY = Math.log(Math.tan(Math.PI / 4 + latRad / 2));
+    const y = 250 - mercY * 160;
+    return { x, y };
+  };
+
+  const handleWheel = (e: React.WheelEvent) => {
+    e.preventDefault();
+    const next = Math.max(0.5, Math.min(4, zoom - e.deltaY * 0.002));
+    setZoom(next);
+  };
+
+  /* Simplified world boundary paths — continents outlined */
+  const continents = [
+    /* North America */
+    "M60 120 L120 80 L200 70 L240 90 L260 120 L250 160 L220 200 L180 220 L140 230 L100 240 L80 220 L60 200 Z",
+    /* South America */
+    "M160 260 L200 240 L230 260 L240 300 L230 360 L210 400 L180 420 L160 400 L150 350 L140 300 Z",
+    /* Europe */
+    "M440 80 L480 60 L530 70 L550 90 L540 120 L520 140 L490 150 L460 140 L440 120 Z",
+    /* Africa */
+    "M440 160 L500 150 L540 170 L560 210 L550 280 L530 340 L500 370 L470 360 L440 320 L430 260 L420 200 Z",
+    /* Asia */
+    "M550 60 L650 40 L750 50 L820 80 L850 120 L830 170 L790 200 L730 210 L670 190 L620 170 L580 150 L560 120 L550 90 Z",
+    /* Oceania */
+    "M760 300 L820 280 L870 290 L890 320 L870 360 L830 370 L790 350 L760 330 Z",
+    /* Small landmasses */
+    "M740 220 L770 210 L790 230 L780 250 L750 250 Z",
+  ];
+
+  /* Grid lines for longitude and latitude */
+  const gridLons = [-120, -60, 0, 60, 120];
+  const gridLats = [-40, 0, 40];
+
   return (
-    <div className="absolute inset-0 p-8">
-      <div className="relative h-full w-full overflow-hidden rounded-2xl border border-border/60 bg-[radial-gradient(circle_at_top,_rgba(0,229,255,0.09),_transparent_35%),linear-gradient(180deg,rgba(12,22,34,0.95),rgba(8,14,24,0.98))]">
-        <svg viewBox="0 0 1000 520" className="h-full w-full">
+    <div className="absolute inset-0 p-4">
+      <div
+        className="relative h-full w-full overflow-hidden rounded-2xl border border-primary/10 bg-[radial-gradient(ellipse_at_center,rgba(0,229,255,0.04),transparent_70%)] cursor-grab active:cursor-grabbing"
+        onWheel={handleWheel}
+        onMouseDown={(e) => { setDragging(true); setDragStart({ x: e.clientX - pan.x, y: e.clientY - pan.y }); }}
+        onMouseMove={(e) => { if (dragging) setPan({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); }}
+        onMouseUp={() => setDragging(false)}
+        onMouseLeave={() => setDragging(false)}
+      >
+        {/* Zoom controls */}
+        <div className="absolute top-3 right-3 z-30 flex flex-col gap-1">
+          <button onClick={() => setZoom(Math.min(4, zoom + 0.3))} className="w-7 h-7 rounded bg-surface-raised/80 border border-border/40 text-muted-foreground hover:text-primary text-xs font-mono">+</button>
+          <button onClick={() => setZoom(Math.max(0.5, zoom - 0.3))} className="w-7 h-7 rounded bg-surface-raised/80 border border-border/40 text-muted-foreground hover:text-primary text-xs font-mono">−</button>
+          <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="w-7 h-7 rounded bg-surface-raised/80 border border-border/40 text-muted-foreground hover:text-primary text-[8px] font-mono">⟳</button>
+        </div>
+
+        {/* Stats overlay */}
+        <div className="absolute top-3 left-3 z-30 flex items-center gap-3">
+          <span className="px-2 py-1 rounded bg-surface-raised/60 border border-primary/15 text-[10px] font-mono text-primary">
+            {points.length} THREAT NODES
+          </span>
+          <span className="px-2 py-1 rounded bg-surface-raised/60 border border-border/30 text-[10px] font-mono text-muted-foreground">
+            {zoom.toFixed(1)}x
+          </span>
+        </div>
+
+        <svg
+          viewBox="0 0 1000 500"
+          className="h-full w-full"
+          style={{ transform: `scale(${zoom}) translate(${pan.x / zoom}px, ${pan.y / zoom}px)` }}
+        >
           <defs>
-            <linearGradient id="mapGlow" x1="0%" x2="100%">
-              <stop offset="0%" stopColor="rgba(0,229,255,0.08)" />
-              <stop offset="100%" stopColor="rgba(0,229,255,0.01)" />
-            </linearGradient>
+            <radialGradient id="pointGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#ff4444" stopOpacity="0.6" />
+              <stop offset="100%" stopColor="#ff4444" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id="pointGlowCyan" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#00e5ff" stopOpacity="0.4" />
+              <stop offset="100%" stopColor="#00e5ff" stopOpacity="0" />
+            </radialGradient>
+            <filter id="glow">
+              <feGaussianBlur stdDeviation="2" result="blur" />
+              <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+            </filter>
           </defs>
-          <rect x="0" y="0" width="1000" height="520" fill="url(#mapGlow)" />
-          <path d="M104 174l73-56 91 13 88-27 98 44 59 63 89-6 74 40 73 10 22 40-58 42-95 16-97-29-58 20-63-19-72 30-110-16-87-50-70-63z" fill="rgba(110,135,170,0.12)" stroke="rgba(0,229,255,0.12)" />
-          <path d="M169 332l60 34 96 18 97-31 66 13 78-19 92 18 122-12 53 42-70 32-105 5-96-15-117 18-99-13-93-48-72-42z" fill="rgba(110,135,170,0.08)" stroke="rgba(0,229,255,0.08)" />
-          {points.map((point) => {
-            const x = ((point.lon + 180) / 360) * 1000;
-            const y = ((90 - point.lat) / 180) * 520;
+
+          {/* Grid lines */}
+          {gridLons.map((lon) => {
+            const { x } = project(0, lon);
+            return <line key={`lon-${lon}`} x1={x} y1={0} x2={x} y2={500} stroke="rgba(0,229,255,0.04)" strokeWidth="0.5" />;
+          })}
+          {gridLats.map((lat) => {
+            const { y } = project(lat, 0);
+            return <line key={`lat-${lat}`} x1={0} y1={y} x2={1000} y2={y} stroke="rgba(0,229,255,0.04)" strokeWidth="0.5" />;
+          })}
+
+          {/* Continent silhouettes */}
+          {continents.map((d, i) => (
+            <path key={i} d={d} fill="rgba(100,140,180,0.07)" stroke="rgba(0,229,255,0.08)" strokeWidth="0.5" />
+          ))}
+
+          {/* Connection lines between threat points */}
+          {points.length > 1 && points.slice(1).map((p, i) => {
+            const from = project(points[0].lat, points[0].lon);
+            const to = project(p.lat, p.lon);
+            const midX = (from.x + to.x) / 2;
+            const midY = Math.min(from.y, to.y) - 30;
             return (
-              <g key={`${point.ip}-${point.geo}`}>
-                <circle cx={x} cy={y} r="12" fill="rgba(0,229,255,0.12)" />
-                <circle cx={x} cy={y} r="5.5" fill="#00e5ff" />
-                <text x={x + 10} y={y - 10} fill="rgba(208,224,235,0.9)" fontSize="12">
+              <path
+                key={`conn-${i}`}
+                d={`M${from.x},${from.y} Q${midX},${midY} ${to.x},${to.y}`}
+                fill="none"
+                stroke="rgba(255,68,68,0.2)"
+                strokeWidth="1"
+                strokeDasharray="4 4"
+              >
+                <animate attributeName="stroke-dashoffset" from="0" to="-8" dur="2s" repeatCount="indefinite" />
+              </path>
+            );
+          })}
+
+          {/* Threat points */}
+          {points.map((point, idx) => {
+            const { x, y } = project(point.lat, point.lon);
+            const isHovered = hoveredIdx === idx;
+            const isFirst = idx === 0;
+            const color = isFirst ? "#ff4444" : "#00e5ff";
+            return (
+              <g
+                key={`${point.ip}-${point.geo}`}
+                onMouseEnter={() => setHoveredIdx(idx)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                style={{ cursor: "pointer" }}
+              >
+                {/* Outer pulse ring */}
+                <circle cx={x} cy={y} r="18" fill={isFirst ? "url(#pointGlow)" : "url(#pointGlowCyan)"}>
+                  <animate attributeName="r" values="14;22;14" dur="3s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.6;0.15;0.6" dur="3s" repeatCount="indefinite" />
+                </circle>
+                {/* Sonar ring */}
+                <circle cx={x} cy={y} r="8" fill="none" stroke={color} strokeWidth="0.5" opacity="0.3">
+                  <animate attributeName="r" values="8;28" dur="4s" repeatCount="indefinite" begin={`${idx * 0.5}s`} />
+                  <animate attributeName="opacity" values="0.4;0" dur="4s" repeatCount="indefinite" begin={`${idx * 0.5}s`} />
+                </circle>
+                {/* Core dot */}
+                <circle cx={x} cy={y} r={isHovered ? 6 : 4} fill={color} filter="url(#glow)" className="transition-all duration-200" />
+                {/* Inner bright core */}
+                <circle cx={x} cy={y} r="1.5" fill="white" opacity="0.8" />
+
+                {/* Label — always visible */}
+                <rect x={x + 10} y={y - 22} width={Math.max(point.ip.length * 7.5, 90)} height={32} rx="4"
+                  fill={isHovered ? "rgba(8,14,24,0.95)" : "rgba(8,14,24,0.75)"}
+                  stroke={isHovered ? color : "rgba(0,229,255,0.15)"}
+                  strokeWidth={isHovered ? 1 : 0.5}
+                />
+                <text x={x + 16} y={y - 8} fill={color} fontSize="11" fontFamily="monospace" fontWeight="600">
                   {point.ip}
                 </text>
-                <text x={x + 10} y={y + 6} fill="rgba(208,224,235,0.55)" fontSize="10">
-                  {point.geo} {point.actors[0] ? `• ${point.actors[0]}` : ""}
+                <text x={x + 16} y={y + 5} fill="rgba(208,224,235,0.6)" fontSize="9" fontFamily="monospace">
+                  {point.geo}{point.actors[0] ? ` · ${point.actors[0]}` : ""}
                 </text>
               </g>
             );
           })}
         </svg>
+
+        {/* Scanline effect */}
+        <div className="absolute inset-0 pointer-events-none opacity-[0.02]"
+          style={{ background: "repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,229,255,0.5) 2px, rgba(0,229,255,0.5) 3px)" }}
+        />
       </div>
     </div>
   );

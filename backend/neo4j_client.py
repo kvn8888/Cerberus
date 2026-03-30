@@ -115,10 +115,11 @@ RETURN pkg.name         AS package,
 LIMIT 10
 """
 
-# infrastructure: IP -> Domain -> ThreatActor
+# infrastructure: IP — bidirectional because relationships point inward
+# (ThreatActor -[OPERATES]-> IP, Account -[LINKED_TO]-> IP)
 _TRAVERSE_IP = """
 MATCH path = shortestPath(
-  (i:IP {address: $value})-[*..5]->(ta:ThreatActor)
+  (i:IP {address: $value})-[*..5]-(ta:ThreatActor)
 )
 RETURN path
 LIMIT 10
@@ -162,6 +163,22 @@ def traverse(entity: str, entity_type: str) -> dict[str, Any]:
         elif etype == "ip":
             r1 = s.run(_TRAVERSE_IP, value=entity)
             paths = [r.data() for r in r1]
+            # cross-domain: find packages/accounts/fraud linked to this IP
+            r2 = s.run("""
+                MATCH (ip:IP {address: $value})
+                OPTIONAL MATCH (ip)<-[:LINKED_TO]-(acct:Account)-[:PUBLISHED_BY]-(pkg:Package)
+                OPTIONAL MATCH (ip)-[:ASSOCIATED_WITH]->(fs:FraudSignal)
+                OPTIONAL MATCH (ip)<-[:OPERATES]-(ta:ThreatActor)
+                OPTIONAL MATCH (ip)-[:HOSTS]->(d:Domain)
+                RETURN ip.address AS ip,
+                       collect(DISTINCT ta.name) AS actors,
+                       collect(DISTINCT acct.username) AS accounts,
+                       collect(DISTINCT pkg.name) AS packages,
+                       collect(DISTINCT d.name) AS domains,
+                       collect(DISTINCT fs.type) AS fraud_types
+                LIMIT 1
+            """, value=entity)
+            cross_domain = [r.data() for r in r2]
 
         elif etype == "fraudsignal":
             r1 = s.run(_TRAVERSE_FRAUD, value=entity)
@@ -322,6 +339,45 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
                 # Mark LINKED_TO as synthetic (dashed edge)
                 is_synthetic = rel_type == "LINKED_TO"
                 _add_link(src, tgt, rel_type, dashed=is_synthetic)
+
+        # Cross-domain enrichment for IP type
+        if etype == "ip":
+            cross = s.run("""
+                MATCH (ip:IP {address: $value})
+                OPTIONAL MATCH (ip)<-[:LINKED_TO]-(acct:Account)-[:PUBLISHED_BY]-(pkg:Package)
+                OPTIONAL MATCH (ip)-[:ASSOCIATED_WITH]->(fs:FraudSignal)
+                OPTIONAL MATCH (ip)<-[:OPERATES]-(ta:ThreatActor)
+                OPTIONAL MATCH (ip)-[:HOSTS]->(d:Domain)
+                RETURN ip.address AS ip, acct.username AS publisher, pkg.name AS package,
+                       ta.name AS actor, d.name AS domain,
+                       fs.juspay_id AS fraud_id, fs.type AS fraud_type
+            """, value=entity)
+            for r in cross:
+                ip_addr = r.get("ip")
+                publisher = r.get("publisher")
+                pkg_name = r.get("package")
+                actor = r.get("actor")
+                domain = r.get("domain")
+                fraud_id = r.get("fraud_id")
+                fraud_type = r.get("fraud_type")
+
+                if ip_addr: _add_node(ip_addr, "IP", 8)
+                if publisher: _add_node(publisher, "Account", 4)
+                if pkg_name: _add_node(pkg_name, "Package", 7)
+                if actor: _add_node(actor, "ThreatActor", 7)
+                if domain: _add_node(domain, "Domain", 5)
+                if fraud_id: _add_node(fraud_id, "FraudSignal", 4)
+
+                if publisher and ip_addr:
+                    _add_link(publisher, ip_addr, "LINKED_TO", dashed=True)
+                if pkg_name and publisher:
+                    _add_link(pkg_name, publisher, "PUBLISHED_BY")
+                if actor and ip_addr:
+                    _add_link(actor, ip_addr, "OPERATES")
+                if ip_addr and domain:
+                    _add_link(ip_addr, domain, "HOSTS")
+                if ip_addr and fraud_id:
+                    _add_link(ip_addr, fraud_id, "ASSOCIATED_WITH")
 
         # Cross-domain query for package type (adds fraud signals)
         if etype == "package":

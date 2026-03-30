@@ -1,8 +1,10 @@
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from project root (works regardless of which directory uvicorn is run from)
+load_dotenv(Path(__file__).parent.parent / ".env")
 
 
 def get(key: str, default: str | None = None) -> str | None:
