@@ -14,6 +14,9 @@ anthropic==0.26.0
 # RocketRide AI pipeline orchestration
 rocketride==1.0.6
 
+# GMI Cloud image generation (OpenAI-compatible)
+openai
+
 # Data import scripts
 requests==2.31.0
 stix2==3.0.1

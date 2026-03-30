@@ -17,6 +17,7 @@ import {
   Shield,
   Download,
   GitCompareArrows,
+  ImageIcon,
 } from "lucide-react";
 import type { InvestigationState } from "../../types/api";
 import { compareEntities, confirmEntity, fetchReport } from "../../lib/api";
@@ -28,6 +29,8 @@ interface NarrativePanelProps {
 
 export function NarrativePanel({ state }: NarrativePanelProps) {
   const [confirmed, setConfirmed] = useState(false);
+  const [threatMapUrl, setThreatMapUrl] = useState<string | null>(null);
+  const [threatMapLoading, setThreatMapLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [compareText, setCompareText] = useState("ua-parser-js:package\n203.0.113.42:ip");
   const [compareBusy, setCompareBusy] = useState(false);
@@ -179,7 +182,7 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
         )}
       </div>
 
-      <div className="px-4 pt-3">
+      <div className="px-4 pt-3 flex flex-col gap-2">
         <button
           type="button"
           disabled={!canExport}
@@ -196,6 +199,50 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
             Export PDF Report
           </span>
         </button>
+
+        <button
+          type="button"
+          disabled={!canExport || threatMapLoading}
+          onClick={async () => {
+            if (!canExport || threatMapLoading) return;
+            setThreatMapLoading(true);
+            setThreatMapUrl(null);
+            try {
+              const res = await fetch("http://localhost:8000/api/threatmap", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  entity: state.entity,
+                  entity_type: state.entityType,
+                  narrative: state.narrative?.slice(0, 300) ?? "",
+                }),
+              });
+              const data = await res.json();
+              if (data.image_url) setThreatMapUrl(data.image_url);
+            } catch (e) {
+              console.error("Threat map generation failed:", e);
+            } finally {
+              setThreatMapLoading(false);
+            }
+          }}
+          className={cn(
+            "w-full rounded-lg border px-3 py-2 text-xs font-mono transition-all",
+            canExport && !threatMapLoading
+              ? "border-yellow-500/25 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/15"
+              : "border-border bg-surface-raised text-muted-foreground"
+          )}
+        >
+          <span className="flex items-center justify-center gap-2">
+            <ImageIcon className="h-3.5 w-3.5" />
+            {threatMapLoading ? "Generating..." : "Generate Threat Map (GMI)"}
+          </span>
+        </button>
+
+        {threatMapUrl && (
+          <div className="mt-1 rounded-lg overflow-hidden border border-yellow-500/20">
+            <img src={threatMapUrl} alt="AI-generated threat map" className="w-full" />
+          </div>
+        )}
       </div>
 
       {/* ── Narrative body ─────────────────────────────────── */}
