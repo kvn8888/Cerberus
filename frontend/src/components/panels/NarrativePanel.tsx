@@ -29,7 +29,7 @@ interface NarrativePanelProps {
 
 export function NarrativePanel({ state }: NarrativePanelProps) {
   const [confirmed, setConfirmed] = useState(false);
-  const [threatMapUrl, setThreatMapUrl] = useState<string | null>(null);
+  const [threatMapSvg, setThreatMapSvg] = useState<string | null>(null);
   const [threatMapLoading, setThreatMapLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [compareText, setCompareText] = useState("ua-parser-js:package\n203.0.113.42:ip");
@@ -71,12 +71,16 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
 
   const handleExportPdf = async () => {
     if (!canExport) return;
+    // Open the window synchronously (in the click handler) so browsers don't block it
+    const popup = window.open("", "_blank", "width=900,height=700");
+    if (!popup) {
+      alert("Popup blocked — please allow popups for this site.");
+      return;
+    }
+    popup.document.write("<html><body><p style='font-family:sans-serif;padding:40px'>Loading report...</p></body></html>");
     try {
       const report = await fetchReport({ entity: state.entity, type: state.entityType });
-      const popup = window.open("", "_blank", "width=900,height=700");
-      if (!popup) {
-        throw new Error("Popup blocked");
-      }
+      popup.document.open();
       popup.document.write(`
         <html>
           <head>
@@ -129,6 +133,9 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
       popup.print();
     } catch (err) {
       console.error("Export failed:", err);
+      popup.document.open();
+      popup.document.write("<html><body><p style='font-family:sans-serif;padding:40px;color:red'>Report generation failed. Check the console for details.</p></body></html>");
+      popup.document.close();
     }
   };
 
@@ -206,7 +213,7 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
           onClick={async () => {
             if (!canExport || threatMapLoading) return;
             setThreatMapLoading(true);
-            setThreatMapUrl(null);
+            setThreatMapSvg(null);
             try {
               const res = await fetch("http://localhost:8000/api/threatmap", {
                 method: "POST",
@@ -214,11 +221,11 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
                 body: JSON.stringify({
                   entity: state.entity,
                   entity_type: state.entityType,
-                  narrative: state.narrative?.slice(0, 300) ?? "",
+                  narrative: state.narrative?.slice(0, 500) ?? "",
                 }),
               });
               const data = await res.json();
-              if (data.image_url) setThreatMapUrl(data.image_url);
+              if (data.svg) setThreatMapSvg(data.svg);
             } catch (e) {
               console.error("Threat map generation failed:", e);
             } finally {
@@ -234,14 +241,15 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
         >
           <span className="flex items-center justify-center gap-2">
             <ImageIcon className="h-3.5 w-3.5" />
-            {threatMapLoading ? "Generating..." : "Generate Threat Map (GMI)"}
+            {threatMapLoading ? "Generating..." : "Generate Threat Map (AI)"}
           </span>
         </button>
 
-        {threatMapUrl && (
-          <div className="mt-1 rounded-lg overflow-hidden border border-yellow-500/20">
-            <img src={threatMapUrl} alt="AI-generated threat map" className="w-full" />
-          </div>
+        {threatMapSvg && (
+          <div
+            className="mt-1 rounded-lg overflow-hidden border border-yellow-500/20 bg-[#0a0e1a]"
+            dangerouslySetInnerHTML={{ __html: threatMapSvg }}
+          />
         )}
       </div>
 

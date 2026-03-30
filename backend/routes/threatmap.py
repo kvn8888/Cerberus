@@ -1,18 +1,18 @@
 """
 routes/threatmap.py
 
-AI-generated threat map image via GMI Cloud (gpt-image-1.5).
+AI-generated threat map SVG via Anthropic Claude.
 
-POST /api/threatmap  — generate a visual threat intelligence image for an entity
+POST /api/threatmap  — generate a visual threat intelligence SVG for an entity
 """
 
 from __future__ import annotations
 
 import logging
+import re
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from openai import OpenAI
 
 import config
 
@@ -23,49 +23,71 @@ router = APIRouter(prefix="/api")
 class ThreatMapRequest(BaseModel):
     entity: str
     entity_type: str
-    narrative: str = ""  # optional — uses short summary if provided
+    narrative: str = ""  # optional context from the investigation
 
 
 @router.post("/threatmap")
 async def generate_threatmap(req: ThreatMapRequest):
     """
-    Generate a threat intelligence visualization image using GMI's gpt-image-1.5.
-    Returns a URL to the generated image.
+    Generate a threat intelligence visualization as an SVG using Claude.
+    Returns the raw SVG string for inline rendering.
     """
-    gmi_key = config.get("GMI_API_KEY")
-    gmi_url = config.get("GMI_BASE_URL", "https://api.gmi-serving.com/v1")
+    api_key = config.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
 
-    if not gmi_key:
-        raise HTTPException(status_code=503, detail="GMI_API_KEY not configured")
+    # Import here to avoid top-level dependency issues
+    import anthropic
 
-    client = OpenAI(api_key=gmi_key, base_url=gmi_url)
+    client = anthropic.Anthropic(api_key=api_key)
 
-    # Build a prompt that creates a compelling threat intel visualization
-    summary = req.narrative[:300] if req.narrative else f"{req.entity_type} threat entity"
-    prompt = (
-        f"A dark cyberpunk threat intelligence map visualization. "
-        f"Central node labeled '{req.entity}' ({req.entity_type}) glowing red, "
-        f"connected by neon lines to surrounding threat nodes: ThreatActors in purple, "
-        f"malicious IPs in orange, CVEs in red, Domains in cyan, FraudSignals in yellow. "
-        f"Force-directed graph layout on a deep black background with subtle grid lines. "
-        f"Style: dark terminal aesthetic, security operations center display. "
-        f"Context: {summary}"
-    )
+    summary = req.narrative[:500] if req.narrative else f"{req.entity_type} threat entity"
+
+    prompt = f"""Generate a complete, standalone SVG image (1000x600 viewBox) visualizing a cybersecurity threat intelligence graph.
+
+Entity: {req.entity} (type: {req.entity_type})
+Context: {summary}
+
+Requirements:
+- Dark background (#0a0e1a)
+- Central node for "{req.entity}" glowing in red with a label
+- Surrounding connected nodes representing: ThreatActors (purple #a855f7), IPs (orange #f97316), CVEs (red #ef4444), Domains (cyan #06b6d4), Packages (blue #3b82f6), FraudSignals (yellow #eab308)
+- Create 6-10 connected nodes based on the context, using real entity names from the narrative if available
+- Neon glowing edges (use SVG filters for glow effects)
+- Each node: circle with glow + text label below
+- Edges: curved paths with gradient strokes
+- Include a title bar at top: "CERBERUS THREAT MAP — {req.entity}"
+- Include a small legend in the bottom-right corner
+- Style: dark SOC terminal aesthetic, cyberpunk feel
+- Add subtle grid lines in the background
+- Use SVG animations: pulsing nodes (animate r), dashed-stroke moving edges (animate stroke-dashoffset)
+
+Return ONLY the SVG code, starting with <svg and ending with </svg>. No markdown, no explanation."""
 
     try:
-        response = client.images.generate(
-            model="gpt-image-1.5",
-            prompt=prompt,
-            n=1,
-            size="1024x1024",
+        response = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=4000,
+            messages=[{"role": "user", "content": prompt}],
         )
-        image_url = response.data[0].url
+
+        svg_text = response.content[0].text.strip()
+
+        # Extract SVG if wrapped in markdown code blocks
+        md_match = re.search(r"```(?:svg|xml)?\s*(.*?)```", svg_text, re.DOTALL)
+        if md_match:
+            svg_text = md_match.group(1).strip()
+
+        # Validate it looks like SVG
+        if not svg_text.startswith("<svg"):
+            raise ValueError("Response did not contain valid SVG")
+
         return {
             "entity": req.entity,
             "entity_type": req.entity_type,
-            "image_url": image_url,
-            "provider": "GMI Cloud / gpt-image-1.5",
+            "svg": svg_text,
+            "provider": "Anthropic Claude",
         }
     except Exception as exc:
-        logger.error("GMI image generation failed: %s", exc)
+        logger.error("Threat map generation failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Image generation failed: {exc}")
