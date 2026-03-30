@@ -8,6 +8,7 @@
  * Implements US-4 (streaming narrative) and US-7 (analyst confirmation).
  */
 import { useEffect, useMemo, useState } from "react";
+import ReactMarkdown from "react-markdown";
 import { pdf } from "@react-pdf/renderer";
 import {
   FileText,
@@ -246,33 +247,29 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
                 )}
               </div>
 
-              {/* Narrative text with terminal-style rendering */}
+              {/* Narrative text with markdown rendering */}
               <div className="relative">
-                {/* Vertical accent line */}
                 <div className="absolute left-0 top-0 bottom-0 w-px bg-primary/15" />
 
                 <div
                   className={cn(
                     "pl-4 font-mono text-[13px] leading-[1.8] text-foreground/85",
-                    "selection:bg-primary/20"
+                    "selection:bg-primary/20",
+                    "prose prose-invert prose-sm max-w-none",
+                    "prose-headings:text-primary prose-headings:font-mono prose-headings:text-sm prose-headings:mt-3 prose-headings:mb-1",
+                    "prose-strong:text-primary prose-strong:font-semibold",
+                    "prose-p:mb-2 prose-p:leading-[1.8]",
+                    "prose-ul:my-1 prose-li:my-0.5 prose-li:marker:text-primary/40",
+                    "prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs",
                   )}
                 >
-                  {state.narrative.split("\n").map((line, i) => (
-                    <p
-                      key={i}
-                      className="animate-text-reveal mb-2"
-                      style={{ animationDelay: `${i * 0.03}s` }}
-                    >
-                      {line || "\u00A0"}
-                    </p>
-                  ))}
+                  <ReactMarkdown>{state.narrative}</ReactMarkdown>
 
-                {/* Animated cursor while streaming */}
-                {state.status === "running" && (
-                  <span className="inline-flex items-center gap-1 text-primary">
-                    <span className="w-1.5 h-4 bg-primary animate-pulse" />
-                  </span>
-                )}
+                  {state.status === "running" && (
+                    <span className="inline-flex items-center gap-1 text-primary">
+                      <span className="w-1.5 h-4 bg-primary animate-pulse" />
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
