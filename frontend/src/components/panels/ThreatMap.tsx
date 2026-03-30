@@ -281,25 +281,56 @@ export function ThreatMap({ state }: ThreatMapProps) {
         const newNodes: ThreatNode[] = [];
         const newConns: ThreatConnection[] = [];
 
+        const seenActors = new Set<string>();
+        const staticIds = new Set(THREAT_NODES.map((n) => n.id));
+
         for (const pt of data.points) {
           const actors: string[] = pt.actors || [];
           const actorName = actors[0] || "";
-          const id = `live-${pt.ip || Math.random()}`;
+          const ipId = `live-ip-${pt.ip}`;
+
+          // Add the IP as an infrastructure node
           newNodes.push({
-            id,
-            name: actorName ? `${pt.ip} (${actorName})` : pt.ip,
-            type: actorName ? "infrastructure" : "infrastructure",
+            id: ipId,
+            name: pt.ip,
+            type: "infrastructure",
             position: { x: latLonToX(pt.lon ?? 0), y: latLonToY(pt.lat ?? 0) },
             severity: actorName ? "critical" : "high",
             region: pt.geo || "Unknown",
             active: true,
           });
-          // Connect live IP to any matching static APT node
-          const matchingApt = THREAT_NODES.find(
-            (n) => n.type === "apt" && actors.some((a: string) => n.name.toLowerCase().includes(a.toLowerCase().split(" ")[0]))
-          );
-          if (matchingApt) {
-            newConns.push({ from: id, to: matchingApt.id, active: true, type: "c2" });
+
+          // Create an APT node for each unique actor (if not already static)
+          for (const actor of actors) {
+            if (!actor || seenActors.has(actor)) continue;
+            seenActors.add(actor);
+
+            const matchingStatic = THREAT_NODES.find(
+              (n) => n.type === "apt" && n.name.toLowerCase().includes(actor.toLowerCase().split(" ")[0])
+            );
+            if (!matchingStatic) {
+              const actorId = `live-actor-${actor.replace(/\s+/g, "-").toLowerCase()}`;
+              newNodes.push({
+                id: actorId,
+                name: actor,
+                type: "apt",
+                position: { x: latLonToX(pt.lon ?? 0) + 2, y: latLonToY(pt.lat ?? 0) - 3 },
+                severity: "critical",
+                region: pt.geo || "Unknown",
+                active: true,
+              });
+            }
+          }
+
+          // Connect IP to its actor (static or live)
+          if (actorName) {
+            const matchStatic = THREAT_NODES.find(
+              (n) => n.type === "apt" && n.name.toLowerCase().includes(actorName.toLowerCase().split(" ")[0])
+            );
+            const targetId = matchStatic
+              ? matchStatic.id
+              : `live-actor-${actorName.replace(/\s+/g, "-").toLowerCase()}`;
+            newConns.push({ from: ipId, to: targetId, active: true, type: "c2" });
           }
         }
         setLiveNodes(newNodes);
