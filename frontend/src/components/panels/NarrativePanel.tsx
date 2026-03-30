@@ -18,11 +18,10 @@ import {
   AlertTriangle,
   Shield,
   Download,
-  GitCompareArrows,
   ImageIcon,
 } from "lucide-react";
 import type { InvestigationState } from "../../types/api";
-import { compareEntities, confirmEntity, fetchReport, generateThreatMap } from "../../lib/api";
+import { confirmEntity, fetchReport, generateThreatMap } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import { ThreatReportPdf } from "../report/ThreatReportPdf";
 
@@ -35,23 +34,9 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
   const [threatMapSvg, setThreatMapSvg] = useState<string | null>(null);
   const [threatMapLoading, setThreatMapLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const [compareText, setCompareText] = useState("ua-parser-js:package\n203.0.113.42:ip");
-  const [compareBusy, setCompareBusy] = useState(false);
-  const [compareError, setCompareError] = useState("");
-  const [compareResults, setCompareResults] = useState<Array<{
-    entity: string;
-    entity_type: string;
-    paths_found: number;
-    from_cache: boolean;
-    risk_level: string;
-    summary: string;
-  }>>([]);
-
   useEffect(() => {
     setConfirmed(false);
     setThreatMapSvg(null);
-    setCompareResults([]);
-    setCompareError("");
   }, [state.entity]);
 
   const canExport = useMemo(
@@ -104,30 +89,6 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
       alert("Report generation failed — check the console for details.");
     } finally {
       setPdfBusy(false);
-    }
-  };
-
-  const handleCompare = async () => {
-    setCompareBusy(true);
-    setCompareError("");
-    try {
-      const queries = compareText
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => {
-          const [entity, type = "package"] = line.split(":");
-          return {
-            entity: entity.trim(),
-            type: type.trim() as InvestigationState["entityType"],
-          };
-        });
-      const data = await compareEntities(queries);
-      setCompareResults(data.results);
-    } catch (err) {
-      setCompareError(err instanceof Error ? err.message : "Compare failed");
-    } finally {
-      setCompareBusy(false);
     }
   };
 
@@ -289,45 +250,6 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
           </div>
         )}
 
-        <div className="mt-6 rounded-lg border border-border bg-surface-raised/35 p-3">
-          <div className="mb-2 flex items-center gap-2 text-[10px] font-mono uppercase tracking-[0.15em] text-muted-foreground">
-            <GitCompareArrows className="h-3.5 w-3.5 text-primary" />
-            Multi-Entity Comparison
-          </div>
-          <textarea
-            value={compareText}
-            onChange={(e) => setCompareText(e.target.value)}
-            rows={4}
-            className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-xs font-mono text-foreground focus:outline-none focus:border-primary/40"
-          />
-          <button
-            type="button"
-            onClick={handleCompare}
-            disabled={compareBusy}
-            className="mt-2 w-full rounded-lg border border-primary/25 bg-primary/10 px-3 py-2 text-xs font-semibold text-primary hover:bg-primary/15 disabled:opacity-50"
-          >
-            {compareBusy ? "Comparing..." : "Compare Entities"}
-          </button>
-          {compareError && (
-            <p className="mt-2 text-[10px] font-mono text-threat-high">{compareError}</p>
-          )}
-          {compareResults.length > 0 && (
-            <div className="mt-3 space-y-2">
-              {compareResults.map((result) => (
-                <div key={`${result.entity}-${result.entity_type}`} className="rounded-md border border-border/70 bg-surface/70 p-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-xs text-primary">{result.entity}</span>
-                    <span className="text-[10px] font-mono text-muted-foreground">{result.risk_level}</span>
-                  </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    {result.entity_type} • {result.paths_found} paths • {result.from_cache ? "cached" : "fresh"}
-                  </p>
-                  <p className="mt-2 text-xs leading-relaxed text-foreground/85">{result.summary}</p>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
       </div>
 
       {/* ── Confirm button — only shown when investigation is complete ── */}
