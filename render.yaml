@@ -91,6 +91,5 @@ services:
         destination: /index.html
     envVars:
       # Backend API URL — baked into the frontend JS bundle at build time.
-      # Set this to the cerberus-backend service's public URL from Render.
       - key: VITE_API_URL
-        sync: false
+        value: https://cerberus-backend-ritc.onrender.com
