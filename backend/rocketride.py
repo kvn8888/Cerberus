@@ -44,8 +44,8 @@ import llm
 
 logger = logging.getLogger(__name__)
 
-# RocketRide pipeline endpoint path — update if the platform uses a different route
-_PIPELINE_RUN_PATH = "/api/pipelines/cerberus-query/run"
+# RocketRide pipeline endpoint path — cerberus-query uses ChatSource with endpoint:/query
+_PIPELINE_RUN_PATH = "/query"
 # Health check path — used to detect if RocketRide is reachable
 _HEALTH_PATH = "/health"
 # Request timeout for checking availability (seconds)
@@ -138,13 +138,10 @@ async def _stream_rocketride(
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
+    # RocketRide ChatSource expects natural language in "message".
+    # The NERNode inside the pipeline extracts entity + type from it.
     payload = {
         "message": f"analyze {entity}",
-        "entity": entity,
-        "entity_type": entity_type,
-        # Pass traversal context so RocketRide can skip graph traversal
-        # and jump straight to the LLM node if we already have paths
-        "traversal": traversal,
     }
 
     url = f"{base_url}{_PIPELINE_RUN_PATH}"
@@ -155,10 +152,17 @@ async def _stream_rocketride(
                 if not line.startswith("data: "):
                     continue
                 raw = line[6:].strip()
+                # Handle both "[DONE]" string and {"done": true} JSON terminal
                 if raw == "[DONE]":
-                    return  # caller will emit [DONE] after write-back
+                    return  # caller emits [DONE] after write-back
                 try:
                     event = json.loads(raw)
+                    # RocketRide terminal event — emit metadata then stop
+                    if event.get("done") is True:
+                        normalized = _normalize_rocketride_chunk(event)
+                        if normalized:
+                            yield f"data: {json.dumps(normalized)}\n\n"
+                        return
                     normalized = _normalize_rocketride_chunk(event)
                     if normalized is not None:
                         yield f"data: {json.dumps(normalized)}\n\n"
@@ -170,29 +174,44 @@ def _normalize_rocketride_chunk(event: dict) -> dict | None:
     """
     Translate a RocketRide SSE event into the Cerberus SSE contract.
 
-    Cerberus contract:
-        {"stage": str}                    — pipeline stage transition
-        {"text": str}                     — narrative chunk
-        {"paths_found": int, "from_cache": bool}  — metadata
+    Confirmed RocketRide SSE format (from pipeline YAML analysis):
+        Mid-stream:  {"chunk": "text fragment", "done": false}
+        Terminal:    {"done": true, "paths_found": int, "from_cache": bool}
 
-    RocketRide may use different field names. Update this function when
-    you have access to the actual RocketRide SSE format docs.
-    Currently passes through events that already match the contract,
-    and maps common alternative field names.
+    Cerberus contract (what the frontend expects):
+        {"stage": str}                          — pipeline stage transition
+        {"text": str}                           — narrative chunk
+        {"paths_found": int, "from_cache": bool}  — metadata (terminal)
+        "[DONE]"                                — handled separately in caller
+
+    Note: {"done": true} is handled by the caller (_stream_rocketride checks
+    for it to stop iteration). This function only maps non-terminal chunks.
     """
-    # Already in contract format
+    # RocketRide confirmed format: {"chunk": "...", "done": false}
+    if "chunk" in event and not event.get("done", False):
+        return {"text": event["chunk"]}
+
+    # RocketRide terminal metadata: {"done": true, "paths_found": N, "from_cache": bool}
+    # The "done" signal itself is handled by caller; emit the metadata here.
+    if event.get("done") is True:
+        result: dict = {}
+        if "paths_found" in event:
+            result["paths_found"] = event["paths_found"]
+        if "from_cache" in event:
+            result["from_cache"] = event["from_cache"]
+        return result if result else None
+
+    # Already in Cerberus contract format (stage events, etc.)
     if "stage" in event or "text" in event or "paths_found" in event:
         return event
 
-    # RocketRide may use "content" instead of "text"
+    # Alternative field names seen in other orchestrators — keep as fallback
     if "content" in event:
         return {"text": event["content"]}
-
-    # RocketRide may use "node" or "step" for stage
     if "node" in event:
         return {"stage": event["node"]}
     if "step" in event:
         return {"stage": event["step"]}
 
-    # Unknown event — pass through as-is for debugging
+    # Unknown event — pass through for debugging
     return event
