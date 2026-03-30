@@ -37,23 +37,54 @@ interface QueryPanelProps {
 }
 
 /**
- * Auto-detect entity type from user input using simple pattern matching.
- * Falls back to "package" if nothing else matches.
+ * Auto-detect entity type from user input using pattern matching.
+ * Handles both raw entities ("CVE-2021-27292") and natural language
+ * ("What is CVE-2021-27292?") by extracting known patterns from anywhere
+ * in the input. Returns the cleaned entity value alongside the type so
+ * the caller can submit the actual entity, not the full sentence.
  */
-function detectEntityType(input: string): { type: EntityType; label: string } {
+function detectEntityType(input: string): {
+  type: EntityType;
+  label: string;
+  extracted: string;
+} {
   const trimmed = input.trim();
-  if (/^CVE-\d{4}-\d{4,7}$/i.test(trimmed))
-    return { type: "cve", label: "CVE" };
-  if (/^(\d{1,3}\.){3}\d{1,3}$/.test(trimmed))
-    return { type: "ip", label: "IP Address" };
+
+  // Try to extract a CVE ID from anywhere in the input
+  const cveMatch = trimmed.match(/CVE-\d{4}-\d{4,7}/i);
+  if (cveMatch) return { type: "cve", label: "CVE", extracted: cveMatch[0].toUpperCase() };
+
+  // Extract an IPv4 address from anywhere in the input
+  const ipMatch = trimmed.match(/\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b/);
+  if (ipMatch) return { type: "ip", label: "IP Address", extracted: ipMatch[1] };
+
+  // Extract a Juspay fraud signal ID
+  const jsMatch = trimmed.match(/\b(JS-\d{4}-\d{4})\b/i);
+  if (jsMatch) return { type: "fraudsignal", label: "Fraud Signal", extracted: jsMatch[1].toUpperCase() };
+
+  // Domain pattern — only match if the input looks like a bare domain (no spaces)
   if (/^[a-zA-Z0-9]([a-zA-Z0-9-]*\.)+[a-zA-Z]{2,}$/.test(trimmed))
-    return { type: "domain", label: "Domain" };
-  if (/^JS-/i.test(trimmed))
-    return { type: "fraudsignal", label: "Fraud Signal" };
-  // Known threat actor patterns: multi-word with capitals, or contains "Group", "Spider", etc.
-  if (/\b(group|spider|bear|panda|apt\d+|lazarus|fin\d+|wizard|velvet|dragonfly)\b/i.test(trimmed))
-    return { type: "threatactor", label: "Threat Actor" };
-  return { type: "package", label: "Package" };
+    return { type: "domain", label: "Domain", extracted: trimmed };
+
+  // Known threat actor patterns: extract the actor name from the input
+  const actorPattern = /\b(apt\d+|lazarus\s+group|fin\d+|fancy\s+bear|cozy\s+bear|hafnium|sandworm\s+team|cl0p|wizard\s+spider|mummy\s+spider)\b/i;
+  const actorMatch = trimmed.match(actorPattern);
+  if (actorMatch) return { type: "threatactor", label: "Threat Actor", extracted: actorMatch[1] };
+
+  // Broader actor keyword check (Group, Spider, Bear, etc.)
+  if (/\b(group|spider|bear|panda)\b/i.test(trimmed) && trimmed.includes(" "))
+    return { type: "threatactor", label: "Threat Actor", extracted: trimmed };
+
+  // Default: treat as a package name. If it looks like a sentence (has spaces
+  // and question marks), strip common wrappers to extract the likely entity.
+  let entity = trimmed;
+  const unwrapped = trimmed
+    .replace(/^(what|who|where|how|why|show|tell|find|is|are|investigate|check|look\s+up|search)\s+(is|are|me|for|about|up)?\s*/i, "")
+    .replace(/[?.!]+$/, "")
+    .trim();
+  if (unwrapped && unwrapped !== trimmed) entity = unwrapped;
+
+  return { type: "package", label: "Package", extracted: entity };
 }
 
 /** Icon for each entity type — used in the detected type badge */
@@ -110,7 +141,7 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim() || isRunning) return;
-    onInvestigate(query.trim(), detected.type);
+    onInvestigate(detected.extracted, detected.type);
   };
 
   const handleExample = (ex: (typeof EXAMPLES)[0]) => {
@@ -217,12 +248,17 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
                 />
               </div>
               {query.trim() && (
-                <div className="mt-2 flex items-center gap-2 animate-fade-in">
+                <div className="mt-2 flex items-center gap-2 animate-fade-in flex-wrap">
                   <span className="text-[10px] font-mono text-muted-foreground/60">Detected:</span>
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-primary/10 text-primary border border-primary/20">
                     <DetectedIcon className="h-2.5 w-2.5" />
                     {detected.label}
                   </span>
+                  {detected.extracted !== query.trim() && (
+                    <span className="text-[10px] font-mono text-primary/70">
+                      → {detected.extracted}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
