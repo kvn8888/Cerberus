@@ -58,7 +58,7 @@ def generate_narrative(
     )
 
     message = _get_client().messages.create(
-        model="claude-opus-4-6",
+        model="claude-sonnet-4-20250514",
         max_tokens=600,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
@@ -83,7 +83,7 @@ def generate_narrative_stream(
     )
 
     with _get_client().messages.stream(
-        model="claude-opus-4-6",
+        model="claude-sonnet-4-20250514",
         max_tokens=600,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],

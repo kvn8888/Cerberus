@@ -73,13 +73,27 @@ async def query(req: QueryRequest):
         )
         llm_called = False
     else:
-        narrative  = await asyncio.to_thread(
-            llm.generate_narrative, entity, entity_type, traversal
-        )
-        llm_called = True
+        try:
+            narrative  = await asyncio.to_thread(
+                llm.generate_narrative, entity, entity_type, traversal
+            )
+            llm_called = True
+        except Exception as exc:
+            # LLM failure shouldn't block graph results — return traversal data
+            # with a fallback narrative so analysts can still act on the paths.
+            cross_domain = traversal.get("cross_domain", [])
+            cross_summary = f"{len(cross_domain)} cross-domain link(s) found" if cross_domain else "no cross-domain links"
+            narrative = (
+                f"[LLM unavailable: {type(exc).__name__}] "
+                f"Graph traversal found {paths_found} threat path(s) for {entity}. "
+                f"{cross_summary}. "
+                f"Review the raw graph data for full detail."
+            )
+            llm_called = False
 
-        # ── 4. Write-back: tag paths with analysis timestamp ─────────────────
-        await asyncio.to_thread(db.write_back, entity, entity_type, narrative)
+        if llm_called:
+            # ── 4. Write-back: tag paths with analysis timestamp ─────────────
+            await asyncio.to_thread(db.write_back, entity, entity_type, narrative)
 
     return {
         "entity":       entity,

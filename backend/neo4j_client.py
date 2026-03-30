@@ -72,7 +72,7 @@ def _entity_label(entity_type: str) -> str:
 
 _CACHE_CHECK_TMPL = """
 MATCH path = shortestPath(
-  (start:{label} {{{key}: $value}})-[*]-(ta:ThreatActor)
+  (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
 )
 WHERE ALL(r IN relationships(path) WHERE r.confirmed = true)
 RETURN path, true AS from_cache, start.cached_narrative AS narrative
@@ -136,9 +136,8 @@ LIMIT 10
 # fallback: bidirectional
 _TRAVERSE_GENERIC = """
 MATCH path = allShortestPaths(
-  (start:{label} {{{key}: $value}})-[*]-(ta:ThreatActor)
+  (start:{label} {{{key}: $value}})-[*..5]-(ta:ThreatActor)
 )
-WHERE length(path) <= 5
 RETURN path
 LIMIT 10
 """
@@ -186,10 +185,9 @@ def traverse(entity: str, entity_type: str) -> dict[str, Any]:
 
 _WRITE_BACK = """
 MATCH path = shortestPath(
-  (start:{label} {{{key}: $value}})-[*]-(ta:ThreatActor)
+  (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
 )
-WHERE length(path) <= 6
-WITH nodes(path) AS ns, relationships(path) AS rs
+WITH start, nodes(path) AS ns, relationships(path) AS rs
 FOREACH (n IN ns | SET n.last_analyzed = timestamp())
 FOREACH (r IN rs | SET r.last_analyzed = timestamp())
 SET start.cached_narrative = $narrative,
@@ -214,12 +212,10 @@ def write_back(entity: str, entity_type: str, narrative: str | None = None) -> N
 
 _CONFIRM = """
 MATCH path = shortestPath(
-  (start:{label} {{{key}: $value}})-[*]-(ta:ThreatActor)
+  (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
 )
-WHERE length(path) <= 6
-WITH nodes(path) AS ns, relationships(path) AS rs
-FOREACH (n IN ns | SET n:ConfirmedThreat)
-FOREACH (r IN rs |
+FOREACH (n IN nodes(path) | SET n:ConfirmedThreat)
+FOREACH (r IN relationships(path) |
   SET r.confirmed    = true,
       r.confirmed_at = timestamp()
 )
