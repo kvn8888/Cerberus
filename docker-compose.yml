@@ -58,6 +58,10 @@ services:
       - ROCKETRIDE_URI=${ROCKETRIDE_URI:-http://host.docker.internal:5565}
       - ROCKETRIDE_APIKEY=${ROCKETRIDE_APIKEY}
       - ROCKETRIDE_ANTHROPIC_KEY=${ROCKETRIDE_ANTHROPIC_KEY}
+      # MCP endpoint that RocketRide's MCP Client node uses to reach neo4j-mcp.
+      # Default: localhost:8787 (host-mapped port) since RocketRide engine
+      # runs on the host, not inside Docker.
+      - NEO4J_MCP_ENDPOINT=${NEO4J_MCP_ENDPOINT:-http://localhost:8787/mcp}
     depends_on:
       neo4j-mcp:
         condition: service_healthy

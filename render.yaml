@@ -65,6 +65,11 @@ services:
         sync: false
       - key: ROCKETRIDE_ANTHROPIC_KEY
         sync: false
+      # MCP endpoint for RocketRide's MCP Client node to reach neo4j-mcp.
+      # On Render, neo4j-mcp is a private service — if RocketRide runs on
+      # the cloud, you'll need a public tunnel (ngrok) to expose it.
+      - key: NEO4J_MCP_ENDPOINT
+        sync: false
     healthCheckPath: /health
 
   # ── frontend: Static Site (free) ───────────────────────────
