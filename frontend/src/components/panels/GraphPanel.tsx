@@ -10,7 +10,7 @@
  * the /api/query/graph endpoint. Falls back to a demo graph if the
  * backend doesn't return data (e.g. empty graph, API unreachable).
  */
-import { useMemo, useRef, useCallback, useEffect } from "react";
+import { useMemo, useRef, useCallback, useEffect, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 import type { InvestigationState, EntityType } from "../../types/api";
 import { cn } from "../../lib/utils";
@@ -130,6 +130,22 @@ export function GraphPanel({ state }: GraphPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   /* Ref for the force graph instance */
   const graphRef = useRef<any>(null);
+  /* Track container dimensions so the canvas fills all available space */
+  const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
+
+  /* ResizeObserver keeps the canvas size in sync with the container */
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const { width, height } = entries[0].contentRect;
+      if (width > 0 && height > 0) {
+        setContainerSize({ width, height });
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   /* Use real graph data from backend when available, fall back to demo */
   const graphData = useMemo(() => {
@@ -232,8 +248,8 @@ export function GraphPanel({ state }: GraphPanelProps) {
           linkDirectionalParticleWidth={1.5}
           linkDirectionalParticleColor={() => "rgba(0, 229, 255, 0.5)"}
           cooldownTicks={60}
-          width={containerRef.current?.clientWidth || 600}
-          height={containerRef.current?.clientHeight || 400}
+          width={containerSize.width}
+          height={containerSize.height}
         />
       )}
 
