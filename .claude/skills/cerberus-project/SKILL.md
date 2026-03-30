@@ -45,7 +45,7 @@ FRONTEND (React + Tailwind + shadcn/ui + neovis.js)
 | Frontend | React 18 + Vite + Tailwind + shadcn/ui |
 | Graph Viz | neovis.js (via backend proxy — never direct Aura connection) |
 | Streaming | SSE (via sse-starlette + FastAPI StreamingResponse) |
-| LLM | Anthropic Claude (claude-opus-4-6, via anthropic SDK) |
+| LLM | Anthropic Claude (claude-sonnet-4-20250514, via anthropic SDK) |
 | HTTP client | httpx (async) |
 
 ## Neo4j Schema
@@ -170,7 +170,14 @@ CERBERUS_API=http://localhost:8000
 | GET | `/api/schema` | Live graph schema (labels, rel types, counts) |
 | POST | `/api/query` | Main query: cache check → traverse → LLM narrative |
 | GET | `/api/query/stream` | SSE streaming version of query endpoint |
-| POST | `/api/confirm` | Analyst confirms threat pattern → write-back |
+| POST | `/api/confirm` | Analyst confirms threat pattern → write-back (returns count + message) |
+| GET | `/api/graph` | Force-directed graph data (nodes + edges) for vis |
+| POST | `/api/demo/natural` | NLP entity extraction from free-text |
+| POST | `/api/demo/compare` | Multi-entity comparison (side-by-side) |
+| GET | `/api/demo/feed` | Synthetic fraud event stream |
+| POST | `/api/demo/feed/ingest` | Upsert fraud signals into graph |
+| GET | `/api/demo/map` | Geo-IP map data (lat/lng points) |
+| GET | `/api/demo/report` | Full investigation report (Juspay summary) |
 
 ### Query Pipeline Flow
 
@@ -196,10 +203,13 @@ Return response
 |------|---------|
 | `backend/main.py` | FastAPI app, CORS, lifespan, schema endpoint |
 | `backend/config.py` | Env var loader with validation |
-| `backend/neo4j_client.py` | Neo4j driver wrapper, traversal queries, cache/confirm |
+| `backend/neo4j_client.py` | Neo4j driver wrapper, traversal, cache/confirm, graph viz, geo, Juspay |
 | `backend/llm.py` | Anthropic Claude narrative generation (blocking + streaming) |
-| `backend/routes/query.py` | POST /api/query + GET /api/query/stream |
-| `backend/routes/confirm.py` | POST /api/confirm |
+| `backend/rocketride.py` | RocketRide pipeline integration (async httpx, SSE proxy, 60s timeout) |
+| `backend/models.py` | Pydantic models: EntityType, QueryRequest, ConfirmRequest |
+| `backend/routes/query.py` | POST /api/query + GET /api/query/stream (uses rocketride fallback) |
+| `backend/routes/confirm.py` | POST /api/confirm (returns confirmed count + message) |
+| `backend/routes/demo.py` | Demo APIs: NLP, comparison, feed, map, report |
 
 ## RocketRide Pipeline Definitions
 
@@ -220,6 +230,48 @@ Three test files in `tests/`:
 | `test_api_routes.py` | API routes with mocked Neo4j/LLM (health, query cache hit/miss/empty, confirm) |
 | `test_import_scripts.py` | Data parsing logic, integrity checks (MITRE, CVE, npm, synthetic, threats) |
 | `test_neo4j_client.py` | Entity routing, Cypher template rendering, cache/traverse/confirm logic |
+
+**97 tests passing** as of latest push.
+
+## Frontend Architecture
+
+### State Machine (useInvestigation.ts)
+
+SSE stream from `GET /api/query/stream`:
+```
+idle → running → complete
+         ↓
+SSE events:
+  {"stage": "ner"}    → pipeline stage indicator
+  {"stage": "traverse"}
+  {"paths_found": N}  → graph metadata  
+  {"text": "chunk"}   → narrative chunks
+  "[DONE]"            → stream complete
+```
+
+Pipeline stages rendered in UI: `input → ner → classify → route → traverse → analyze → narrate → complete`
+
+### Panel Components
+
+| Panel | Features |
+|-------|---------|
+| `QueryPanel` | NLP free-text input, entity type pills, live fraud feed carousel, quick-start buttons |
+| `NarrativePanel` | Streaming text animation, confirm button, PDF export, comparison mode |
+| `GraphPanel` | Force-directed graph (d3-force), geo IP map, node color painters, legends |
+
+### API Client (api.ts)
+
+12 typed functions including: `queryEntity()`, `queryStream()`, `confirmEntity()`, `getSchema()`, `getGraph()`, `demoNatural()`, `demoCompare()`, `demoFeed()`, `demoMap()`, `demoReport()`, `ingestFraudSignals()`, `getJuspaySummary()`.
+
+Base URL hardcoded as `http://localhost:8000` — uses the backend's CORS `allow_origins=["*"]`.
+
+## RocketRide Integration (rocketride.py)
+
+Backend integrates with RocketRide AI for pipeline orchestration:
+- **Async httpx client** with 60s timeout for pipeline execution
+- **SSE proxy** — streams pipeline events from RocketRide to frontend
+- **Graceful fallback** — if RocketRide is unavailable, falls back to direct LLM narrative generation
+- Used by `query.py` via `rocketride.generate_narrative_or_fallback()`
 
 ## Project Structure (Current)
 
@@ -271,8 +323,23 @@ Cerberus/
 ├── neo4j-mcp_Darwin_arm64/     # MCP server binary
 │   └── neo4j-mcp
 │
-├── frontend/                   # React app (TBD — not yet scaffolded)
-└── docs/                       # Retrospectives (TBD)
+├── frontend/                   # React + Vite + Tailwind app
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── Header.tsx
+│   │   │   └── panels/
+│   │   │       ├── QueryPanel.tsx    # NLP input, entity pills, quick-start
+│   │   │       ├── NarrativePanel.tsx # Streaming text, confirm, PDF export, comparison
+│   │   │       └── GraphPanel.tsx    # Force-directed graph, geo map, legends
+│   │   ├── hooks/
+│   │   │   └── useInvestigation.ts   # SSE state machine (idle→running→complete)
+│   │   ├── lib/
+│   │   │   └── api.ts               # 12 API functions (typed)
+│   │   └── types/
+│   │       └── api.ts               # Full TypeScript interfaces
+│   └── ...
+└── docs/
+    └── retro-001-script-consolidation.md
 ```
 
 ## Implementation Status
@@ -290,9 +357,16 @@ Cerberus/
 - [x] Backend API (FastAPI) — main, config, neo4j_client, llm, routes
 - [x] RocketRide pipeline YAML definitions (ingest, query, juspay)
 - [x] Test suite (API routes, import scripts, neo4j client)
-- [x] Removed unused hashlib import from neo4j_client.py
-- [ ] Frontend scaffolded
-- [ ] End-to-end integration tested
+- [x] hashlib import verified needed (used in write_back for narrative_hash)
+- [x] neo4j Aura connected (SSL_CERT_FILE fix on macOS)
+- [x] All imports run against live Aura (1060 nodes, 4505 rels)
+- [x] Backend API tested against live DB (all endpoints verified)
+- [x] Demo chain verified: ua-parser-js → ART-BY-FAISAL → 203.0.113.42 → APT41 + 3 FraudSignals
+- [x] Frontend scaffolded (React + Vite + Tailwind + panels + hooks + types)
+- [x] RocketRide integration (rocketride.py with LLM fallback)
+- [x] Demo APIs (NLP, comparison, feed, map, report)
+- [x] 97 tests passing
+- [ ] End-to-end integration tested with real Anthropic API key
 - [ ] Demo rehearsed + pre-cached
 
 ## Known Issues
