@@ -158,7 +158,7 @@ ROCKETRIDE_URL=http://127.0.0.1:3000   # RocketRide (optional, has default)
 CERBERUS_API=http://localhost:8000
 ```
 
-⚠️ **Known issue:** `backend/config.py` reads `ANTHROPIC_KEY` from `NEO4J_API_KEY` env var (semantic mismatch). Fix before demo.
+⚠️ ~~Known issue: `backend/config.py` reads `ANTHROPIC_KEY` from `NEO4J_API_KEY` env var~~ — VERIFIED FALSE. `ANTHROPIC_KEY = _require("ANTHROPIC_API_KEY")` is correct.
 
 ## Backend API (FastAPI)
 
@@ -246,27 +246,20 @@ Cerberus/
 │   ├── cerberus-query.yaml
 │   └── cerberus-juspay.yaml
 │
-├── scripts/                    # Teammate's versions of import scripts
-│   ├── constraints.cypher
-│   ├── import_mitre.py
-│   ├── import_cve.py
-│   ├── import_npm.py
-│   ├── import_synthetic.py
-│   ├── import_threats.py
-│   └── eval_improvement.py
+├── scripts/                    # ALL import scripts + eval (single source of truth)
+│   ├── constraints.cypher      # 8 uniqueness constraints (documented)
+│   ├── import_mitre.py         # MITRE ATT&CK STIX → Neo4j (with caching)
+│   ├── import_cve.py           # CVE data → Neo4j (pre-populated, no API)
+│   ├── import_npm.py           # Compromised npm packages
+│   ├── import_synthetic.py     # Cross-domain bridges + fraud signals
+│   ├── import_threats.py       # Threat IPs/domains with APT attribution
+│   └── eval_improvement.py     # 3-phase self-improvement eval
 │
-├── tests/                      # Test suite
+├── tests/                      # Test suite (adds scripts/ to sys.path)
 │   ├── test_api_routes.py
 │   ├── test_import_scripts.py
 │   └── test_neo4j_client.py
 │
-├── constraints.cypher          # Root version (documented, same 8 constraints)
-├── import_mitre.py             # Root version (caching, fewer deps)
-├── import_cve.py               # Root version (NVD API fetcher)
-├── import_threats.py           # Root version (Abuse.ch feeds)
-├── import_npm.py               # Root version (25 curated packages)
-├── import_synthetic.py         # Root version (cross-domain bridges)
-├── eval_improvement.py         # Root version (3-phase eval)
 ├── entity_schema.json          # Integration contract JSON schema
 │
 ├── seed_data/                  # Pre-downloaded data feeds
@@ -282,33 +275,30 @@ Cerberus/
 └── docs/                       # Retrospectives (TBD)
 ```
 
-⚠️ **Duplicate files:** Import scripts exist in both root and `scripts/`. Root versions have caching + fewer deps (urllib vs requests). `scripts/` versions use requests + stix2. Consolidate before hackathon day.
-
 ## Implementation Status
 
 - [x] Spec v2 finalized
 - [x] neo4j-mcp v1.5.0 confirmed locally
 - [x] Project skill created
-- [x] constraints.cypher (both versions)
-- [x] Import scripts (root versions with caching)
-- [x] Import scripts (scripts/ versions with stix2)
-- [x] eval_improvement.py
+- [x] constraints.cypher (8 uniqueness constraints)
+- [x] Import scripts consolidated in `scripts/` (single source of truth)
+- [x] import_mitre.py has local caching (avoids 43MB re-download)
+- [x] eval_improvement.py (robust error handling + batched deletion)
 - [x] seed_data/ — MITRE data pre-downloaded (~43MB)
 - [x] docker-compose.yml (3 services: mcp + backend + frontend)
 - [x] Entity JSON schema
 - [x] Backend API (FastAPI) — main, config, neo4j_client, llm, routes
 - [x] RocketRide pipeline YAML definitions (ingest, query, juspay)
 - [x] Test suite (API routes, import scripts, neo4j client)
-- [ ] Fix config.py ANTHROPIC_KEY ← NEO4J_API_KEY mismatch
-- [ ] Consolidate duplicate import scripts (root vs scripts/)
+- [x] Removed unused hashlib import from neo4j_client.py
 - [ ] Frontend scaffolded
 - [ ] End-to-end integration tested
 - [ ] Demo rehearsed + pre-cached
 
 ## Known Issues
 
-1. **config.py semantic mismatch:** `ANTHROPIC_KEY` reads from `NEO4J_API_KEY` env var — confusing and error-prone
-2. **neo4j_client.py unused import:** `hashlib` imported but never used (was for narrative_hash, not implemented)
+1. ~~config.py semantic mismatch~~ — VERIFIED FALSE. Config is correct (`ANTHROPIC_KEY = _require("ANTHROPIC_API_KEY")`)
+2. ~~neo4j_client.py unused import~~ — FIXED. Removed unused `hashlib` import
 3. **neo4j_client.py Cypher templating:** Uses `.format()` for labels/keys — mitigated by enum routing but fragile
 4. **CORS wide open:** `allow_origins=["*"]` in main.py — acceptable for hackathon, note for judges
-5. **Duplicate import scripts:** Root versions (urllib, caching) vs scripts/ versions (requests, stix2) need consolidation
+5. ~~Duplicate import scripts~~ — CONSOLIDATED. `scripts/` is now the single source of truth. Root-level duplicates deleted.

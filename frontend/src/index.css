@@ -1,0 +1,157 @@
+/**
+ * index.css — Cerberus Global Design Tokens & Base Styles
+ *
+ * All colors use HSL channel notation so Tailwind's opacity modifiers work.
+ * Components reference semantic tokens via `hsl(var(--token))`.
+ * NEVER use raw color values in component files.
+ */
+
+/* ── Google Fonts ───────────────────────────────────────────────────── */
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap");
+
+/* ── Tailwind layers ────────────────────────────────────────────────── */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Design Tokens ──────────────────────────────────────────────────── */
+:root {
+  /* ─── Surface hierarchy ───────────────────────────── */
+  --background: 220 20% 6%;
+  --foreground: 210 20% 90%;
+  --surface: 220 18% 10%;
+  --surface-raised: 220 16% 14%;
+  --surface-overlay: 220 14% 18%;
+
+  /* ─── Primary / Brand — Electric Cyan ─────────────── */
+  --primary: 185 100% 50%;
+  --primary-foreground: 220 20% 6%;
+  --primary-glow: 185 100% 65%;
+  --primary-muted: 185 40% 25%;
+
+  /* ─── Threat severity spectrum ────────────────────── */
+  --threat-critical: 0 85% 55%;
+  --threat-high: 25 90% 55%;
+  --threat-medium: 45 90% 55%;
+  --threat-low: 55 80% 55%;
+  --threat-info: 210 60% 55%;
+
+  /* ─── Graph node type colors ──────────────────────── */
+  --node-package: 210 80% 60%;
+  --node-cve: 0 80% 60%;
+  --node-ip: 30 85% 60%;
+  --node-domain: 270 60% 65%;
+  --node-actor: 300 70% 60%;
+  --node-technique: 330 70% 60%;
+  --node-account: 150 60% 50%;
+  --node-fraud: 55 85% 55%;
+
+  /* ─── UI utilities ────────────────────────────────── */
+  --muted: 220 15% 20%;
+  --muted-foreground: 220 10% 55%;
+  --border: 220 15% 18%;
+  --ring: 185 100% 50%;
+  --accent: 185 60% 20%;
+  --accent-foreground: 185 100% 70%;
+  --success: 140 70% 45%;
+
+  /* ─── Gradients ───────────────────────────────────── */
+  --gradient-surface: linear-gradient(
+    180deg,
+    hsl(var(--background)) 0%,
+    hsl(220 20% 8%) 100%
+  );
+  --gradient-primary: linear-gradient(
+    135deg,
+    hsl(var(--primary)) 0%,
+    hsl(var(--primary-glow)) 100%
+  );
+
+  /* ─── Shadows ─────────────────────────────────────── */
+  --shadow-panel: 0 4px 24px hsl(var(--background) / 0.5);
+  --shadow-glow: 0 0 20px hsl(var(--primary) / 0.3);
+
+  /* ─── Transitions ─────────────────────────────────── */
+  --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* ── Base layer ─────────────────────────────────────────────────────── */
+@layer base {
+  * {
+    border-color: hsl(var(--border));
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    background: var(--gradient-surface);
+    min-height: 100vh;
+    margin: 0;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--surface));
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--muted-foreground) / 0.3);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+}
+
+/* ── Utility classes ────────────────────────────────────────────────── */
+@layer utilities {
+  .glass-panel {
+    background: hsl(var(--surface) / 0.6);
+    backdrop-filter: blur(12px);
+    border: 1px solid hsl(var(--border) / 0.5);
+    border-radius: 12px;
+  }
+
+  .glow-border {
+    border: 1px solid hsl(var(--primary) / 0.3);
+    box-shadow: 0 0 12px hsl(var(--primary) / 0.15),
+      inset 0 0 12px hsl(var(--primary) / 0.05);
+  }
+
+  .grid-bg {
+    background-image: linear-gradient(
+        hsl(var(--border) / 0.3) 1px,
+        transparent 1px
+      ),
+      linear-gradient(90deg, hsl(var(--border) / 0.3) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  .scan-overlay::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      transparent 0%,
+      hsl(var(--primary) / 0.03) 50%,
+      transparent 100%
+    );
+    animation: scanLine 4s linear infinite;
+  }
+
+  .data-text {
+    @apply font-mono text-sm tracking-wide;
+    color: hsl(var(--primary-glow));
+  }
+
+  .node-dot {
+    @apply inline-block w-2.5 h-2.5 rounded-full;
+  }
+}

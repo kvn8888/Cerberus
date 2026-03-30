@@ -14,7 +14,7 @@ Requires: NEO4J_URI, NEO4J_USERNAME, NEO4J_PASSWORD env vars.
 import os
 import json
 import sys
-import requests
+import urllib.request
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 
@@ -29,14 +29,25 @@ STIX_URL = (
     "enterprise-attack/enterprise-attack.json"
 )
 
+# Local cache so we don't re-download ~43MB every run (critical at hackathon)
+CACHE_PATH = os.path.join(os.path.dirname(__file__), "..", "seed_data", "enterprise-attack.json")
+
 BATCH_SIZE = 100
 
 
 def fetch_stix_bundle() -> dict:
-    print("Fetching MITRE ATT&CK STIX bundle (this is ~10MB, one moment)...")
-    r = requests.get(STIX_URL, timeout=60)
-    r.raise_for_status()
-    return r.json()
+    """Download (or load from cache) the MITRE ATT&CK STIX bundle."""
+    if os.path.exists(CACHE_PATH):
+        print(f"  Using cached STIX bundle: {CACHE_PATH}")
+        with open(CACHE_PATH, "r") as f:
+            return json.load(f)
+
+    print("Fetching MITRE ATT&CK STIX bundle (~43MB, one moment)...")
+    os.makedirs(os.path.dirname(CACHE_PATH), exist_ok=True)
+    urllib.request.urlretrieve(STIX_URL, CACHE_PATH)
+    print(f"  Saved to {CACHE_PATH}")
+    with open(CACHE_PATH, "r") as f:
+        return json.load(f)
 
 
 def parse_bundle(bundle: dict):
