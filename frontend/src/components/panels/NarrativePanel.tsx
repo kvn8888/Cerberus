@@ -14,6 +14,7 @@ import {
   FileText,
   Zap,
   Database,
+  Brain,
   CheckCircle2,
   AlertTriangle,
   Shield,
@@ -106,8 +107,8 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
           <div className="flex items-center gap-2">
             {state.fromCache && (
               <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-success/10 text-success border border-success/20">
-                <Zap className="h-3 w-3" />
-                CACHED
+                <Brain className="h-3 w-3" />
+                FROM MEMORY
               </span>
             )}
             <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-accent text-accent-foreground border border-primary/20">
@@ -203,7 +204,7 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
                 {state.fromCache && (
                   <span className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono bg-success/10 text-success border border-success/20 animate-fade-in">
                     <Zap className="h-2.5 w-2.5" />
-                    INSTANT
+                    RECALLED INSTANTLY
                   </span>
                 )}
               </div>
@@ -252,10 +253,9 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
 
       </div>
 
-      {/* ── Confirm button — only shown when investigation is complete ── */}
+      {/* ── Memory save — only shown when investigation is complete ── */}
       {state.status === "complete" && state.pathsFound > 0 && (
         <div className="p-4 border-t border-border">
-          {/* Path count badge */}
           <div className="flex items-center justify-center gap-2 mb-3">
             <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-mono bg-accent/50 text-accent-foreground border border-primary/15">
               <Database className="h-3 w-3" />
@@ -267,29 +267,40 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
             onClick={handleConfirm}
             disabled={confirmed || confirming}
             className={cn(
-              "w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
+              "group w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
               "transition-all duration-500 flex items-center justify-center gap-2",
               confirmed
-                ? "bg-success/15 text-success border border-success/30 cursor-default"
+                ? "bg-success/15 text-success border border-success/30 cursor-default shadow-[0_0_16px_hsl(var(--success)/0.15)]"
                 : confirming
                   ? "bg-muted text-muted-foreground cursor-wait"
                   : "bg-surface-raised text-foreground border border-primary/30 hover:bg-primary/10 hover:border-primary/50 hover:shadow-glow active:scale-[0.98]"
             )}
           >
-            <CheckCircle2 className={cn("h-4 w-4", confirmed && "animate-fade-in")} />
-            {confirmed
-              ? "Pattern Confirmed"
-              : confirming
-                ? "Confirming..."
-                : "Confirm Threat Pattern"}
+            {confirmed ? (
+              <>
+                <CheckCircle2 className="h-4 w-4 animate-fade-in" />
+                Memorized
+              </>
+            ) : confirming ? (
+              <>
+                <Brain className="h-4 w-4 animate-pulse" />
+                Saving to Memory...
+              </>
+            ) : (
+              <>
+                <Brain className="h-4 w-4 group-hover:animate-pulse" />
+                Save to Memory
+              </>
+            )}
           </button>
+
           {confirmed ? (
             <p className="text-[10px] text-success/60 mt-2 text-center font-mono animate-fade-in">
-              Future queries for this entity will skip LLM — instant cached response
+              This pattern will be recognized instantly next time
             </p>
           ) : (
             <p className="text-[10px] text-muted-foreground/40 mt-2 text-center font-mono">
-              Validates this pattern for the self-improvement cache
+              Teach the system to recognize this threat pattern instantly
             </p>
           )}
         </div>
