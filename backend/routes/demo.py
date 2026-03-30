@@ -39,14 +39,6 @@ class CompareRequest(BaseModel):
     queries: list[CompareQuery] = Field(min_length=2, max_length=4)
 
 
-class FeedIngestRequest(BaseModel):
-    juspay_id: str
-    fraud_type: str
-    amount: float
-    currency: str = "USD"
-    ip_address: str
-    merchant_id: str | None = None
-
 
 @router.post("/natural")
 async def parse_natural(req: NaturalLanguageRequest):
@@ -102,36 +94,6 @@ async def compare_queries(req: CompareRequest):
 
     return {"results": results}
 
-
-@router.get("/feed")
-async def demo_feed(limit: int = 6):
-    if limit < 1 or limit > 20:
-        raise HTTPException(status_code=400, detail="limit must be between 1 and 20")
-
-    events = []
-    now_ms = int(time.time() * 1000)
-    for index, signal in enumerate(_DEMO_FEED_EVENTS[:limit]):
-        event = signal.copy()
-        event["timestamp"] = now_ms - index * 90_000
-        events.append(event)
-    return {"events": events}
-
-
-@router.post("/feed/ingest")
-async def ingest_feed_event(req: FeedIngestRequest):
-    signal = {
-        "juspay_id": req.juspay_id,
-        "fraud_type": req.fraud_type,
-        "amount": req.amount,
-        "currency": req.currency,
-        "ip_address": req.ip_address,
-        "merchant_id": req.merchant_id,
-        "timestamp": int(time.time() * 1000),
-        "source": "demo_feed",
-        "synthetic": True,
-    }
-    result = await asyncio.to_thread(db.ingest_fraud_signals, [signal])
-    return {"success": True, **result}
 
 
 @router.get("/map")
@@ -263,37 +225,3 @@ def _extract_cached_narrative(cached: list[dict]) -> str | None:
     return None
 
 
-_DEMO_FEED_EVENTS = [
-    {
-        "juspay_id": "JS-LIVE-1001",
-        "fraud_type": "account_takeover",
-        "amount": 3800,
-        "currency": "USD",
-        "ip_address": "203.0.113.42",
-        "merchant_id": "demo-merchant-a",
-    },
-    {
-        "juspay_id": "JS-LIVE-1002",
-        "fraud_type": "card_not_present",
-        "amount": 1250,
-        "currency": "USD",
-        "ip_address": "185.220.101.47",
-        "merchant_id": "demo-merchant-b",
-    },
-    {
-        "juspay_id": "JS-LIVE-1003",
-        "fraud_type": "credential_stuffing",
-        "amount": 410,
-        "currency": "USD",
-        "ip_address": "46.101.116.100",
-        "merchant_id": "demo-merchant-c",
-    },
-    {
-        "juspay_id": "JS-LIVE-1004",
-        "fraud_type": "synthetic_identity",
-        "amount": 8700,
-        "currency": "USD",
-        "ip_address": "175.45.176.0",
-        "merchant_id": "demo-merchant-d",
-    },
-]

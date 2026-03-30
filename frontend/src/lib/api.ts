@@ -28,19 +28,6 @@ const API_BASE =
     ? import.meta.env.VITE_API_URL
     : "http://localhost:8000";
 
-type FeedSourcePreference = "juspay" | "demo";
-const FEED_SOURCE_KEY = "cerberus.feedSource";
-
-function getFeedSourcePreference(): FeedSourcePreference {
-  if (typeof window === "undefined") return "juspay";
-  try {
-    const value = window.localStorage.getItem(FEED_SOURCE_KEY);
-    return value === "demo" ? "demo" : "juspay";
-  } catch {
-    return "juspay";
-  }
-}
-
 /**
  * Submit an entity for investigation (non-streaming).
  * Returns the full narrative + metadata in one response.
@@ -186,61 +173,22 @@ export async function compareEntities(
 }
 
 export async function fetchLiveFeed(limit = 6): Promise<FeedResponse> {
-  const preferred = getFeedSourcePreference();
-
-  // Fetch from selected source first, then fallback to the other source.
-  const primarySignalsUrl =
-    preferred === "demo"
-      ? `${API_BASE}/api/demo/feed?limit=${limit}`
-      : `${API_BASE}/api/juspay/signals?limit=${limit}`;
-  const fallbackSignalsUrl =
-    preferred === "demo"
-      ? `${API_BASE}/api/juspay/signals?limit=${limit}`
-      : `${API_BASE}/api/demo/feed?limit=${limit}`;
-
-  const primaryRes = await fetch(primarySignalsUrl);
-  if (primaryRes.ok && preferred === "demo") {
-    return primaryRes.json();
+  const res = await fetch(`${API_BASE}/api/juspay/signals?limit=${limit}`);
+  if (!res.ok) {
+    throw new Error(`Live feed failed: ${res.status} ${res.statusText}`);
   }
-  if (primaryRes.ok) {
-    const data = await primaryRes.json();
-    const now = Date.now();
-    const events = (data.recent_signals ?? []).map((signal: any, idx: number) => ({
-      juspay_id: signal.juspay_id,
-      fraud_type: signal.type,
-      amount: Number(signal.amount ?? 0),
-      currency: signal.currency ?? "USD",
-      ip_address: signal.ip_address,
-      merchant_id: signal.merchant_id,
-      // Summary payload does not include timestamp, so synthesize display ordering.
-      timestamp: now - idx * 30_000,
-    }));
-    if (events.length > 0) return { events };
-  }
-
-  const fallbackRes = await fetch(fallbackSignalsUrl);
-  if (!fallbackRes.ok) {
-    throw new Error(`Live feed failed: ${fallbackRes.status} ${fallbackRes.statusText}`);
-  }
-
-  if (preferred === "demo") {
-    // Fallback source is Juspay summary.
-    const data = await fallbackRes.json();
-    const now = Date.now();
-    return {
-      events: (data.recent_signals ?? []).map((signal: any, idx: number) => ({
-        juspay_id: signal.juspay_id,
-        fraud_type: signal.type,
-        amount: Number(signal.amount ?? 0),
-        currency: signal.currency ?? "USD",
-        ip_address: signal.ip_address,
-        merchant_id: signal.merchant_id,
-        timestamp: now - idx * 30_000,
-      })),
-    };
-  }
-
-  return fallbackRes.json();
+  const data = await res.json();
+  const now = Date.now();
+  const events = (data.recent_signals ?? []).map((signal: any, idx: number) => ({
+    juspay_id: signal.juspay_id,
+    fraud_type: signal.type,
+    amount: Number(signal.amount ?? 0),
+    currency: signal.currency ?? "USD",
+    ip_address: signal.ip_address,
+    merchant_id: signal.merchant_id,
+    timestamp: now - idx * 30_000,
+  }));
+  return { events };
 }
 
 export async function ingestFeedEvent(event: {
@@ -251,34 +199,15 @@ export async function ingestFeedEvent(event: {
   ip_address: string;
   merchant_id?: string;
 }): Promise<{ success: boolean; ingested: number }> {
-  const preferred = getFeedSourcePreference();
-  const primaryIngestUrl =
-    preferred === "demo"
-      ? `${API_BASE}/api/demo/feed/ingest`
-      : `${API_BASE}/api/juspay/ingest`;
-  const fallbackIngestUrl =
-    preferred === "demo"
-      ? `${API_BASE}/api/juspay/ingest`
-      : `${API_BASE}/api/demo/feed/ingest`;
-
-  const res = await fetch(primaryIngestUrl, {
+  const res = await fetch(`${API_BASE}/api/juspay/ingest`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(event),
   });
-  if (res.ok) {
-    return res.json();
+  if (!res.ok) {
+    throw new Error(`Feed ingest failed: ${res.status} ${res.statusText}`);
   }
-
-  const fallbackRes = await fetch(fallbackIngestUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(event),
-  });
-  if (!fallbackRes.ok) {
-    throw new Error(`Feed ingest failed: ${fallbackRes.status} ${fallbackRes.statusText}`);
-  }
-  return fallbackRes.json();
+  return res.json();
 }
 
 export async function fetchGeoMap(
