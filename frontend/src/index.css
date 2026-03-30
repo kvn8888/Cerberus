@@ -110,6 +110,7 @@
 
 /* ── Utility classes ────────────────────────────────────────────────── */
 @layer utilities {
+  /* Glass-morphism panel with depth */
   .glass-panel {
     background: hsl(var(--surface) / 0.6);
     backdrop-filter: blur(12px);
@@ -117,21 +118,23 @@
     border-radius: 12px;
   }
 
+  /* Glowing border for active/focused elements */
   .glow-border {
     border: 1px solid hsl(var(--primary) / 0.3);
     box-shadow: 0 0 12px hsl(var(--primary) / 0.15),
       inset 0 0 12px hsl(var(--primary) / 0.05);
   }
 
+  /* Grid background for graph area */
   .grid-bg {
-    background-image: linear-gradient(
-        hsl(var(--border) / 0.3) 1px,
-        transparent 1px
-      ),
-      linear-gradient(90deg, hsl(var(--border) / 0.3) 1px, transparent 1px);
-    background-size: 40px 40px;
+    background-image: 
+      radial-gradient(circle at 50% 50%, hsl(var(--primary) / 0.03) 0%, transparent 70%),
+      linear-gradient(hsl(var(--border) / 0.2) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.2) 1px, transparent 1px);
+    background-size: 100% 100%, 40px 40px, 40px 40px;
   }
 
+  /* Scan line overlay */
   .scan-overlay::after {
     content: "";
     position: absolute;
@@ -146,12 +149,72 @@
     animation: scanLine 4s linear infinite;
   }
 
+  /* Monospace data text with glow */
   .data-text {
     @apply font-mono text-sm tracking-wide;
     color: hsl(var(--primary-glow));
   }
 
+  /* Colored circle indicator for legend/badges */
   .node-dot {
     @apply inline-block w-2.5 h-2.5 rounded-full;
+    box-shadow: 0 0 6px currentColor;
+  }
+
+  /* Shimmer loading effect */
+  .shimmer-bg {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--surface)) 25%,
+      hsl(var(--surface-raised)) 50%,
+      hsl(var(--surface)) 75%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s linear infinite;
+  }
+
+  /* Hover lift effect for interactive cards */
+  .hover-lift {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px hsl(var(--background) / 0.6);
+  }
+
+  /* Radar sweep for loading indicator */
+  .radar-sweep {
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      hsl(var(--primary) / 0.3) 60deg,
+      transparent 120deg
+    );
+    animation: radarSweep 3s linear infinite;
+  }
+
+  /* Noise texture overlay for depth */
+  .noise-overlay::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    background-size: 128px 128px;
+  }
+
+  /* Pulsing dot indicator */
+  .pulse-dot {
+    position: relative;
+  }
+  .pulse-dot::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0;
+    animation: glowPulse 2s ease-in-out infinite;
   }
 }
