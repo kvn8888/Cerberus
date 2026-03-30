@@ -173,11 +173,32 @@ export async function compareEntities(
 }
 
 export async function fetchLiveFeed(limit = 6): Promise<FeedResponse> {
-  const res = await fetch(`${API_BASE}/api/demo/feed?limit=${limit}`);
-  if (!res.ok) {
-    throw new Error(`Live feed failed: ${res.status} ${res.statusText}`);
+  // Prefer real Juspay-style signals from backend summary.
+  // Fallback to demo feed for local demos if Juspay route has no data.
+  const juspayRes = await fetch(`${API_BASE}/api/juspay/signals?limit=${limit}`);
+  if (juspayRes.ok) {
+    const data = await juspayRes.json();
+    const now = Date.now();
+    const events = (data.recent_signals ?? []).map((signal: any, idx: number) => ({
+      juspay_id: signal.juspay_id,
+      fraud_type: signal.type,
+      amount: Number(signal.amount ?? 0),
+      currency: signal.currency ?? "USD",
+      ip_address: signal.ip_address,
+      merchant_id: signal.merchant_id,
+      // Summary payload does not include timestamp, so synthesize display ordering.
+      timestamp: now - idx * 30_000,
+    }));
+    if (events.length > 0) {
+      return { events };
+    }
   }
-  return res.json();
+
+  const demoRes = await fetch(`${API_BASE}/api/demo/feed?limit=${limit}`);
+  if (!demoRes.ok) {
+    throw new Error(`Live feed failed: ${demoRes.status} ${demoRes.statusText}`);
+  }
+  return demoRes.json();
 }
 
 export async function ingestFeedEvent(event: {
@@ -188,15 +209,25 @@ export async function ingestFeedEvent(event: {
   ip_address: string;
   merchant_id?: string;
 }): Promise<{ success: boolean; ingested: number }> {
-  const res = await fetch(`${API_BASE}/api/demo/feed/ingest`, {
+  // Prefer real Juspay ingestion route, fallback to demo route.
+  const res = await fetch(`${API_BASE}/api/juspay/ingest`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(event),
   });
-  if (!res.ok) {
-    throw new Error(`Feed ingest failed: ${res.status} ${res.statusText}`);
+  if (res.ok) {
+    return res.json();
   }
-  return res.json();
+
+  const demoRes = await fetch(`${API_BASE}/api/demo/feed/ingest`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(event),
+  });
+  if (!demoRes.ok) {
+    throw new Error(`Feed ingest failed: ${demoRes.status} ${demoRes.statusText}`);
+  }
+  return demoRes.json();
 }
 
 export async function fetchGeoMap(
