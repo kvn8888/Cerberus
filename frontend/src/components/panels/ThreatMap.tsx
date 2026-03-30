@@ -11,7 +11,7 @@
  * control points for continent shapes.
  */
 import { useState, useMemo, useCallback, useRef } from "react";
-import { Shield, Activity, AlertTriangle, Crosshair } from "lucide-react";
+import { Shield, Activity, AlertTriangle, Crosshair, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 import type { InvestigationState } from "../../types/api";
 
@@ -572,6 +572,7 @@ export function ThreatMap({ state: _state }: ThreatMapProps) {
         selectedNode={selectedNodeData}
         activeNodes={THREAT_NODES.filter((n) => n.active && n.type === "apt")}
         onSelect={(id) => setSelectedNode(id)}
+        onClose={() => setSelectedNode(null)}
       />
 
       {/* ── Live feed indicator ──────────────────────────── */}
@@ -630,17 +631,19 @@ function AptAttributionPanel({
   selectedNode,
   activeNodes,
   onSelect,
+  onClose,
 }: {
   selectedNode: ThreatNode | null | undefined;
   activeNodes: ThreatNode[];
   onSelect: (id: string) => void;
+  onClose: () => void;
 }) {
   return (
     <div className="absolute bottom-3 left-3 z-20 w-64">
       {/* ── Selected node detail card ─────────────────── */}
       {selectedNode && (
         <div className="mb-2 p-3 rounded-lg bg-surface/90 backdrop-blur-md border border-border/60 animate-slide-up">
-          {/* Header with severity indicator */}
+          {/* Header with severity indicator + close button */}
           <div className="flex items-center gap-2 mb-2">
             <div className="relative">
               <Crosshair className={cn("h-4 w-4", SEVERITY_COLORS[selectedNode.severity])} />
@@ -668,6 +671,13 @@ function AptAttributionPanel({
             )}>
               {selectedNode.severity}
             </span>
+            <button
+              type="button"
+              onClick={onClose}
+              className="ml-1 p-0.5 rounded hover:bg-muted-foreground/10 text-muted-foreground/50 hover:text-foreground transition-colors"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
           </div>
 
           {/* MITRE techniques */}
