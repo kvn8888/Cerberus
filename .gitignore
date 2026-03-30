@@ -1,6 +1,11 @@
-# Environment
+# Environment variables (contain secrets)
 .env
-.env.local
+
+# Seed data (large files, re-downloadable)
+seed_data/enterprise-attack.json
+seed_data/cves.json
+seed_data/threat_ips.json
+seed_data/threat_domains.json
 
 # Python
 __pycache__/
@@ -18,6 +23,8 @@ env/
 # Node / frontend
 node_modules/
 frontend/dist/
+dist/
+.vite/
 frontend/.env
 
 # Data / cache
@@ -25,10 +32,12 @@ frontend/.env
 data/raw/
 *.cache
 
+# OS
+.DS_Store
+Thumbs.db
+
 # IDE
 .vscode/
 .idea/
 *.swp
-
-# macOS
-.DS_Store
+*.swo

@@ -1,81 +1,84 @@
+# ============================================================
+# Cerberus — Docker Compose for local development
+# ============================================================
+# Runs: neo4j-mcp server + backend + frontend dev server
+#
+# Neo4j itself runs on Aura (cloud) — not in this compose file.
+# The neo4j-mcp server bridges between the backend and Aura.
+#
+# Usage:
+#   cp .env.example .env  # fill in your Aura credentials
+#   docker compose up
+# ============================================================
+
 services:
-  # ── neo4j-mcp bridge ────────────────────────────────────────────────────────
-  # Exposes Neo4j Aura over MCP HTTP on port 8787.
-  # Image: https://github.com/neo4j-contrib/neo4j-mcp
+  # ── neo4j-mcp server ─────────────────────────────────────────
+  # Bridges the FastAPI backend (and RocketRide) to Neo4j Aura.
+  # Exposes tools: get-schema, read-cypher, write-cypher
+  # Runs in HTTP mode (not stdio) so backend can reach it.
   neo4j-mcp:
-    image: ghcr.io/neo4j-contrib/neo4j-mcp:1.5.0
+    image: alpine:latest
+    container_name: cerberus-neo4j-mcp
     ports:
       - "8787:8787"
+    volumes:
+      # Pre-built binary for macOS ARM64 (included in repo)
+      - ./neo4j-mcp_Darwin_arm64/neo4j-mcp:/usr/local/bin/neo4j-mcp
     environment:
-      NEO4J_URI: ${NEO4J_URI}
-      NEO4J_USERNAME: ${NEO4J_USERNAME}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
-      MCP_TRANSPORT: http
-      MCP_PORT: 8787
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USERNAME=${NEO4J_USERNAME}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+    command: >
+      /usr/local/bin/neo4j-mcp
+      --transport http
+      --port 8787
+      --host 0.0.0.0
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8787/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8787"]
       interval: 10s
       timeout: 5s
-      retries: 5
+      retries: 3
 
-  # ── RocketRide AI pipeline engine ───────────────────────────────────────────
-  # Hosts cerberus-ingest and cerberus-query pipelines.
-  # Replace image tag with your actual RocketRide image.
-  rocketride:
-    image: rocketride/rocketride:latest   # TODO: pin to your build tag
-    ports:
-      - "3000:3000"
-    volumes:
-      - ./pipelines:/app/pipelines:ro
-    environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      NEO4J_MCP_URL: http://neo4j-mcp:8787
-      ROCKETRIDE_PIPELINES_DIR: /app/pipelines
-    depends_on:
-      neo4j-mcp:
-        condition: service_healthy
-    restart: unless-stopped
-
-  # ── Cerberus FastAPI backend ─────────────────────────────────────────────────
+  # ── Cerberus FastAPI backend ──────────────────────────────────
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    container_name: cerberus-backend
     ports:
       - "8000:8000"
     environment:
-      NEO4J_URI: ${NEO4J_URI}
-      NEO4J_USERNAME: ${NEO4J_USERNAME}
-      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      NEO4J_MCP_URL: http://neo4j-mcp:8787
-      ROCKETRIDE_URL: http://rocketride:3000
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USERNAME=${NEO4J_USERNAME}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - NEO4J_MCP_URL=http://neo4j-mcp:8787
     depends_on:
       neo4j-mcp:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/health"]
       interval: 15s
       timeout: 5s
       retries: 5
 
-  # ── React frontend dev server ────────────────────────────────────────────────
+  # ── Frontend dev server ───────────────────────────────────────
+  # React 18 + Vite + Tailwind + shadcn/ui
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile
+    container_name: cerberus-frontend
     ports:
       - "5173:5173"
-    environment:
-      VITE_API_URL: http://localhost:8000
-    depends_on:
-      - backend
     volumes:
       - ./frontend:/app
       - /app/node_modules
-
-networks:
-  default:
-    name: cerberus-net
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      neo4j-mcp:
+        condition: service_healthy
+    command: npm run dev -- --host 0.0.0.0
