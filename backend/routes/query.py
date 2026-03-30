@@ -36,6 +36,50 @@ from models import EntityType, QueryRequest
 router = APIRouter(prefix="/api/query")
 
 
+def _route_info(entity_type: str) -> dict[str, object]:
+    """Describe which traversal strategy the agent selected for this entity type."""
+    routing = {
+        "package": {
+            "strategy": "Software -> Infrastructure -> Financial",
+            "path": ["Package", "Account", "IP", "ThreatActor", "FraudSignal"],
+            "reason": "Compromised packages often pivot through publisher accounts and shared infrastructure.",
+        },
+        "ip": {
+            "strategy": "Infrastructure -> Software + Financial",
+            "path": ["IP", "ThreatActor", "Account", "Package", "FraudSignal"],
+            "reason": "IPs are central infrastructure hubs that connect actors, hosted domains, and fraud activity.",
+        },
+        "domain": {
+            "strategy": "Infrastructure -> Threat Actor",
+            "path": ["Domain", "IP", "ThreatActor", "Package"],
+            "reason": "Domains map to hosting infrastructure, then to operator groups and served payloads.",
+        },
+        "cve": {
+            "strategy": "Vulnerability -> Actor -> Infrastructure",
+            "path": ["CVE", "Package", "ThreatActor", "IP", "Domain"],
+            "reason": "CVE context is strongest when linked to affected software and actor exploitation paths.",
+        },
+        "threatactor": {
+            "strategy": "Actor-Centric Full Cross-Domain",
+            "path": ["ThreatActor", "Technique", "IP", "Domain", "Package", "FraudSignal"],
+            "reason": "Actor investigations start from TTPs, then fan out across infrastructure, software, and fraud signals.",
+        },
+        "fraudsignal": {
+            "strategy": "Financial -> Infrastructure -> Software",
+            "path": ["FraudSignal", "IP", "ThreatActor", "Account", "Package"],
+            "reason": "Financial anomalies are correlated with infrastructure first, then traced to software supply-chain artifacts.",
+        },
+    }
+    return routing.get(
+        entity_type.lower(),
+        {
+            "strategy": "Cross-Domain Traversal",
+            "path": ["Entity", "ThreatActor", "Infrastructure", "Software", "Financial"],
+            "reason": "Unknown entity type defaults to broad correlation across all threat domains.",
+        },
+    )
+
+
 @router.post("")
 async def query(req: QueryRequest):
     entity      = req.entity.strip()
@@ -158,6 +202,7 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
 
         # Cache check
         yield f"data: {json.dumps({'stage': 'route'})}\n\n"
+        yield f"data: {json.dumps({'route_info': _route_info(entity_type)})}\n\n"
         cached = await asyncio.to_thread(db.cache_check, entity, entity_type)
         if cached:
             narrative = _extract_cached_narrative(cached) or (

@@ -12,7 +12,8 @@
  */
 import { useMemo, useRef, useCallback, useEffect, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import type { InvestigationState, EntityType } from "../../types/api";
+import { X } from "lucide-react";
+import type { InvestigationState, EntityType, GraphNode } from "../../types/api";
 import { cn } from "../../lib/utils";
 
 interface GraphPanelProps {
@@ -132,6 +133,8 @@ export function GraphPanel({ state }: GraphPanelProps) {
   const graphRef = useRef<any>(null);
   /* Track container dimensions so the canvas fills all available space */
   const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
+  /* Currently selected node — shown in the detail sidebar */
+  const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
 
   /* ResizeObserver keeps the canvas size in sync with the container */
   useEffect(() => {
@@ -223,6 +226,11 @@ export function GraphPanel({ state }: GraphPanelProps) {
     }
   }, [graphData]);
 
+  /* New graph results invalidate prior node selections */
+  useEffect(() => {
+    setSelectedNode(null);
+  }, [state.entity, state.entityType, state.status]);
+
   const hasGraph = graphData.nodes.length > 0;
 
   return (
@@ -250,6 +258,8 @@ export function GraphPanel({ state }: GraphPanelProps) {
           cooldownTicks={60}
           width={containerSize.width}
           height={containerSize.height}
+          onNodeClick={(node: any) => setSelectedNode(node as GraphNode)}
+          onBackgroundClick={() => setSelectedNode(null)}
         />
       )}
 
@@ -322,6 +332,67 @@ export function GraphPanel({ state }: GraphPanelProps) {
                 </p>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Node detail sidebar (appears on click) ──────── */}
+      {selectedNode && (
+        <div className="absolute top-4 right-4 w-64 glass-panel rounded-lg p-4 z-20 animate-in slide-in-from-right-4 duration-200">
+          {/* Header with close button */}
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <span
+                className="node-dot flex-shrink-0"
+                style={{
+                  backgroundColor: NODE_COLORS[selectedNode.type] || "#666",
+                  boxShadow: `0 0 6px ${(NODE_COLORS[selectedNode.type] || "#666")}40`,
+                }}
+              />
+              <span className="text-xs font-mono uppercase tracking-wider text-muted-foreground">
+                {selectedNode.type}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedNode(null)}
+              className="p-1 rounded hover:bg-surface-raised text-muted-foreground/60 hover:text-foreground transition-colors"
+              aria-label="Close node details"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+
+          {/* Node label / identifier */}
+          <p className="text-sm font-mono text-foreground break-all mb-3 leading-relaxed">
+            {selectedNode.label || selectedNode.id}
+          </p>
+
+          {/* Node properties table */}
+          <div className="space-y-1.5 text-[10px] font-mono">
+            <div className="flex justify-between text-muted-foreground/60 uppercase tracking-widest border-b border-border/30 pb-1">
+              <span>Property</span>
+              <span>Value</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground/80">id</span>
+              <span className="text-foreground/80 max-w-[140px] truncate text-right">{selectedNode.id}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground/80">type</span>
+              <span className="text-foreground/80">{selectedNode.type}</span>
+            </div>
+            {/* Render any extra properties from the Neo4j node */}
+            {Object.entries(selectedNode)
+              .filter(([key]) => !["id", "label", "type", "val", "x", "y", "vx", "vy", "fx", "fy", "index", "__indexColor"].includes(key))
+              .map(([key, value]) => (
+                <div key={key} className="flex justify-between">
+                  <span className="text-muted-foreground/80">{key}</span>
+                  <span className="text-foreground/80 max-w-[140px] truncate text-right">
+                    {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                  </span>
+                </div>
+              ))}
           </div>
         </div>
       )}

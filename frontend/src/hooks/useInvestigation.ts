@@ -8,6 +8,7 @@
  *
  * SSE event contract (emitted by GET /api/query/stream):
  *   {"stage": "input"|"ner"|"classify"|"route"|"traverse"|"analyze"|"narrate"|"complete"}
+ *   {"route_info": {"strategy": string, "path": string[], "reason": string}}
  *   {"paths_found": number, "from_cache": boolean}
  *   {"text": string}   — narrative chunk, may arrive many times
  *   "[DONE]"           — terminal string (not JSON)
@@ -26,6 +27,7 @@ const IDLE_STATE: InvestigationState = {
   entity: "",
   entityType: "package",
   currentStage: "input",
+  routeInfo: undefined,
   narrative: "",
   pathsFound: 0,
   fromCache: false,
@@ -88,6 +90,7 @@ export function useInvestigation() {
         entity,
         entityType,
         currentStage: "input",
+        routeInfo: undefined,
         narrative: "",
         pathsFound: 0,
         fromCache: false,
@@ -139,6 +142,12 @@ export function useInvestigation() {
                 setState((prev) => ({
                   ...prev,
                   currentStage: chunk.stage as PipelineStage,
+                }));
+              } else if ("route_info" in chunk) {
+                /* Route selection details from backend reasoning */
+                setState((prev) => ({
+                  ...prev,
+                  routeInfo: chunk.route_info,
                 }));
               } else if ("paths_found" in chunk) {
                 /* Metadata: path count + cache status */

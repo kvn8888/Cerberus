@@ -20,7 +20,7 @@ import {
   FileText,
   CheckCircle2,
 } from "lucide-react";
-import type { PipelineStage } from "../../types/api";
+import type { PipelineStage, RouteInfo } from "../../types/api";
 import { cn } from "../../lib/utils";
 
 /** Configuration for each pipeline stage — icon, label, description */
@@ -92,13 +92,17 @@ const STAGE_ORDER: PipelineStage[] = STAGES.map((s) => s.id);
 interface PipelineStagesProps {
   currentStage: PipelineStage;
   isRunning: boolean;
+  routeInfo?: RouteInfo;
 }
 
 export function PipelineStages({
   currentStage,
   isRunning,
+  routeInfo,
 }: PipelineStagesProps) {
   const currentIdx = STAGE_ORDER.indexOf(currentStage);
+  const routeIdx = STAGE_ORDER.indexOf("route");
+  const showRouteInfo = Boolean(routeInfo) && currentIdx >= routeIdx;
 
   return (
     <div className="px-6 py-3 border-b border-border bg-surface/50 backdrop-blur-sm relative overflow-hidden">
@@ -193,6 +197,17 @@ export function PipelineStages({
           );
         })}
       </div>
+
+      {showRouteInfo && routeInfo && (
+        <div className="max-w-5xl mx-auto mt-3 relative z-10">
+          <div className="rounded-md border border-primary/25 bg-primary/5 px-3 py-2 flex items-center gap-3 text-[10px] font-mono">
+            <span className="uppercase tracking-[0.16em] text-primary/85">Route</span>
+            <span className="text-foreground/90">{routeInfo.strategy}</span>
+            <span className="text-muted-foreground/60">{routeInfo.path.join(" -> ")}</span>
+            <span className="text-muted-foreground/75">{routeInfo.reason}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

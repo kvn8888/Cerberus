@@ -40,6 +40,7 @@ function App() {
       <PipelineStages
         currentStage={state.currentStage}
         isRunning={state.status === "running"}
+        routeInfo={state.routeInfo}
       />
 
       <main className="flex-1 flex overflow-hidden">

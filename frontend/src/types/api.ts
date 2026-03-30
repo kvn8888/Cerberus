@@ -59,6 +59,7 @@ export interface GraphNode {
   label: string;
   type: string;
   val: number;
+  [key: string]: unknown;
 }
 
 /** A single link (edge) in the graph visualization */
@@ -79,7 +80,15 @@ export interface GraphResponse {
 export type StreamChunk =
   | { text: string }
   | { from_cache: boolean }
-  | { paths_found: number; from_cache: boolean };
+  | { paths_found: number; from_cache: boolean }
+  | { route_info: RouteInfo };
+
+/** Route decision metadata emitted during the ROUTE stage */
+export interface RouteInfo {
+  strategy: string;
+  path: string[];
+  reason: string;
+}
 
 /**
  * Pipeline stages the UI shows during investigation.
@@ -102,6 +111,7 @@ export interface InvestigationState {
   entity: string;
   entityType: EntityType;
   currentStage: PipelineStage;
+  routeInfo?: RouteInfo;
   narrative: string;
   pathsFound: number;
   fromCache: boolean;
