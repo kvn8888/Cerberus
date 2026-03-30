@@ -720,12 +720,13 @@ function AptAttributionPanel({
   onSelect: (id: string) => void;
   onClose: () => void;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
+
   return (
     <div className="absolute bottom-3 left-3 z-20 w-64">
       {/* ── Selected node detail card ─────────────────── */}
-      {selectedNode && (
+      {selectedNode && !collapsed && (
         <div className="mb-2 p-3 rounded-lg bg-surface/90 backdrop-blur-md border border-border/60 animate-slide-up">
-          {/* Header with severity indicator + close button */}
           <div className="flex items-center gap-2 mb-2">
             <div className="relative">
               <Crosshair className={cn("h-4 w-4", SEVERITY_COLORS[selectedNode.severity])} />
@@ -762,7 +763,6 @@ function AptAttributionPanel({
             </button>
           </div>
 
-          {/* MITRE techniques */}
           {selectedNode.techniques && selectedNode.techniques.length > 0 && (
             <div className="mt-2 pt-2 border-t border-border/30">
               <p className="text-[8px] font-mono text-muted-foreground/60 uppercase tracking-wider mb-1.5">
@@ -781,7 +781,6 @@ function AptAttributionPanel({
             </div>
           )}
 
-          {/* Node type and status */}
           <div className="mt-2 pt-2 border-t border-border/30 flex items-center justify-between">
             <span className="text-[8px] font-mono text-muted-foreground/60 uppercase">
               Type: {selectedNode.type.toUpperCase()}
@@ -800,9 +799,13 @@ function AptAttributionPanel({
         </div>
       )}
 
-      {/* ── APT group listing ─────────────────────────── */}
+      {/* ── APT group listing (collapsible) ───────────── */}
       <div className="p-2.5 rounded-lg bg-surface/80 backdrop-blur-md border border-border/50">
-        <div className="flex items-center gap-1.5 mb-2 px-1">
+        <button
+          type="button"
+          onClick={() => setCollapsed((c) => !c)}
+          className="w-full flex items-center gap-1.5 px-1 cursor-pointer hover:opacity-80 transition-opacity"
+        >
           <Shield className="h-3 w-3 text-threat-high" />
           <span className="text-[9px] font-mono font-bold text-foreground uppercase tracking-wider">
             APT Attribution
@@ -810,42 +813,53 @@ function AptAttributionPanel({
           <span className="ml-auto text-[8px] font-mono text-muted-foreground/50">
             {activeNodes.length} ACTIVE
           </span>
-        </div>
+          <svg
+            className={cn(
+              "h-3 w-3 text-muted-foreground/50 transition-transform duration-200",
+              collapsed && "-rotate-90"
+            )}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2}
+          >
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </button>
 
-        <div className="space-y-1">
-          {activeNodes.map((node) => (
-            <button
-              key={node.id}
-              onClick={() => onSelect(node.id)}
-              className={cn(
-                "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left",
-                "transition-all duration-150",
-                selectedNode?.id === node.id
-                  ? "bg-primary/10 border border-primary/25"
-                  : "hover:bg-surface-raised/60 border border-transparent"
-              )}
-            >
-              {/* Severity dot */}
-              <div
-                className="w-2 h-2 rounded-full flex-shrink-0"
-                style={{ backgroundColor: SEVERITY_HEX[node.severity] }}
-              />
-              {/* Name and region */}
-              <div className="flex-1 min-w-0">
-                <p className="text-[10px] font-mono font-medium text-foreground truncate">
-                  {node.name}
-                </p>
-                <p className="text-[8px] font-mono text-muted-foreground/50">
-                  {node.region}
-                </p>
-              </div>
-              {/* Active indicator */}
-              {node.active && (
-                <div className="w-1.5 h-1.5 rounded-full bg-threat-critical animate-pulse flex-shrink-0" />
-              )}
-            </button>
-          ))}
-        </div>
+        {!collapsed && (
+          <div className="space-y-1 mt-2">
+            {activeNodes.map((node) => (
+              <button
+                key={node.id}
+                onClick={() => onSelect(node.id)}
+                className={cn(
+                  "w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-left",
+                  "transition-all duration-150",
+                  selectedNode?.id === node.id
+                    ? "bg-primary/10 border border-primary/25"
+                    : "hover:bg-surface-raised/60 border border-transparent"
+                )}
+              >
+                <div
+                  className="w-2 h-2 rounded-full flex-shrink-0"
+                  style={{ backgroundColor: SEVERITY_HEX[node.severity] }}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] font-mono font-medium text-foreground truncate">
+                    {node.name}
+                  </p>
+                  <p className="text-[8px] font-mono text-muted-foreground/50">
+                    {node.region}
+                  </p>
+                </div>
+                {node.active && (
+                  <div className="w-1.5 h-1.5 rounded-full bg-threat-critical animate-pulse flex-shrink-0" />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
