@@ -155,11 +155,12 @@ class TestTraverse(unittest.TestCase):
         first_cypher = session.run.call_args_list[0][0][0]
         self.assertIn("Package", first_cypher)
 
-    def test_ip_traversal_runs_one_query(self):
+    def test_ip_traversal_runs_two_queries(self):
+        """IP traversal runs shortestPath + cross-domain enrichment."""
         session = _make_session()
         with patch.object(db, "_driver", _mock_driver(session)):
             db.traverse("203.0.113.42", "ip")
-        self.assertEqual(session.run.call_count, 1)
+        self.assertEqual(session.run.call_count, 2)
 
     def test_ip_traversal_uses_address_property(self):
         session = _make_session()
@@ -175,6 +176,7 @@ class TestTraverse(unittest.TestCase):
             result = db.traverse("ua-parser-js", "package")
         self.assertIn("paths", result)
         self.assertIn("cross_domain", result)
+        self.assertIn("neighborhood", result)
         self.assertIn("paths_found", result)
         self.assertIsInstance(result["paths_found"], int)
 
