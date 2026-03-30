@@ -439,6 +439,70 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
     return {"nodes": list(nodes_map.values()), "links": links}
 
 
+def get_memory() -> dict[str, Any]:
+    """
+    Return all ConfirmedThreat nodes and their confirmed relationships,
+    formatted as a graph for the frontend Memory visualization.
+    """
+    nodes_map: dict[str, dict] = {}
+    links: list[dict] = []
+
+    with _get_driver().session() as s:
+        result = s.run("""
+            MATCH (n:ConfirmedThreat)-[r]->(m:ConfirmedThreat)
+            WHERE r.confirmed = true
+            RETURN n, r, m, r.confirmed_at AS confirmed_at
+        """)
+        for record in result:
+            for node in [record["n"], record["m"]]:
+                labels = list(node.labels)
+                node_type = next(
+                    (l for l in labels if l != "ConfirmedThreat"),
+                    labels[0] if labels else "Unknown",
+                )
+                name = (
+                    node.get("name") or node.get("id") or node.get("address")
+                    or node.get("juspay_id") or node.get("username")
+                    or node.get("mitre_id") or str(node.element_id)
+                )
+                if name and name not in nodes_map:
+                    nodes_map[name] = {
+                        "id": name,
+                        "label": name,
+                        "type": node_type,
+                        "val": 7 if node_type in ("Package", "ThreatActor") else 5,
+                        "confirmed": True,
+                    }
+            rel = record["r"]
+            src_node = rel.start_node
+            end_node = rel.end_node
+            src = (
+                src_node.get("name") or src_node.get("id")
+                or src_node.get("address") or src_node.get("juspay_id")
+                or src_node.get("username") or src_node.get("mitre_id")
+                or str(src_node.element_id)
+            )
+            tgt = (
+                end_node.get("name") or end_node.get("id")
+                or end_node.get("address") or end_node.get("juspay_id")
+                or end_node.get("username") or end_node.get("mitre_id")
+                or str(end_node.element_id)
+            )
+            if src and tgt:
+                links.append({
+                    "source": src,
+                    "target": tgt,
+                    "type": rel.type,
+                    "confirmed_at": record.get("confirmed_at"),
+                })
+
+    return {
+        "nodes": list(nodes_map.values()),
+        "links": links,
+        "total_memorized": len(nodes_map),
+    }
+
+
 def get_schema() -> dict[str, list[dict[str, Any]] | list[str]]:
     with _get_driver().session() as s:
         labels = [r["label"] for r in s.run("CALL db.labels() YIELD label")]

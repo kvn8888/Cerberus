@@ -90,3 +90,11 @@ async def schema():
     import asyncio
 
     return await asyncio.to_thread(db.get_schema)
+
+
+@app.get("/api/memory")
+async def memory():
+    """Return all memorized (confirmed) entities and their connections."""
+    import asyncio
+
+    return await asyncio.to_thread(db.get_memory)

@@ -1,30 +1,27 @@
 /**
  * components/layout/ViewNav.tsx — Tab navigation for center panel views
  *
- * Lets the user switch between "Threat Graph" (force-directed) and
- * "Geomap" (world threat map) views. Renders as a floating pill bar
- * overlaying the center panel's top-left corner.
+ * Lets the user switch between "Threat Graph", "Geomap", and "Memory"
+ * views. Renders as a floating pill bar overlaying the center panel.
  */
-import { Network, Globe2 } from "lucide-react";
+import { Network, Globe2, Brain } from "lucide-react";
 import { cn } from "../../lib/utils";
 
-/** The two available center-panel views */
-export type CenterView = "graph" | "geomap";
+export type CenterView = "graph" | "geomap" | "memory";
 
 interface ViewNavProps {
-  /** Currently active view */
   activeView: CenterView;
-  /** Callback when user clicks a view tab */
   onViewChange: (view: CenterView) => void;
+  memoryCount?: number;
 }
 
-/** Tab configuration — icon, label, and description for each view */
 const TABS: { id: CenterView; label: string; icon: typeof Network }[] = [
   { id: "graph", label: "Threat Graph", icon: Network },
   { id: "geomap", label: "Geomap", icon: Globe2 },
+  { id: "memory", label: "Memory", icon: Brain },
 ];
 
-export function ViewNav({ activeView, onViewChange }: ViewNavProps) {
+export function ViewNav({ activeView, onViewChange, memoryCount }: ViewNavProps) {
   return (
     <nav
       className={cn(
@@ -52,7 +49,13 @@ export function ViewNav({ activeView, onViewChange }: ViewNavProps) {
             <Icon className="h-3.5 w-3.5" />
             {tab.label}
 
-            {/* Active dot indicator */}
+            {/* Memory count badge */}
+            {tab.id === "memory" && memoryCount !== undefined && memoryCount > 0 && (
+              <span className="ml-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-mono bg-success/15 text-success border border-success/25">
+                {memoryCount}
+              </span>
+            )}
+
             {isActive && (
               <span className="w-1.5 h-1.5 rounded-full bg-primary pulse-dot ml-0.5" />
             )}

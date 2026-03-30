@@ -258,6 +258,19 @@ export async function fetchReport(
   return res.json();
 }
 
+/** Fetch all memorized entities and their confirmed connections. */
+export async function fetchMemory(): Promise<{
+  nodes: Array<{ id: string; label: string; type: string; val: number; confirmed: boolean }>;
+  links: Array<{ source: string; target: string; type: string; confirmed_at?: number }>;
+  total_memorized: number;
+}> {
+  const res = await fetch(`${API_BASE}/api/memory`);
+  if (!res.ok) {
+    throw new Error(`Memory fetch failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
 /** Generate a visual threat map image for an entity. */
 export async function generateThreatMap(req: {
   entity: string;

@@ -28,9 +28,10 @@ import { ThreatReportPdf } from "../report/ThreatReportPdf";
 
 interface NarrativePanelProps {
   state: InvestigationState;
+  onMemorySaved?: () => void;
 }
 
-export function NarrativePanel({ state }: NarrativePanelProps) {
+export function NarrativePanel({ state, onMemorySaved }: NarrativePanelProps) {
   const [confirmed, setConfirmed] = useState(false);
   const [threatMapSvg, setThreatMapSvg] = useState<string | null>(null);
   const [threatMapLoading, setThreatMapLoading] = useState(false);
@@ -58,6 +59,7 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
         type: state.entityType,
       });
       setConfirmed(true);
+      onMemorySaved?.();
     } catch (err) {
       console.error("Confirm failed:", err);
     } finally {
