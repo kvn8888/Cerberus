@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://services.nvd.nist.gov/rest/json/cves/2.0?cveId=CVE-2025-11953\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d, indent=2\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(''''paths_found:'''', d[''''paths_found'''']\\); print\\(''''enriched:'''', d.get\\(''''enriched''''\\)\\); print\\(''''narrative:'''', d[''''narrative''''][:200]\\)\")",
+      "Bash(python3 -c \":*)",
+      "Bash(find /Volumes/DevDisk/Dev Projects/Cerberus -type f -name *geo* -o -name *map*)",
+      "Bash(grep -r \"fetchGeoMap\\\\|/geo\\\\|/geomap\" /Volumes/DevDisk/Dev Projects/Cerberus --include=*.ts --include=*.tsx --include=*.py)",
+      "Bash(grep -r \"demo/map\\\\|/api/demo\" /Volumes/DevDisk/Dev Projects/Cerberus/backend --include=*.py)",
+      "Bash(curl -s -X POST http://localhost:8000/api/query -H \"Content-Type: application/json\" -d '{\"\"entity\"\": \"\"CVE-2025-11953\"\", \"\"type\"\": \"\"cve\"\"}' -w \"\\\\nHTTP_CODE: %{http_code}\\\\n\")",
+      "Bash(python3 -c \"import enrich; print\\(''import OK''\\)\")",
+      "Bash(curl -s \"http://localhost:8000/api/demo/map?entity=CVE-2025-11953&type=cve\")"
+    ]
+  }
+}
