@@ -298,7 +298,12 @@ Cerberus/
 ## Known Issues
 
 1. ~~config.py semantic mismatch~~ — VERIFIED FALSE. Config is correct (`ANTHROPIC_KEY = _require("ANTHROPIC_API_KEY")`)
-2. ~~neo4j_client.py unused import~~ — FIXED. Removed unused `hashlib` import
-3. **neo4j_client.py Cypher templating:** Uses `.format()` for labels/keys — mitigated by enum routing but fragile
+2. ~~neo4j_client.py unused import~~ — VERIFIED FALSE. hashlib IS used in write_back() for narrative_hash
+3. ~~neo4j_client.py Cypher templating~~ — Still uses `.format()` for labels/keys but mitigated by enum routing
 4. **CORS wide open:** `allow_origins=["*"]` in main.py — acceptable for hackathon, note for judges
-5. ~~Duplicate import scripts~~ — CONSOLIDATED. `scripts/` is now the single source of truth. Root-level duplicates deleted.
+5. ~~Duplicate import scripts~~ — CONSOLIDATED. `scripts/` is now the single source of truth
+6. ~~Unbounded shortestPath~~ — FIXED. All Cypher queries now use `[*..6]` or `[*..5]` bounds
+7. ~~_WRITE_BACK Cypher bug~~ — FIXED. `start` variable now carried through WITH clause
+8. ~~Missing LLM error handling~~ — FIXED. Query route gracefully returns graph data when LLM unavailable
+9. ~~Bad model name~~ — FIXED. Changed from `claude-opus-4-6` to `claude-sonnet-4-20250514`
+10. **FastAPI version:** Requires FastAPI ≥0.115.0 (incompatible with older Starlette 0.46+)
