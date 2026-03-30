@@ -14,12 +14,9 @@ import {
   UserX,
   Zap,
   ChevronRight,
-  Languages,
-  MessageSquareText,
 } from "lucide-react";
 import type { EntityType } from "../../types/api";
 import { cn } from "../../lib/utils";
-import { parseNaturalLanguage } from "../../lib/api";
 
 interface QueryPanelProps {
   onInvestigate: (entity: string, type: EntityType) => void;
@@ -98,10 +95,6 @@ function getInitialFeedSource(): FeedSource {
 
 export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
   const [query, setQuery] = useState("");
-  const [showNl, setShowNl] = useState(false);
-  const [naturalText, setNaturalText] = useState("");
-  const [nlError, setNlError] = useState("");
-  const [nlBusy, setNlBusy] = useState(false);
   const [feedSource, setFeedSource] = useState<FeedSource>(getInitialFeedSource);
 
   useEffect(() => {
@@ -123,20 +116,6 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
     if (!isRunning) onInvestigate(ex.entity, ex.type);
   };
 
-  const handleNaturalInvestigate = async () => {
-    if (!naturalText.trim() || isRunning || nlBusy) return;
-    setNlBusy(true);
-    setNlError("");
-    try {
-      const parsed = await parseNaturalLanguage(naturalText.trim());
-      setQuery(parsed.primary_entity.value);
-      onInvestigate(parsed.primary_entity.value, parsed.primary_entity.type);
-    } catch (err) {
-      setNlError(err instanceof Error ? err.message : "Unable to parse prompt");
-    } finally {
-      setNlBusy(false);
-    }
-  };
 
   return (
     <div className="flex flex-col h-full">
@@ -241,53 +220,6 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
               "INVESTIGATE"
             )}
           </button>
-
-          {/* NLP expansion — collapsible */}
-          <div>
-            <button
-              type="button"
-              onClick={() => setShowNl(!showNl)}
-              className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-            >
-              <MessageSquareText className="h-3 w-3" />
-              <span>{showNl ? "Hide" : "Or describe what you're looking for"}</span>
-              <ChevronRight className={cn("h-3 w-3 transition-transform", showNl && "rotate-90")} />
-            </button>
-            {showNl && (
-              <div className="mt-2 rounded-lg border border-primary/15 bg-primary/5 p-3 animate-fade-in">
-                <textarea
-                  value={naturalText}
-                  onChange={(e) => setNaturalText(e.target.value)}
-                  placeholder='e.g. "What attacks use ua-parser-js?" or "Show threats linked to 203.0.113.42"'
-                  rows={2}
-                  className={cn(
-                    "w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-xs",
-                    "text-foreground placeholder:text-muted-foreground/40",
-                    "focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
-                  )}
-                />
-                <button
-                  type="button"
-                  disabled={!naturalText.trim() || isRunning || nlBusy}
-                  onClick={handleNaturalInvestigate}
-                  className={cn(
-                    "mt-2 w-full rounded-lg px-3 py-2 text-xs font-semibold",
-                    !naturalText.trim() || isRunning || nlBusy
-                      ? "bg-muted text-muted-foreground"
-                      : "bg-primary/15 text-primary border border-primary/25 hover:bg-primary/20"
-                  )}
-                >
-                  <span className="flex items-center justify-center gap-2">
-                    <Languages className="h-3.5 w-3.5" />
-                    {nlBusy ? "Parsing..." : "Investigate"}
-                  </span>
-                </button>
-                {nlError && (
-                  <p className="mt-2 text-[10px] font-mono text-threat-high">{nlError}</p>
-                )}
-              </div>
-            )}
-          </div>
 
           {/* Quick start examples */}
           <div className="mt-auto pt-4">
