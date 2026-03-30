@@ -1,0 +1,16 @@
+# Backend
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-dotenv==1.0.1
+httpx==0.27.0
+sse-starlette==2.1.0
+
+# Neo4j
+neo4j==5.19.0
+
+# Anthropic
+anthropic==0.26.0
+
+# Data import scripts
+requests==2.31.0
+stix2==3.0.1

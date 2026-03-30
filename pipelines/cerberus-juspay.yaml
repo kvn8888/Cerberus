@@ -1,0 +1,116 @@
+# cerberus-juspay — Financial fraud signal ingestion (stretch goal)
+#
+# Trigger:  Juspay webhook alert OR batch import POST
+# Input:    Juspay fraud alert JSON or batch array
+# Output:   FraudSignal nodes linked to IPs in the graph
+
+name: cerberus-juspay
+description: >
+  Parses Juspay fraud alerts, upserts FraudSignal nodes, and links them
+  to known IP addresses in the threat graph via neo4j-mcp write-cypher.
+  Enables the financial domain in cross-domain traversals.
+
+nodes:
+  # ── 1. Entry point ─────────────────────────────────────────────────────────
+  - id: webhook-source
+    type: WebhookSource
+    config:
+      path: /juspay
+      method: POST
+      # Accepts both single alert and batch array
+      output_field: juspay_payload
+
+  # ── 2. Parse Juspay payload ─────────────────────────────────────────────────
+  - id: parser
+    type: DataParser
+    depends_on: [webhook-source]
+    config:
+      # Normalize single alert to array for uniform handling
+      normalize_to_array: true
+      field_mappings:
+        juspay_id:
+          sources: [id, transaction_id, juspay_transaction_id]
+        fraud_type:
+          sources: [fraud_type, signal_type, alert_type]
+        amount:
+          sources: [amount, transaction_amount]
+          type: float
+        currency:
+          sources: [currency, currency_code]
+          default: "USD"
+        ip_address:
+          sources: [ip, ip_address, customer_ip, device_ip]
+        timestamp:
+          sources: [created_at, timestamp, event_time]
+          type: epoch_ms
+        merchant_id:
+          sources: [merchant_id, mid]
+      output_field: fraud_signals
+
+  # ── 3. Validate required fields ─────────────────────────────────────────────
+  - id: validator
+    type: Preprocessor
+    depends_on: [parser]
+    config:
+      steps:
+        - validate_required:
+            fields: [juspay_id, fraud_type, amount, ip_address]
+            on_missing: skip_record    # skip malformed entries, don't abort
+        - deduplicate:
+            key: juspay_id
+
+  # ── 4. Upsert FraudSignal nodes + ASSOCIATED_WITH links ────────────────────
+  - id: neo4j-write-fraud
+    type: MCPClient
+    depends_on: [validator]
+    config:
+      server_url: "${NEO4J_MCP_URL}"
+      tool: write-cypher
+      # Iterates over validated fraud_signals array
+      input:
+        cypher: |
+          UNWIND $signals AS sig
+          MERGE (fs:FraudSignal {juspay_id: sig.juspay_id})
+          SET fs.type      = sig.fraud_type,
+              fs.amount    = sig.amount,
+              fs.currency  = sig.currency,
+              fs.timestamp = sig.timestamp
+          WITH fs, sig
+          WHERE sig.ip_address IS NOT NULL
+          MERGE (ip:IP {address: sig.ip_address})
+          MERGE (ip)-[:ASSOCIATED_WITH]->(fs)
+        params:
+          signals: "{validator.fraud_signals}"
+      retry:
+        max_attempts: 3
+        backoff_ms: 500
+      output_field: write_result
+
+  # ── 5. Enrich: link IP to known ThreatActors if they exist ─────────────────
+  - id: neo4j-enrich
+    type: MCPClient
+    depends_on: [neo4j-write-fraud]
+    config:
+      server_url: "${NEO4J_MCP_URL}"
+      tool: read-cypher
+      input:
+        cypher: |
+          MATCH (fs:FraudSignal)<-[:ASSOCIATED_WITH]-(ip:IP)
+          WHERE fs.juspay_id IN $signal_ids
+          OPTIONAL MATCH (ta:ThreatActor)-[:OPERATES]->(ip)
+          RETURN fs.juspay_id AS signal_id,
+                 ip.address   AS ip,
+                 ta.name      AS actor
+        params:
+          signal_ids: "{validator.fraud_signals | map('juspay_id')}"
+      output_field: enrichment
+
+  # ── 6. Output confirmation ──────────────────────────────────────────────────
+  - id: output
+    type: TextOutput
+    depends_on: [neo4j-enrich]
+    config:
+      template: |
+        Ingested {validator.fraud_signals | length} Juspay fraud signals.
+        Write result: {neo4j-write-fraud.write_result}
+        Actor links found: {neo4j-enrich.enrichment | selectattr('actor') | list | length}

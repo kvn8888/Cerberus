@@ -1,0 +1,81 @@
+services:
+  # ── neo4j-mcp bridge ────────────────────────────────────────────────────────
+  # Exposes Neo4j Aura over MCP HTTP on port 8787.
+  # Image: https://github.com/neo4j-contrib/neo4j-mcp
+  neo4j-mcp:
+    image: ghcr.io/neo4j-contrib/neo4j-mcp:1.5.0
+    ports:
+      - "8787:8787"
+    environment:
+      NEO4J_URI: ${NEO4J_URI}
+      NEO4J_USERNAME: ${NEO4J_USERNAME}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      MCP_TRANSPORT: http
+      MCP_PORT: 8787
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8787/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── RocketRide AI pipeline engine ───────────────────────────────────────────
+  # Hosts cerberus-ingest and cerberus-query pipelines.
+  # Replace image tag with your actual RocketRide image.
+  rocketride:
+    image: rocketride/rocketride:latest   # TODO: pin to your build tag
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./pipelines:/app/pipelines:ro
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      NEO4J_MCP_URL: http://neo4j-mcp:8787
+      ROCKETRIDE_PIPELINES_DIR: /app/pipelines
+    depends_on:
+      neo4j-mcp:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Cerberus FastAPI backend ─────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      NEO4J_URI: ${NEO4J_URI}
+      NEO4J_USERNAME: ${NEO4J_USERNAME}
+      NEO4J_PASSWORD: ${NEO4J_PASSWORD}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      NEO4J_MCP_URL: http://neo4j-mcp:8787
+      ROCKETRIDE_URL: http://rocketride:3000
+    depends_on:
+      neo4j-mcp:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  # ── React frontend dev server ────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+
+networks:
+  default:
+    name: cerberus-net

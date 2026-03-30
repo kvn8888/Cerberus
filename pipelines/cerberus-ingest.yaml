@@ -1,0 +1,120 @@
+# cerberus-ingest — Raw input -> entity extraction -> Neo4j upsert
+#
+# Trigger:  POST to RocketRide webhook endpoint
+# Input:    { "raw_input": "<freeform text or structured JSON>" }
+# Output:   "Ingested N entities, M relationships"
+
+name: cerberus-ingest
+description: >
+  Extracts entities (IPs, CVEs, packages, domains, accounts) from raw
+  analyst input and upserts them into the Neo4j threat graph via neo4j-mcp.
+
+nodes:
+  # ── 1. Entry point ─────────────────────────────────────────────────────────
+  - id: webhook-source
+    type: WebhookSource
+    config:
+      path: /ingest
+      method: POST
+      output_field: raw_input
+
+  # ── 2. Normalize & detect input type ───────────────────────────────────────
+  - id: preprocessor
+    type: Preprocessor
+    depends_on: [webhook-source]
+    config:
+      steps:
+        - trim_whitespace
+        - detect_format:          # json | plaintext | url
+            output_field: input_format
+        - normalize_cve_ids:      # CVE-YYYY-NNNNN
+            pattern: "CVE-\\d{4}-\\d{4,7}"
+        - normalize_ip_addresses:
+            pattern: "\\b(?:\\d{1,3}\\.){3}\\d{1,3}\\b"
+
+  # ── 3. Named Entity Recognition ────────────────────────────────────────────
+  - id: ner
+    type: NERNode
+    depends_on: [preprocessor]
+    config:
+      model: claude-haiku-4-5-20251001
+      entity_types:
+        - Package     # npm/pypi package names
+        - CVE         # CVE identifiers
+        - IP          # IPv4/IPv6 addresses
+        - Domain      # hostnames / FQDNs
+        - Account     # npm / GitHub usernames
+        - ThreatActor # APT group names, ransomware gangs
+      output_schema:
+        # Matches the Entity JSON Contract in the spec
+        entities:
+          - type: string
+            properties: object
+        relationships:
+          - from:
+              type: string
+              key: string
+            to:
+              type: string
+              key: string
+            type: string
+      prompt: |
+        Extract all security-relevant entities from the following text.
+        Return JSON matching the schema exactly.
+        Entity types: Package, CVE, IP, Domain, Account, ThreatActor.
+        For Packages include registry (npm/pypi) if detectable.
+        For CVEs include severity and CVSS score if mentioned.
+        For IPs include geo/ASN if mentioned.
+
+  # ── 4. Classify threat domain ──────────────────────────────────────────────
+  - id: classifier
+    type: TextClassification
+    depends_on: [ner]
+    config:
+      model: claude-haiku-4-5-20251001
+      categories:
+        - software_supply_chain   # packages, CVEs, accounts
+        - infrastructure          # IPs, domains
+        - financial               # fraud signals, transaction IDs
+        - mixed                   # spans multiple domains
+      output_field: threat_domain
+      prompt: |
+        Given these extracted entities, classify the primary threat domain.
+        Entities: {ner.output}
+
+  # ── 5. Build Cypher MERGE statements ───────────────────────────────────────
+  - id: cypher-builder
+    type: Preprocessor
+    depends_on: [ner, classifier]
+    config:
+      steps:
+        - build_merge_statements:
+            # Converts Entity JSON Contract -> parameterized MERGE Cypher
+            # One MERGE per entity, one MERGE per relationship
+            template: |
+              MERGE (n:{label} {{{key}: $value}})
+              SET n += $properties
+            output_field: cypher_statements
+
+  # ── 6. Write entities to Neo4j via MCP ─────────────────────────────────────
+  - id: neo4j-write
+    type: MCPClient
+    depends_on: [cypher-builder]
+    config:
+      server_url: "${NEO4J_MCP_URL}"
+      tool: write-cypher
+      input:
+        cypher: "{cypher-builder.cypher_statements}"
+      retry:
+        max_attempts: 3
+        backoff_ms: 500
+
+  # ── 7. Confirm + respond ────────────────────────────────────────────────────
+  - id: output
+    type: TextOutput
+    depends_on: [neo4j-write]
+    config:
+      template: |
+        Ingested {ner.output.entities | length} entities,
+        {ner.output.relationships | length} relationships.
+        Threat domain: {classifier.threat_domain}.

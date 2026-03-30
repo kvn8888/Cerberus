@@ -1,0 +1,205 @@
+# cerberus-query — The "thoughtful agent" pipeline
+#
+# Trigger:  Chat message to the RocketRide chat endpoint
+# Input:    "analyze ua-parser-js" | "investigate 203.0.113.42"
+# Output:   SSE-streamed threat narrative
+#
+# Self-improvement: Confirmed paths skip the LLM entirely (cache branch).
+# The agent routes Cypher templates based on entity type classification.
+
+name: cerberus-query
+description: >
+  Extracts the target entity from natural language, classifies its threat
+  domain, runs the appropriate Neo4j cross-domain traversal, checks the
+  cache (confirmed paths skip the LLM), generates a threat narrative if
+  needed, writes back to the graph, and streams output to the frontend.
+
+nodes:
+  # ── 1. Entry point ─────────────────────────────────────────────────────────
+  - id: chat-source
+    type: ChatSource
+    config:
+      endpoint: /query
+      streaming: true            # enables SSE to frontend
+
+  # ── 2. Extract target entity ────────────────────────────────────────────────
+  - id: ner
+    type: NERNode
+    depends_on: [chat-source]
+    config:
+      model: claude-haiku-4-5-20251001
+      entity_types: [Package, IP, Domain, CVE, ThreatActor]
+      max_entities: 1            # single target entity per query
+      output_field: target_entity
+      prompt: |
+        Extract the single primary entity the analyst wants to investigate.
+        Return: { "type": "<label>", "value": "<identifier>" }
+        Examples:
+          "analyze ua-parser-js" -> { "type": "Package", "value": "ua-parser-js" }
+          "investigate 203.0.113.42" -> { "type": "IP", "value": "203.0.113.42" }
+          "look up APT41" -> { "type": "ThreatActor", "value": "APT41" }
+
+  # ── 3. Classify threat domain ──────────────────────────────────────────────
+  - id: classifier
+    type: TextClassification
+    depends_on: [ner]
+    config:
+      model: claude-haiku-4-5-20251001
+      # Routes to domain-specific Cypher template
+      categories:
+        - software_supply_chain   # Package, CVE -> traces to ThreatActor via Account->IP
+        - infrastructure          # IP, Domain   -> traces to ThreatActor
+        - financial               # FraudSignal  -> traces to Account->Package
+      output_field: threat_domain
+      input: "{ner.target_entity}"
+
+  # ── 4a. Cache check (Branch: confirmed path?) ──────────────────────────────
+  - id: cache-check
+    type: MCPClient
+    depends_on: [ner, classifier]
+    config:
+      server_url: "${NEO4J_MCP_URL}"
+      tool: read-cypher
+      input:
+        cypher: |
+          MATCH path = shortestPath(
+            (start:{ner.target_entity.type} {{{ner.target_entity.key}: "{ner.target_entity.value}"}})-[*]-(ta:ThreatActor)
+          )
+          WHERE ALL(r IN relationships(path) WHERE r.confirmed = true)
+          RETURN path, true AS from_cache
+          LIMIT 1
+      output_field: cache_result
+
+  # ── 4b. Branch: return cache hit or continue ───────────────────────────────
+  - id: cache-branch
+    type: Branch
+    depends_on: [cache-check]
+    config:
+      condition: "cache_check.cache_result | length > 0"
+      true_branch:  cached-output
+      false_branch: traverse
+
+  # ── 5a. Cached output (skip LLM) ───────────────────────────────────────────
+  - id: cached-output
+    type: TextOutput
+    depends_on: [cache-branch]
+    config:
+      template: |
+        [CACHED] Confirmed threat path for {ner.target_entity.value}.
+        LLM call skipped — pattern was previously analyst-confirmed.
+        Path: {cache_check.cache_result}
+
+  # ── 5b. Domain-routed traversal (new path) ─────────────────────────────────
+  - id: traverse
+    type: MCPClient
+    depends_on: [cache-branch]
+    config:
+      server_url: "${NEO4J_MCP_URL}"
+      tool: read-cypher
+      # Template selected by threat_domain classification
+      input:
+        cypher:
+          software_supply_chain: |
+            MATCH path = shortestPath(
+              (p:Package {name: "{ner.target_entity.value}"})-[*..6]->(ta:ThreatActor)
+            )
+            RETURN path LIMIT 10
+          infrastructure: |
+            MATCH path = shortestPath(
+              (i:IP {address: "{ner.target_entity.value}"})-[*..5]->(ta:ThreatActor)
+            )
+            RETURN path LIMIT 10
+          financial: |
+            MATCH (pkg:Package)-[:PUBLISHED_BY]->(acct:Account)-[:LINKED_TO]->(ip:IP)
+                  -[:ASSOCIATED_WITH]->(fs:FraudSignal)
+            WHERE pkg.name = "{ner.target_entity.value}"
+            RETURN pkg.name AS package, acct.username AS publisher,
+                   ip.address AS ip, fs.type AS fraud_type, fs.amount AS amount
+            LIMIT 10
+        template_key: "{classifier.threat_domain}"
+      output_field: traversal_result
+
+  # ── 6. Also run cross-domain discovery query ────────────────────────────────
+  - id: cross-domain-query
+    type: MCPClient
+    depends_on: [traverse]
+    config:
+      server_url: "${NEO4J_MCP_URL}"
+      tool: read-cypher
+      input:
+        cypher: |
+          MATCH (pkg:Package)-[:PUBLISHED_BY]->(acct:Account)
+                -[:LINKED_TO]->(ip:IP)
+          WHERE pkg.name = "{ner.target_entity.value}"
+                OR acct.username = "{ner.target_entity.value}"
+                OR ip.address = "{ner.target_entity.value}"
+          OPTIONAL MATCH (ip)-[:ASSOCIATED_WITH]->(fs:FraudSignal)
+          OPTIONAL MATCH (ip)<-[:OPERATES]-(ta:ThreatActor)
+          RETURN pkg.name         AS package,
+                 acct.username    AS publisher,
+                 ip.address       AS ip,
+                 ta.name          AS actor,
+                 collect(fs.type) AS fraud_types
+          LIMIT 10
+      output_field: cross_domain_result
+
+  # ── 7. LLM: generate threat narrative ──────────────────────────────────────
+  - id: llm-narrative
+    type: AnthropicLLMNode
+    depends_on: [traverse, cross-domain-query]
+    config:
+      model: claude-opus-4-6
+      max_tokens: 600
+      stream: true
+      system_prompt: |
+        You are a senior threat intelligence analyst working in a security
+        operations center.
+
+        You receive the output of a Neo4j graph traversal that traces
+        cross-domain attack chains across three domains:
+          1. Software supply-chain  (Package, CVE, Account nodes)
+          2. Infrastructure         (IP, Domain nodes)
+          3. Financial fraud        (FraudSignal nodes)
+
+        Your task:
+        - Explain the cross-domain attack chain in plain language, step by step.
+        - Explicitly highlight each point where the chain crosses a domain
+          boundary (e.g., software->infrastructure, infrastructure->financial).
+        - Name every node and relationship type you reference — be specific.
+        - Identify which ThreatActor is responsible if attribution exists.
+        - Rate the overall threat level: CRITICAL / HIGH / MEDIUM / LOW.
+        - Keep the narrative under 400 words. Lead with the threat level rating.
+      user_prompt: |
+        Entity: {ner.target_entity.value} (type: {ner.target_entity.type})
+
+        Graph traversal result:
+        {traverse.traversal_result}
+
+        Cross-domain connection scan:
+        {cross-domain-query.cross_domain_result}
+      output_field: narrative
+
+  # ── 8. Write-back: tag analyzed nodes ──────────────────────────────────────
+  - id: write-back
+    type: MCPClient
+    depends_on: [llm-narrative]
+    config:
+      server_url: "${NEO4J_MCP_URL}"
+      tool: write-cypher
+      input:
+        cypher: |
+          MATCH path = shortestPath(
+            (start:{ner.target_entity.type} {{{ner.target_entity.key}: "{ner.target_entity.value}"}})-[*]-(ta:ThreatActor)
+          )
+          WHERE length(path) <= 6
+          WITH nodes(path) AS ns, relationships(path) AS rs
+          FOREACH (n IN ns | SET n.last_analyzed = timestamp())
+          FOREACH (r IN rs | SET r.last_analyzed = timestamp())
+
+  # ── 9. Stream narrative to frontend ────────────────────────────────────────
+  - id: output
+    type: TextOutput
+    depends_on: [llm-narrative, write-back]
+    config:
+      stream: true
+      output: "{llm-narrative.narrative}"
