@@ -42,7 +42,9 @@ Output:  A visual attack chain + AI narrative connecting the package
          and fraud signals — across all four domains.
 ```
 
-It's a **thoughtful security agent** — not a chatbot, not a dashboard. It reasons about which domains to query, traverses a knowledge graph to connect signals no single-surface tool can see, and learns from analyst feedback to get faster with every investigation.
+Even for entities **not in the database**, Cerberus fetches real-time threat intelligence from public APIs (OSV.dev, NVD, Abuse.ch), ingests the data into the graph on-the-fly, and completes the investigation — all within the same query.
+
+It's a **thoughtful security agent** — not a chatbot, not a dashboard. It reasons about which domains to query, traverses a knowledge graph to connect signals no single-surface tool can see, enriches gaps with live threat intelligence, and learns from analyst feedback to get faster with every investigation.
 
 ---
 
@@ -140,7 +142,7 @@ The analyst types `ua-parser-js` into the search box (or clicks a quick-start bu
 The UI shows each processing stage activating in sequence:
 
 ```text
-input → NER → classify → route → traverse → analyze → narrate → complete
+input → NER → classify → route → traverse → enrich → analyze → narrate → complete
 ```
 
 This is not decorative. Each stage represents real work:
@@ -149,6 +151,7 @@ This is not decorative. Each stage represents real work:
 - **Classify**: Determines this is a software supply chain entity
 - **Route**: Decides to start traversal from Package node, expanding outward across all domains
 - **Traverse**: Executes the graph query
+- **Enrich**: If entity not found, fetches live threat intel from public APIs (OSV.dev, NVD, Abuse.ch) and ingests into the graph
 - **Analyze**: Sends graph paths to the LLM for interpretation
 - **Narrate**: Streams the threat narrative back
 
@@ -253,7 +256,48 @@ The `eval_improvement.py` script benchmarks all three phases with timing asserti
 
 ---
 
-## 7. Comparison: Cerberus vs. Existing Tools
+## 7. Real-Time Threat Intel Enrichment
+
+Most threat intelligence tools rely entirely on pre-loaded databases. If the entity isn't in the system, you get nothing.
+
+Cerberus is different. When you query an entity that doesn't exist in the graph, the system **automatically fetches real-time threat intelligence** from public APIs and ingests the results into Neo4j — all within the same request.
+
+### How it works
+
+```text
+Query: "lodash" (not in graph)
+  → Graph traversal: 0 paths found
+  → Enrichment triggered:
+      → OSV.dev API: 8 CVEs found for lodash
+      → MERGE Package + CVE nodes into Neo4j
+  → Re-traverse: 8 paths found
+  → LLM generates threat narrative
+  → Response delivered to user
+
+Next query for "lodash":
+  → Graph traversal: 8 paths found (already enriched)
+  → Skip enrichment (fast path)
+  → LLM generates narrative
+```
+
+### Supported data sources
+
+| Entity Type | API | What it returns |
+|---|---|---|
+| **npm/PyPI packages** | [OSV.dev](https://osv.dev) | Known CVEs + severity + CVSS scores |
+| **CVE IDs** | [NVD](https://nvd.nist.gov) | Full CVE details, CVSS v3 scoring |
+| **IP addresses** | [Abuse.ch Feodo Tracker](https://feodotracker.abuse.ch) + [URLhaus](https://urlhaus.abuse.ch) | Malware family, first seen date, associated URLs |
+| **Domains** | [Abuse.ch URLhaus](https://urlhaus.abuse.ch) | Malicious URL count, threat types |
+
+All APIs are **free, public, and require no API keys**. The enrichment adds ~1-2 seconds to the first query for that entity, but all subsequent queries are instant because the data persists in Neo4j.
+
+### Why this matters
+
+This turns Cerberus from a "what's in the database" tool into a **live threat intelligence platform**. An analyst can query any CVE published today, any npm package, any suspicious IP — and get results even if Cerberus has never seen it before. The graph grows organically with every investigation.
+
+---
+
+## 8. Comparison: Cerberus vs. Existing Tools
 
 ### Side-by-Side: npm audit
 
@@ -286,7 +330,7 @@ ua-parser-js <0.7.30                 ua-parser-js
 
 ---
 
-## 8. Architecture (How It Works Under the Hood)
+## 9. Architecture (How It Works Under the Hood)
 
 ### System Flow
 
@@ -307,9 +351,18 @@ Backend (FastAPI, port 8000)
      │
      ├──→ Neo4j Aura (graph traversal via Bolt driver)
      │       Returns: paths as structured data
+     │       │
+     │       └── No paths? → Real-time enrichment
+     │              │
+     │              ├── OSV.dev (package vuln lookup)
+     │              ├── NVD (CVE detail lookup)
+     │              ├── Abuse.ch Feodo Tracker (IP lookup)
+     │              └── Abuse.ch URLhaus (domain lookup)
+     │              │
+     │              └── Data found → Ingest into Neo4j → Re-traverse
      │
-     ├──→ RocketRide AI (optional orchestration layer)
-     │       Manages pipeline stages, NER, classification
+     ├──→ RocketRide AI (agent + MCP orchestration)
+     │       CrewAI agent with MCP Client → neo4j-mcp
      │       Falls back to direct LLM if unavailable
      │
      ├──→ Anthropic Claude (narrative generation)
@@ -331,9 +384,10 @@ Frontend receives:
 | Layer | Technology | Why |
 |---|---|---|
 | **Graph DB** | Neo4j Aura (free tier) | Relationships are first-class; cross-domain traversal in one query |
-| **MCP Bridge** | neo4j-mcp v1.5.0 | HTTP bridge to Neo4j for tool-use integrations |
+| **MCP Bridge** | neo4j-mcp v1.5.0 | HTTP bridge to Neo4j for agent tool-use (schema, Cypher) |
 | **Backend** | FastAPI + Python | Async, SSE support, fast to build |
-| **Orchestration** | RocketRide AI | Pipeline management, NER, classification (sponsor integration) |
+| **Orchestration** | RocketRide AI (CrewAI agent + MCP Client) | Autonomous agent explores graph via MCP tools |
+| **Enrichment** | OSV.dev, NVD, Abuse.ch | Real-time threat intel for unknown entities (free, no keys) |
 | **LLM** | Anthropic Claude Sonnet | Narrative generation from graph context |
 | **Frontend** | React 18 + Vite + Tailwind + shadcn/ui | Modern, fast, component library |
 | **Graph Viz** | D3-force (via custom component) | Force-directed layout for attack chain visualization |
@@ -352,7 +406,7 @@ The LLM receives structured graph paths and converts them to analyst-readable th
 
 ---
 
-## 9. Input Types
+## 10. Input Types
 
 Cerberus accepts 5 entity types as input. The agent identifies the type and routes the traversal accordingly:
 
@@ -368,7 +422,7 @@ Each input type triggers a different **route decision**, which the UI displays a
 
 ---
 
-## 10. Synthetic Data Disclaimer
+## 11. Synthetic Data Disclaimer
 
 One relationship in the graph is simulated:
 
@@ -384,7 +438,7 @@ In the visualization, these edges render as **dashed lines** to distinguish them
 
 ---
 
-## 11. API Reference (Quick)
+## 12. API Reference (Quick)
 
 | Endpoint | Method | Purpose |
 |---|---|---|
@@ -402,7 +456,7 @@ In the visualization, these edges render as **dashed lines** to distinguish them
 
 ---
 
-## 12. Anticipated Questions & Answers
+## 13. Anticipated Questions & Answers
 
 ### "Why not just use Postgres?"
 
@@ -426,28 +480,36 @@ The pipeline makes visible decisions. It identifies the entity type (NER), class
 
 ### "What's the RocketRide integration?"
 
-RocketRide manages the pipeline orchestration — NER, classification, routing, and LLM calls as a directed graph of processing stages. If RocketRide is unavailable, the backend falls back to direct Claude calls. It's a graceful degradation, not a hard dependency.
+RocketRide orchestrates a **CrewAI agent with an MCP Client** that connects directly to our neo4j-mcp server. The agent autonomously explores the Neo4j threat graph using MCP tools (schema introspection, Cypher queries) and generates threat narratives using Claude Sonnet. It's not just an LLM wrapper — it's an autonomous agent that decides what to query and how to traverse the graph. If RocketRide is unavailable, the backend falls back to direct Claude calls.
 
 ### "Could this scale to production?"
 
 The current demo graph has ~1,060 nodes. Neo4j Aura scales to millions. The architecture supports it: bounded traversals (`[*..6]`), index-backed lookups, and the cache layer means confirmed patterns never hit the LLM again. The bottleneck at scale would be the LLM call, which the self-improvement loop progressively eliminates.
 
+### "What happens when I query something not in the database?"
+
+Cerberus automatically enriches from public threat intel APIs. If you query an npm package that's not in the graph, it hits OSV.dev to find any known CVEs, creates the nodes in Neo4j, and completes the investigation — all in one request. It supports live lookups for packages (OSV.dev), CVEs (NVD), IPs (Abuse.ch Feodo Tracker), and domains (Abuse.ch URLhaus). No API keys needed.
+
+### "How current is the threat data?"
+
+The seed data includes MITRE ATT&CK (updated March 2025) and ~50 known CVEs. But more importantly, the real-time enrichment layer fetches live data from OSV.dev, NVD, and Abuse.ch on every query for unknown entities. This means Cerberus can investigate a CVE published today. The graph grows with every investigation.
+
 ---
 
-## 13. One-Line Pitches (Pick Your Audience)
+## 14. One-Line Pitches (Pick Your Audience)
 
 **For judges:**
-> Cerberus is a thoughtful security agent that traces cross-domain attack chains in 5 seconds instead of 4 hours — and gets faster every time an analyst confirms a finding.
+> Cerberus is a thoughtful security agent that traces cross-domain attack chains in 5 seconds instead of 4 hours — enriching gaps with live threat intel and learning from every investigation.
 
 **For security professionals:**
-> It's the graph connecting your npm audit, Shodan, MITRE ATT&CK, and fraud dashboard into one queryable attack chain.
+> It connects your npm audit, Shodan, MITRE ATT&CK, and fraud dashboard into one queryable attack chain — and auto-enriches from OSV.dev, NVD, and Abuse.ch when entities are missing.
 
 **For technical audiences:**
-> Neo4j knowledge graph + Claude narrative generation + self-improving cache, queried through a pipeline that shows its reasoning at every step.
+> Neo4j knowledge graph + real-time API enrichment + Claude narrative generation + self-improving cache, orchestrated through a CrewAI agent with MCP tools that shows its reasoning at every step.
 
 **For non-technical audiences:**
-> When hackers attack through software, we automatically trace the full chain — who did it, what infrastructure they used, and where the money went — in seconds instead of hours.
+> When hackers attack through software, we automatically trace the full chain — who did it, what infrastructure they used, and where the money went — in seconds instead of hours. Even if we've never seen the threat before.
 
 ---
 
-*This document is current as of the latest implementation. 97 tests passing. All imports verified against live Neo4j Aura instance. Demo chain (ua-parser-js → APT41 → fraud signals) confirmed end-to-end.*
+*This document is current as of the latest implementation. Real-time enrichment from OSV.dev, NVD, and Abuse.ch is live. All imports verified against live Neo4j Aura instance (~1,060 nodes). Demo chain (ua-parser-js → APT41 → fraud signals) confirmed end-to-end.*
