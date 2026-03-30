@@ -19,8 +19,10 @@ import type {
   ReportResponse,
 } from "../types/api";
 
-/** Base URL for the Cerberus backend — no trailing slash */
-const API_BASE = "http://localhost:8000";
+/** Base URL for the Cerberus backend — no trailing slash.
+ *  Uses VITE_API_URL env var if set (baked in at build time),
+ *  otherwise defaults to localhost:8000 for local dev. */
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
 /**
  * Submit an entity for investigation (non-streaming).
