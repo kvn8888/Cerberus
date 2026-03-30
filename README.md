@@ -199,6 +199,8 @@ docker build -t cerberus .
 docker run -p 10000:80 --env-file .env cerberus
 # Frontend: http://localhost:10000
 # API:      http://localhost:10000/api/...
+
+docker stop $(docker ps -q --filter "publish=10000") to terminate
 ```
 
 ### Option B: Docker Compose (separate containers)

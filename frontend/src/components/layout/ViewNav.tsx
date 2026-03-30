@@ -28,8 +28,8 @@ export function ViewNav({ activeView, onViewChange }: ViewNavProps) {
   return (
     <nav
       className={cn(
-        "absolute top-3 left-3 z-20 flex items-center gap-0.5",
-        "rounded-lg border border-border/60 bg-surface/80 backdrop-blur-md",
+        "absolute top-3 left-3 z-30 flex items-center gap-0.5",
+        "rounded-lg border border-border/60 bg-surface backdrop-blur-none",
         "p-0.5 shadow-lg"
       )}
     >
