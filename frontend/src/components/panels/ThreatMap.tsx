@@ -10,9 +10,10 @@
  * The map uses a simplified equirectangular projection with hand-tuned
  * control points for continent shapes.
  */
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Shield, Activity, AlertTriangle, Crosshair, X } from "lucide-react";
 import { cn } from "../../lib/utils";
+import { fetchGeoMap } from "../../lib/api";
 import type { InvestigationState } from "../../types/api";
 
 /* ════════════════════════════════════════════════════════════════════════
@@ -246,35 +247,85 @@ export { type ThreatNode, type ThreatConnection, type ThreatSeverity };
  * THREAT MAP COMPONENT
  * ════════════════════════════════════════════════════════════════════════ */
 
+/** Convert longitude (-180..180) to map X percentage (0..100) */
+function latLonToX(lon: number): number {
+  return ((lon + 180) / 360) * 100;
+}
+
+/** Convert latitude (-90..90) to map Y percentage (0..100) — inverted */
+function latLonToY(lat: number): number {
+  return ((90 - lat) / 180) * 100;
+}
+
 interface ThreatMapProps {
   state: InvestigationState;
 }
 
-export function ThreatMap({ state: _state }: ThreatMapProps) {
-  /** Which node (if any) is hovered — shows the tooltip card */
+export function ThreatMap({ state }: ThreatMapProps) {
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
-  /** Selected node for the APT detail panel */
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
-  /** Container ref for tooltip positioning */
   const containerRef = useRef<HTMLDivElement>(null);
-  /** Animation tick — drives the pulse cycle (value unused, setter triggers re-render) */
 
-  /* Build a lookup map for fast node access */
+  // Dynamic nodes from real investigation data, merged with static ones
+  const [liveNodes, setLiveNodes] = useState<ThreatNode[]>([]);
+  const [liveConnections, setLiveConnections] = useState<ThreatConnection[]>([]);
+
+  // Fetch geo data when an investigation completes
+  useEffect(() => {
+    if (state.status !== "complete" || !state.entity) return;
+    let cancelled = false;
+
+    fetchGeoMap({ entity: state.entity, type: state.entityType })
+      .then((data) => {
+        if (cancelled || !data.points?.length) return;
+        const newNodes: ThreatNode[] = [];
+        const newConns: ThreatConnection[] = [];
+
+        for (const pt of data.points) {
+          const actors: string[] = pt.actors || [];
+          const actorName = actors[0] || "";
+          const id = `live-${pt.ip || Math.random()}`;
+          newNodes.push({
+            id,
+            name: actorName ? `${pt.ip} (${actorName})` : pt.ip,
+            type: actorName ? "infrastructure" : "infrastructure",
+            position: { x: latLonToX(pt.lon ?? 0), y: latLonToY(pt.lat ?? 0) },
+            severity: actorName ? "critical" : "high",
+            region: pt.geo || "Unknown",
+            active: true,
+          });
+          // Connect live IP to any matching static APT node
+          const matchingApt = THREAT_NODES.find(
+            (n) => n.type === "apt" && actors.some((a: string) => n.name.toLowerCase().includes(a.toLowerCase().split(" ")[0]))
+          );
+          if (matchingApt) {
+            newConns.push({ from: id, to: matchingApt.id, active: true, type: "c2" });
+          }
+        }
+        setLiveNodes(newNodes);
+        setLiveConnections(newConns);
+      })
+      .catch((err) => console.error("Geo map fetch failed:", err));
+
+    return () => { cancelled = true; };
+  }, [state.status, state.entity, state.entityType]);
+
+  // Merge static + live nodes
+  const allNodes = useMemo(() => [...THREAT_NODES, ...liveNodes], [liveNodes]);
+  const allConnections = useMemo(() => [...THREAT_CONNECTIONS, ...liveConnections], [liveConnections]);
+
   const nodeMap = useMemo(() => {
     const map = new Map<string, ThreatNode>();
-    THREAT_NODES.forEach((n) => map.set(n.id, n));
+    allNodes.forEach((n) => map.set(n.id, n));
     return map;
-  }, []);
+  }, [allNodes]);
 
-  /* Stats for the header bar */
   const stats = useMemo(() => {
-    const activeCount = THREAT_NODES.filter((n) => n.active).length;
-    const aptCount = THREAT_NODES.filter((n) => n.type === "apt").length;
-    const criticalCount = THREAT_NODES.filter(
-      (n) => n.severity === "critical"
-    ).length;
+    const activeCount = allNodes.filter((n) => n.active).length;
+    const aptCount = allNodes.filter((n) => n.type === "apt").length;
+    const criticalCount = allNodes.filter((n) => n.severity === "critical").length;
     return { activeCount, aptCount, criticalCount };
-  }, []);
+  }, [allNodes]);
 
   /* Handle node click — toggles selection for APT detail */
   const handleNodeClick = useCallback((nodeId: string) => {
@@ -377,7 +428,7 @@ export function ThreatMap({ state: _state }: ThreatMapProps) {
         ))}
 
         {/* ── Connection lines between threat nodes ────────── */}
-        {THREAT_CONNECTIONS.map((conn, i) => {
+        {allConnections.map((conn, i) => {
           const from = getNodePos(conn.from, nodeMap);
           const to = getNodePos(conn.to, nodeMap);
           if (!from || !to) return null;
@@ -420,7 +471,7 @@ export function ThreatMap({ state: _state }: ThreatMapProps) {
         })}
 
         {/* ── Threat nodes ────────────────────────────────── */}
-        {THREAT_NODES.map((node) => {
+        {allNodes.map((node) => {
           const cx = node.position.x * 10;
           const cy = node.position.y * 10;
           const style = NODE_TYPE_STYLES[node.type];
@@ -570,7 +621,7 @@ export function ThreatMap({ state: _state }: ThreatMapProps) {
       {/* ── APT Attribution Panel (bottom-left overlay) ──── */}
       <AptAttributionPanel
         selectedNode={selectedNodeData}
-        activeNodes={THREAT_NODES.filter((n) => n.active && n.type === "apt")}
+        activeNodes={allNodes.filter((n) => n.active && n.type === "apt")}
         onSelect={(id) => setSelectedNode(id)}
         onClose={() => setSelectedNode(null)}
       />
