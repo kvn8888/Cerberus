@@ -20,9 +20,13 @@ import type {
 } from "../types/api";
 
 /** Base URL for the Cerberus backend — no trailing slash.
- *  Uses VITE_API_URL env var if set (baked in at build time),
- *  otherwise defaults to localhost:8000 for local dev. */
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+ *  Uses VITE_API_URL env var if set (baked in at build time).
+ *  When empty string (unified container), uses relative URLs (same origin).
+ *  Falls back to localhost:8000 for local dev. */
+const API_BASE =
+  import.meta.env.VITE_API_URL !== undefined
+    ? import.meta.env.VITE_API_URL
+    : "http://localhost:8000";
 
 /**
  * Submit an entity for investigation (non-streaming).

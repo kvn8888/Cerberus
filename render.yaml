@@ -1,10 +1,13 @@
 # ============================================================
 # render.yaml — Render Blueprint for Cerberus
 # ============================================================
-# Deploys 3 services:
-#   1. neo4j-mcp  — Private Service (internal only, bridges to Neo4j Aura)
-#   2. backend    — Web Service (FastAPI, public API)
-#   3. frontend   — Static Site (React SPA, served by Render CDN)
+# Deploys 2 services:
+#   1. neo4j-mcp — Private Service (internal only, bridges to Neo4j Aura)
+#   2. cerberus  — Unified Web Service (nginx + FastAPI in one container)
+#
+# The unified container builds the React frontend at Docker build
+# time, serves it via nginx, and proxies /api/* to uvicorn on
+# localhost:8000. This eliminates CORS entirely (same origin).
 #
 # Neo4j runs externally on Aura free tier — not managed by Render.
 #
@@ -14,7 +17,8 @@
 #   3. Fill in the env var values when prompted
 #   4. Deploy
 #
-# Total cost: ~$14/month (backend $7 + neo4j-mcp $7, frontend free)
+# Total cost: ~$7/month (one web service; neo4j-mcp can be removed
+#   if you point NEO4J_MCP_URL to a public endpoint instead)
 # ============================================================
 
 services:
@@ -28,18 +32,17 @@ services:
     dockerfilePath: ./neo4j-mcp_Linux_x86_64/Dockerfile
     dockerContext: ./neo4j-mcp_Linux_x86_64
     envVars:
-      # Neo4j Aura connection URI (the MCP server needs this to know where to connect)
       - key: NEO4J_URI
         sync: false
 
-  # ── backend: Web Service (public) ──────────────────────────
-  # FastAPI application serving the Cerberus API.
-  # Build context is project root so requirements.txt is accessible.
+  # ── cerberus: Unified Web Service (frontend + backend) ────
+  # Single container running nginx (static files + reverse proxy)
+  # and uvicorn (FastAPI). No CORS needed — same origin.
   - type: web
-    name: cerberus-backend
+    name: cerberus
     runtime: docker
     plan: starter
-    dockerfilePath: ./backend/Dockerfile
+    dockerfilePath: ./Dockerfile
     dockerContext: .
     envVars:
       # Neo4j Aura credentials
@@ -52,44 +55,19 @@ services:
       # LLM provider
       - key: ANTHROPIC_API_KEY
         sync: false
-      # neo4j-mcp URL — dynamically resolved from the private service's internal address
+      # neo4j-mcp URL — resolved from the private service
       - key: NEO4J_MCP_URL
         fromService:
           name: neo4j-mcp
           type: pserv
           property: hostport
-      # RocketRide (optional — system falls back to direct LLM if unavailable)
+      # RocketRide (optional — falls back to direct LLM if unavailable)
       - key: ROCKETRIDE_URI
         sync: false
       - key: ROCKETRIDE_APIKEY
         sync: false
       - key: ROCKETRIDE_ANTHROPIC_KEY
         sync: false
-      # MCP endpoint for RocketRide's MCP Client node to reach neo4j-mcp.
-      # On Render, neo4j-mcp is a private service — if RocketRide runs on
-      # the cloud, you'll need a public tunnel (ngrok) to expose it.
       - key: NEO4J_MCP_ENDPOINT
         sync: false
     healthCheckPath: /health
-
-  # ── frontend: Static Site (free) ───────────────────────────
-  # React SPA built with Vite, served by Render's global CDN.
-  # VITE_API_URL is baked into the JS bundle at build time.
-  - type: web
-    name: cerberus-frontend
-    runtime: static
-    buildCommand: cd frontend && npm ci && npm run build
-    staticPublishPath: frontend/dist
-    headers:
-      - path: /assets/*
-        name: Cache-Control
-        value: public, max-age=31536000, immutable
-    routes:
-      # SPA fallback — all paths serve index.html for client-side routing
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      # Backend API URL — baked into the frontend JS bundle at build time.
-      - key: VITE_API_URL
-        value: https://cerberus-backend-ritc.onrender.com

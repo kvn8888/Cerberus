@@ -1,5 +1,6 @@
-# ── Backend .dockerignore ────────────────────────────────────
+# ── Unified .dockerignore ────────────────────────────────────
 # Keep the Docker build context small and avoid leaking secrets.
+# The unified Dockerfile needs both frontend/ and deploy/.
 __pycache__/
 *.pyc
 *.pyo
@@ -8,15 +9,15 @@ __pycache__/
 !.env.example
 .git/
 .gitignore
-*.md
 tests/
 scripts/
 seed_data/
 pipelines/
-frontend/
 neo4j-mcp_Darwin_arm64/
 neo4j-mcp_Linux_arm64/
 docs/
-deploy/
 .claude/
 docker-compose.yml
+# Exclude frontend node_modules (npm ci runs inside Docker)
+frontend/node_modules/
+frontend/dist/
