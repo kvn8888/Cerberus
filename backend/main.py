@@ -1,4 +1,4 @@
-"""
+ """
 main.py — Cerberus FastAPI backend entry point.
 
 Start with:
