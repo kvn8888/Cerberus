@@ -1,0 +1,136 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Cerberus Entity Exchange Format",
+  "description": "Integration contract between RocketRide NER output and Neo4j graph upsert. Person B's pipeline produces this; Person A's Cypher consumes it.",
+  "type": "object",
+  "required": ["entities", "relationships"],
+  "properties": {
+    "entities": {
+      "type": "array",
+      "description": "List of entities extracted by the NER node",
+      "items": {
+        "type": "object",
+        "required": ["type", "properties"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": ["Package", "CVE", "IP", "Domain", "ThreatActor", "Technique", "Account", "FraudSignal"],
+            "description": "Neo4j node label"
+          },
+          "properties": {
+            "type": "object",
+            "description": "Node properties — must include the uniqueness key for the label",
+            "additionalProperties": true
+          }
+        }
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "description": "List of relationships between extracted entities",
+      "items": {
+        "type": "object",
+        "required": ["from", "to", "type"],
+        "properties": {
+          "from": {
+            "type": "object",
+            "required": ["type", "key"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Source node label"
+              },
+              "key": {
+                "type": "string",
+                "description": "Value of the source node's uniqueness property"
+              }
+            }
+          },
+          "to": {
+            "type": "object",
+            "required": ["type", "key"],
+            "properties": {
+              "type": {
+                "type": "string",
+                "description": "Target node label"
+              },
+              "key": {
+                "type": "string",
+                "description": "Value of the target node's uniqueness property"
+              }
+            }
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "DEPENDS_ON",
+              "HAS_VULNERABILITY",
+              "PUBLISHED_BY",
+              "EXPLOITED_BY",
+              "USES",
+              "OPERATES",
+              "CONTROLS",
+              "HOSTS",
+              "ASSOCIATED_WITH",
+              "LINKED_TO",
+              "SERVES"
+            ],
+            "description": "Neo4j relationship type"
+          }
+        }
+      }
+    }
+  },
+  "examples": [
+    {
+      "entities": [
+        {
+          "type": "Package",
+          "properties": {
+            "name": "ua-parser-js",
+            "version": "0.7.29",
+            "registry": "npm"
+          }
+        },
+        {
+          "type": "CVE",
+          "properties": {
+            "id": "CVE-2021-27292",
+            "severity": "HIGH",
+            "cvss_score": 7.5
+          }
+        },
+        {
+          "type": "Account",
+          "properties": {
+            "username": "ART-BY-FAISAL",
+            "registry": "npm"
+          }
+        },
+        {
+          "type": "IP",
+          "properties": {
+            "address": "203.0.113.42"
+          }
+        }
+      ],
+      "relationships": [
+        {
+          "from": { "type": "Package", "key": "ua-parser-js" },
+          "to": { "type": "CVE", "key": "CVE-2021-27292" },
+          "type": "HAS_VULNERABILITY"
+        },
+        {
+          "from": { "type": "Package", "key": "ua-parser-js" },
+          "to": { "type": "Account", "key": "ART-BY-FAISAL" },
+          "type": "PUBLISHED_BY"
+        },
+        {
+          "from": { "type": "Account", "key": "ART-BY-FAISAL" },
+          "to": { "type": "IP", "key": "203.0.113.42" },
+          "type": "LINKED_TO"
+        }
+      ]
+    }
+  ]
+}

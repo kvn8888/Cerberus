@@ -1,0 +1,68 @@
+# ============================================================
+# Cerberus — Docker Compose for local development
+# ============================================================
+# Runs: neo4j-mcp server + frontend dev server
+#
+# Neo4j itself runs on Aura (cloud) — not in this compose file.
+# The neo4j-mcp server bridges between RocketRide and Aura.
+#
+# Usage:
+#   cp .env.example .env  # fill in your Aura credentials
+#   docker compose up
+#
+# Services:
+#   neo4j-mcp:  MCP server on port 8787 (HTTP mode)
+#   frontend:   React dev server on port 5173
+# ============================================================
+
+services:
+  # ── neo4j-mcp server ─────────────────────────────────────────
+  # Bridges RocketRide MCP Client nodes to Neo4j Aura.
+  # Exposes tools: get-schema, read-cypher, write-cypher
+  # Runs in HTTP mode (not stdio) so RocketRide can reach it.
+  neo4j-mcp:
+    image: alpine:latest
+    container_name: cerberus-neo4j-mcp
+    ports:
+      - "8787:8787"
+    volumes:
+      # Mount the pre-built binary for macOS ARM64
+      - ./neo4j-mcp_Darwin_arm64/neo4j-mcp:/usr/local/bin/neo4j-mcp
+    environment:
+      # These come from the .env file (see .env.example)
+      - NEO4J_URI=${NEO4J_URI}
+      - NEO4J_USERNAME=${NEO4J_USERNAME}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+    command: >
+      /usr/local/bin/neo4j-mcp
+      --transport http
+      --port 8787
+      --host 0.0.0.0
+    restart: unless-stopped
+    healthcheck:
+      # Simple TCP check — MCP server responds to HTTP
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8787"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── Frontend dev server ──────────────────────────────────────
+  # React 18 + Vite + Tailwind + shadcn/ui
+  # Hot-reloads on file changes.
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: cerberus-frontend
+    ports:
+      - "5173:5173"
+    volumes:
+      # Mount source for hot reload (exclude node_modules)
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      neo4j-mcp:
+        condition: service_healthy
+    command: npm run dev -- --host 0.0.0.0

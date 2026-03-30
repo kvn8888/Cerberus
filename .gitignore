@@ -1,0 +1,29 @@
+# Environment variables (contain secrets)
+.env
+
+# Seed data (large files, re-downloadable)
+seed_data/enterprise-attack.json
+seed_data/cves.json
+seed_data/threat_ips.json
+seed_data/threat_domains.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.swp
+*.swo
