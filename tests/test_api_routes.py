@@ -1,13 +1,14 @@
 """
 Tests for FastAPI routes — /api/query and /api/confirm.
-Uses TestClient with the actual FastAPI app; stubs Neo4j driver and Anthropic.
+Uses TestClient with the actual FastAPI app; patches neo4j_client and llm
+functions directly (correct layer for route tests — not the DB driver).
 """
 
 import sys
 import os
 import types
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, AsyncMock
 
 # ── Stub config ───────────────────────────────────────────────────────────────
 config_stub = types.ModuleType("config")
@@ -36,242 +37,216 @@ sys.modules["anthropic"] = anthropic_stub
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "backend"))
 
 from fastapi.testclient import TestClient
+from main import app
 
+CLIENT = TestClient(app)
 
-def _make_mock_session(records=None):
-    mock_record = MagicMock()
-    mock_record.data.return_value = {}
-    session = MagicMock()
-    session.run.return_value = iter(records or [])
-    session.__enter__ = MagicMock(return_value=session)
-    session.__exit__  = MagicMock(return_value=False)
-    return session
+# ── Patch targets (module path as seen by routes/query.py) ───────────────────
+CACHE_CHECK = "neo4j_client.cache_check"
+TRAVERSE    = "neo4j_client.traverse"
+WRITE_BACK  = "neo4j_client.write_back"
+CONFIRM     = "neo4j_client.confirm"
+GENERATE    = "llm.generate_narrative"
+
+EMPTY_TRAVERSAL = {"paths": [], "cross_domain": [], "paths_found": 0}
+FOUND_TRAVERSAL = {
+    "paths": [{"path": {"nodes": ["pkg", "acct", "ip", "actor"]}}],
+    "cross_domain": [{"package": "ua-parser-js", "actor": "APT41"}],
+    "paths_found": 1,
+}
 
 
 class TestHealthEndpoint(unittest.TestCase):
-    def setUp(self):
-        mock_driver.session.return_value = _make_mock_session()
-        from main import app
-        self.client = TestClient(app)
-
     def test_health_returns_ok(self):
-        resp = self.client.get("/health")
+        resp = CLIENT.get("/health")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json(), {"status": "ok"})
 
 
 class TestQueryEndpointCacheHit(unittest.TestCase):
-    """When cache_check returns records, the endpoint must NOT call the LLM."""
+    """cache_check returns records → from_cache=True, LLM must NOT be called."""
 
-    def setUp(self):
-        # Fresh import to avoid state pollution between test classes
-        for mod in list(sys.modules.keys()):
-            if mod in ("neo4j_client", "llm", "routes.query", "routes.confirm", "main"):
-                del sys.modules[mod]
-
-        # cache_check will return a hit
-        cached_record = MagicMock()
-        cached_record.data.return_value = {"from_cache": True}
-        session = _make_mock_session(records=[cached_record])
-        mock_driver.session.return_value = session
-
-        # LLM should not be called
-        mock_anthropic_client.messages.create.reset_mock()
-
-        from main import app
-        self.client = TestClient(app)
+    def _post(self):
+        with patch(CACHE_CHECK, return_value=[{"from_cache": True}]), \
+             patch(GENERATE) as mock_llm:
+            resp = CLIENT.post(
+                "/api/query",
+                json={"entity": "ua-parser-js", "type": "package"},
+            )
+            return resp, mock_llm
 
     def test_cache_hit_returns_correct_flags(self):
-        resp = self.client.post(
-            "/api/query",
-            json={"entity": "ua-parser-js", "type": "package"},
-        )
+        resp, _ = self._post()
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertTrue(body["from_cache"])
         self.assertFalse(body["llm_called"])
 
     def test_cache_hit_skips_llm(self):
-        self.client.post(
-            "/api/query",
-            json={"entity": "ua-parser-js", "type": "package"},
-        )
-        mock_anthropic_client.messages.create.assert_not_called()
+        _, mock_llm = self._post()
+        mock_llm.assert_not_called()
 
     def test_cache_hit_includes_entity_in_response(self):
-        resp = self.client.post(
-            "/api/query",
-            json={"entity": "ua-parser-js", "type": "package"},
-        )
+        resp, _ = self._post()
         body = resp.json()
         self.assertEqual(body["entity"], "ua-parser-js")
         self.assertEqual(body["entity_type"], "package")
 
+    def test_cache_hit_narrative_present(self):
+        resp, _ = self._post()
+        body = resp.json()
+        self.assertIn("narrative", body)
+        self.assertGreater(len(body["narrative"]), 0)
+
 
 class TestQueryEndpointCacheMissWithPaths(unittest.TestCase):
-    """Cache miss + paths found -> LLM should be called."""
+    """Cache miss + paths found → LLM should be called."""
 
-    def setUp(self):
-        for mod in list(sys.modules.keys()):
-            if mod in ("neo4j_client", "llm", "routes.query", "routes.confirm", "main"):
-                del sys.modules[mod]
-
-        # cache_check: miss (empty)
-        # traverse: returns one path record
-        path_record = MagicMock()
-        path_record.data.return_value = {"path": {"nodes": ["pkg", "acct", "ip", "actor"]}}
-
-        call_count = [0]
-        def session_factory():
-            s = _make_mock_session()
-            c = call_count[0]
-            call_count[0] += 1
-            if c == 0:
-                # cache_check -> empty
-                s.run.return_value = iter([])
-            else:
-                # traverse queries -> return path record
-                s.run.return_value = iter([path_record])
-            return s
-
-        mock_driver.session.side_effect = session_factory
-
-        # LLM returns a narrative
+    def _post(self):
         mock_message = MagicMock()
-        mock_message.content = [MagicMock(text="CRITICAL: ua-parser-js is linked to APT41.")]
-        mock_anthropic_client.messages.create.return_value = mock_message
-        mock_anthropic_client.messages.create.reset_mock()
-
-        from main import app
-        self.client = TestClient(app)
-
-    def tearDown(self):
-        mock_driver.session.side_effect = None
+        mock_message.content = [MagicMock(text="CRITICAL: ua-parser-js linked to APT41.")]
+        with patch(CACHE_CHECK, return_value=None), \
+             patch(TRAVERSE, return_value=FOUND_TRAVERSAL), \
+             patch(WRITE_BACK), \
+             patch(GENERATE, return_value="CRITICAL: ua-parser-js linked to APT41.") as mock_llm:
+            resp = CLIENT.post(
+                "/api/query",
+                json={"entity": "ua-parser-js", "type": "package"},
+            )
+            return resp, mock_llm
 
     def test_cache_miss_calls_llm(self):
-        self.client.post(
-            "/api/query",
-            json={"entity": "ua-parser-js", "type": "package"},
-        )
-        mock_anthropic_client.messages.create.assert_called_once()
+        _, mock_llm = self._post()
+        mock_llm.assert_called_once()
 
     def test_cache_miss_returns_llm_called_true(self):
-        resp = self.client.post(
-            "/api/query",
-            json={"entity": "ua-parser-js", "type": "package"},
-        )
+        resp, _ = self._post()
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertFalse(body["from_cache"])
         self.assertTrue(body["llm_called"])
 
     def test_narrative_in_response(self):
-        resp = self.client.post(
-            "/api/query",
-            json={"entity": "ua-parser-js", "type": "package"},
-        )
+        resp, _ = self._post()
         body = resp.json()
         self.assertIn("narrative", body)
         self.assertIn("APT41", body["narrative"])
 
+    def test_paths_found_count(self):
+        resp, _ = self._post()
+        body = resp.json()
+        self.assertEqual(body["paths_found"], FOUND_TRAVERSAL["paths_found"])
+
+    def test_llm_called_with_entity_and_traversal(self):
+        """generate_narrative must receive entity, entity_type, and traversal result."""
+        with patch(CACHE_CHECK, return_value=None), \
+             patch(TRAVERSE, return_value=FOUND_TRAVERSAL), \
+             patch(WRITE_BACK), \
+             patch(GENERATE, return_value="narrative") as mock_llm:
+            CLIENT.post("/api/query", json={"entity": "ua-parser-js", "type": "package"})
+        call_args = mock_llm.call_args
+        self.assertEqual(call_args[0][0], "ua-parser-js")
+        self.assertEqual(call_args[0][1], "package")
+        self.assertEqual(call_args[0][2], FOUND_TRAVERSAL)
+
+    def test_write_back_called_after_llm(self):
+        with patch(CACHE_CHECK, return_value=None), \
+             patch(TRAVERSE, return_value=FOUND_TRAVERSAL), \
+             patch(WRITE_BACK) as mock_wb, \
+             patch(GENERATE, return_value="narrative"):
+            CLIENT.post("/api/query", json={"entity": "ua-parser-js", "type": "package"})
+        mock_wb.assert_called_once_with("ua-parser-js", "package")
+
 
 class TestQueryEndpointEmptyGraph(unittest.TestCase):
-    """Cache miss + zero paths -> LLM must NOT be called."""
+    """Cache miss + zero paths → LLM must NOT be called."""
 
-    def setUp(self):
-        for mod in list(sys.modules.keys()):
-            if mod in ("neo4j_client", "llm", "routes.query", "routes.confirm", "main"):
-                del sys.modules[mod]
-
-        session = _make_mock_session(records=[])
-        mock_driver.session.return_value = session
-        mock_anthropic_client.messages.create.reset_mock()
-
-        from main import app
-        self.client = TestClient(app)
+    def _post(self, entity="nonexistent-pkg"):
+        with patch(CACHE_CHECK, return_value=None), \
+             patch(TRAVERSE, return_value=EMPTY_TRAVERSAL), \
+             patch(GENERATE) as mock_llm:
+            resp = CLIENT.post(
+                "/api/query",
+                json={"entity": entity, "type": "package"},
+            )
+            return resp, mock_llm
 
     def test_empty_graph_no_llm_call(self):
-        self.client.post(
-            "/api/query",
-            json={"entity": "nonexistent-pkg", "type": "package"},
-        )
-        mock_anthropic_client.messages.create.assert_not_called()
+        _, mock_llm = self._post()
+        mock_llm.assert_not_called()
 
     def test_empty_graph_returns_zero_paths(self):
-        resp = self.client.post(
-            "/api/query",
-            json={"entity": "nonexistent-pkg", "type": "package"},
-        )
+        resp, _ = self._post()
         body = resp.json()
         self.assertEqual(body["paths_found"], 0)
         self.assertFalse(body["llm_called"])
+        self.assertFalse(body["from_cache"])
+
+    def test_empty_graph_narrative_explains_no_paths(self):
+        resp, _ = self._post()
+        narrative = resp.json()["narrative"]
+        self.assertIn("No threat paths found", narrative)
 
 
 class TestQueryValidation(unittest.TestCase):
-    def setUp(self):
-        for mod in list(sys.modules.keys()):
-            if mod in ("neo4j_client", "llm", "routes.query", "routes.confirm", "main"):
-                del sys.modules[mod]
-        mock_driver.session.return_value = _make_mock_session()
-        from main import app
-        self.client = TestClient(app)
-
     def test_empty_entity_returns_400(self):
-        resp = self.client.post(
-            "/api/query",
-            json={"entity": "", "type": "package"},
-        )
+        resp = CLIENT.post("/api/query", json={"entity": "", "type": "package"})
         self.assertEqual(resp.status_code, 400)
 
     def test_missing_entity_field_returns_422(self):
-        resp = self.client.post("/api/query", json={"type": "package"})
+        resp = CLIENT.post("/api/query", json={"type": "package"})
         self.assertEqual(resp.status_code, 422)
 
     def test_default_type_is_package(self):
-        # Should not crash when type is omitted — defaults to "package"
-        session = _make_mock_session(records=[])
-        mock_driver.session.return_value = session
-        resp = self.client.post("/api/query", json={"entity": "ua-parser-js"})
+        with patch(CACHE_CHECK, return_value=None), \
+             patch(TRAVERSE, return_value=EMPTY_TRAVERSAL):
+            resp = CLIENT.post("/api/query", json={"entity": "ua-parser-js"})
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["entity_type"], "package")
 
+    def test_whitespace_entity_returns_400(self):
+        resp = CLIENT.post("/api/query", json={"entity": "   ", "type": "package"})
+        self.assertEqual(resp.status_code, 400)
+
 
 class TestConfirmEndpoint(unittest.TestCase):
-    def setUp(self):
-        for mod in list(sys.modules.keys()):
-            if mod in ("neo4j_client", "llm", "routes.query", "routes.confirm", "main"):
-                del sys.modules[mod]
-        mock_driver.session.return_value = _make_mock_session()
-        from main import app
-        self.client = TestClient(app)
-
     def test_confirm_returns_success_true(self):
-        resp = self.client.post(
-            "/api/confirm",
-            json={"entity": "ua-parser-js", "type": "package"},
-        )
+        with patch(CONFIRM) as mock_confirm:
+            resp = CLIENT.post(
+                "/api/confirm",
+                json={"entity": "ua-parser-js", "type": "package"},
+            )
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
         self.assertTrue(body["success"])
         self.assertEqual(body["entity"], "ua-parser-js")
 
     def test_confirm_empty_entity_returns_400(self):
-        resp = self.client.post(
-            "/api/confirm",
-            json={"entity": "", "type": "package"},
-        )
+        resp = CLIENT.post("/api/confirm", json={"entity": "", "type": "package"})
         self.assertEqual(resp.status_code, 400)
 
-    def test_confirm_writes_to_neo4j(self):
-        session = _make_mock_session()
-        mock_driver.session.return_value = session
-        self.client.post(
-            "/api/confirm",
-            json={"entity": "ua-parser-js", "type": "package"},
-        )
-        session.run.assert_called_once()
-        cypher = session.run.call_args[0][0]
-        self.assertIn("ConfirmedThreat", cypher)
+    def test_confirm_calls_db_confirm(self):
+        with patch(CONFIRM) as mock_confirm:
+            CLIENT.post(
+                "/api/confirm",
+                json={"entity": "ua-parser-js", "type": "package"},
+            )
+        mock_confirm.assert_called_once_with("ua-parser-js", "package")
+
+    def test_confirm_default_type_is_package(self):
+        with patch(CONFIRM) as mock_confirm:
+            resp = CLIENT.post("/api/confirm", json={"entity": "ua-parser-js"})
+        self.assertEqual(resp.status_code, 200)
+        mock_confirm.assert_called_once_with("ua-parser-js", "package")
+
+    def test_confirm_ip_entity_type(self):
+        with patch(CONFIRM) as mock_confirm:
+            resp = CLIENT.post(
+                "/api/confirm",
+                json={"entity": "203.0.113.42", "type": "ip"},
+            )
+        self.assertEqual(resp.status_code, 200)
+        mock_confirm.assert_called_once_with("203.0.113.42", "ip")
 
 
 if __name__ == "__main__":
