@@ -176,7 +176,7 @@ ANALYZE, with a cloud-download icon. Only lights up when enrichment is triggered
 
 ### Visible Agent Reasoning
 
-- **US-5: Pipeline stage visibility** — As a user, I can see each pipeline stage (NER → Classify → Route → Graph → Analyze → Narrate) light up as it executes — so I understand what the agent is doing and trust it's reasoning, not just spinning.
+- **US-5: Pipeline stage visibility** — As a user, I can see each pipeline stage (NER → Classify → Route → Graph → Enrich → Analyze → Narrate) light up as it executes — so I understand what the agent is doing and trust it's reasoning, not just spinning.
 - **US-6: Route decision** — As a user, I can see which cross-domain traversal the agent chose (software→infra, infra→financial, full cross-domain) and why — reinforcing the "Thoughtful Agent" theme.
 
 ### Self-Improvement Loop
@@ -253,8 +253,14 @@ Cache hit? → YES → Return cached narrative (no LLM, ~2s)
   ↓ NO
 Graph traversal (domain-routed Cypher)
   ↓
-Paths found? → NO → Generic "not found" message
-  ↓ YES
+Paths found? → NO → Real-time enrichment (OSV.dev / NVD / Abuse.ch)
+  ↓                    ↓
+  ↓               Data ingested? → YES → Re-traverse graph
+  ↓                    ↓ NO
+  ↓               Return "entity not found"
+  ↓
+Paths found → YES
+  ↓
 LLM narrative generation (Claude, 600 tokens max)
   ↓
 Write-back: tag nodes with analysis timestamp
@@ -271,8 +277,9 @@ Return response
 | `backend/neo4j_client.py` | Neo4j driver wrapper, traversal, cache/confirm, graph viz, geo, Juspay |
 | `backend/llm.py` | Anthropic Claude narrative generation (blocking + streaming) |
 | `backend/rocketride.py` | RocketRide pipeline integration (async httpx, SSE proxy, 60s timeout) |
+| `backend/enrich.py` | Real-time threat intel enrichment (OSV.dev, NVD, Abuse.ch) |
 | `backend/models.py` | Pydantic models: EntityType, QueryRequest, ConfirmRequest |
-| `backend/routes/query.py` | POST /api/query + GET /api/query/stream (uses rocketride fallback) |
+| `backend/routes/query.py` | POST /api/query + GET /api/query/stream (enrichment + rocketride fallback) |
 | `backend/routes/confirm.py` | POST /api/confirm (returns confirmed count + message) |
 | `backend/routes/demo.py` | Demo APIs: NLP, comparison, feed, map, report |
 
