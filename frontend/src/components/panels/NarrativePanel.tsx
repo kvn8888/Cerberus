@@ -255,7 +255,7 @@ export function NarrativePanel({ state, onMemorySaved }: NarrativePanelProps) {
 
       </div>
 
-      {/* ── Memory save — only shown when investigation is complete ── */}
+      {/* ── Memory save — shown when complete with paths, hidden if already memorized ── */}
       {state.status === "complete" && state.pathsFound > 0 && (
         <div className="p-4 border-t border-border">
           <div className="flex items-center justify-center gap-2 mb-3">
@@ -265,45 +265,60 @@ export function NarrativePanel({ state, onMemorySaved }: NarrativePanelProps) {
             </span>
           </div>
 
-          <button
-            onClick={handleConfirm}
-            disabled={confirmed || confirming}
-            className={cn(
-              "group w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
-              "transition-all duration-500 flex items-center justify-center gap-2",
-              confirmed
-                ? "bg-success/15 text-success border border-success/30 cursor-default shadow-[0_0_16px_hsl(var(--success)/0.15)]"
-                : confirming
-                  ? "bg-muted text-muted-foreground cursor-wait"
-                  : "bg-surface-raised text-foreground border border-primary/30 hover:bg-primary/10 hover:border-primary/50 hover:shadow-glow active:scale-[0.98]"
-            )}
-          >
-            {confirmed ? (
-              <>
-                <CheckCircle2 className="h-4 w-4 animate-fade-in" />
-                Memorized
-              </>
-            ) : confirming ? (
-              <>
-                <Brain className="h-4 w-4 animate-pulse" />
-                Saving to Memory...
-              </>
-            ) : (
-              <>
-                <Brain className="h-4 w-4 group-hover:animate-pulse" />
-                Save to Memory
-              </>
-            )}
-          </button>
-
-          {confirmed ? (
-            <p className="text-[10px] text-success/60 mt-2 text-center font-mono animate-fade-in">
-              This pattern will be recognized instantly next time
-            </p>
+          {state.fromCache ? (
+            /* Already memorized — show static "already in memory" state */
+            <>
+              <div className="w-full py-2.5 rounded-lg text-sm font-bold tracking-wide bg-success/15 text-success border border-success/30 flex items-center justify-center gap-2 shadow-[0_0_16px_hsl(var(--success)/0.15)]">
+                <CheckCircle2 className="h-4 w-4" />
+                Already Memorized
+              </div>
+              <p className="text-[10px] text-success/60 mt-2 text-center font-mono">
+                This pattern was recalled from memory — no need to save again
+              </p>
+            </>
           ) : (
-            <p className="text-[10px] text-muted-foreground/40 mt-2 text-center font-mono">
-              Teach the system to recognize this threat pattern instantly
-            </p>
+            /* Not yet memorized — show save button */
+            <>
+              <button
+                onClick={handleConfirm}
+                disabled={confirmed || confirming}
+                className={cn(
+                  "group w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
+                  "transition-all duration-500 flex items-center justify-center gap-2",
+                  confirmed
+                    ? "bg-success/15 text-success border border-success/30 cursor-default shadow-[0_0_16px_hsl(var(--success)/0.15)]"
+                    : confirming
+                      ? "bg-muted text-muted-foreground cursor-wait"
+                      : "bg-surface-raised text-foreground border border-primary/30 hover:bg-primary/10 hover:border-primary/50 hover:shadow-glow active:scale-[0.98]"
+                )}
+              >
+                {confirmed ? (
+                  <>
+                    <CheckCircle2 className="h-4 w-4 animate-fade-in" />
+                    Memorized
+                  </>
+                ) : confirming ? (
+                  <>
+                    <Brain className="h-4 w-4 animate-pulse" />
+                    Saving to Memory...
+                  </>
+                ) : (
+                  <>
+                    <Brain className="h-4 w-4 group-hover:animate-pulse" />
+                    Save to Memory
+                  </>
+                )}
+              </button>
+              {confirmed ? (
+                <p className="text-[10px] text-success/60 mt-2 text-center font-mono animate-fade-in">
+                  This pattern will be recognized instantly next time
+                </p>
+              ) : (
+                <p className="text-[10px] text-muted-foreground/40 mt-2 text-center font-mono">
+                  Teach the system to recognize this threat pattern instantly
+                </p>
+              )}
+            </>
           )}
         </div>
       )}

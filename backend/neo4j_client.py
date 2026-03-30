@@ -442,16 +442,24 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
 def get_memory() -> dict[str, Any]:
     """
     Return all ConfirmedThreat nodes and their confirmed relationships,
-    formatted as a graph for the frontend Memory visualization.
+    deduplicated for the frontend Memory visualization.
     """
     nodes_map: dict[str, dict] = {}
+    links_set: set[tuple[str, str, str]] = set()
     links: list[dict] = []
+
+    def _node_name(node) -> str:
+        return (
+            node.get("name") or node.get("id") or node.get("address")
+            or node.get("juspay_id") or node.get("username")
+            or node.get("mitre_id") or str(node.element_id)
+        )
 
     with _get_driver().session() as s:
         result = s.run("""
-            MATCH (n:ConfirmedThreat)-[r]->(m:ConfirmedThreat)
-            WHERE r.confirmed = true
-            RETURN n, r, m, r.confirmed_at AS confirmed_at
+            MATCH (n:ConfirmedThreat)-[r]-(m:ConfirmedThreat)
+            WHERE r.confirmed = true AND id(n) < id(m)
+            RETURN DISTINCT n, r, m, r.confirmed_at AS confirmed_at
         """)
         for record in result:
             for node in [record["n"], record["m"]]:
@@ -460,11 +468,7 @@ def get_memory() -> dict[str, Any]:
                     (l for l in labels if l != "ConfirmedThreat"),
                     labels[0] if labels else "Unknown",
                 )
-                name = (
-                    node.get("name") or node.get("id") or node.get("address")
-                    or node.get("juspay_id") or node.get("username")
-                    or node.get("mitre_id") or str(node.element_id)
-                )
+                name = _node_name(node)
                 if name and name not in nodes_map:
                     nodes_map[name] = {
                         "id": name,
@@ -473,26 +477,17 @@ def get_memory() -> dict[str, Any]:
                         "val": 7 if node_type in ("Package", "ThreatActor") else 5,
                         "confirmed": True,
                     }
-            rel = record["r"]
-            src_node = rel.start_node
-            end_node = rel.end_node
-            src = (
-                src_node.get("name") or src_node.get("id")
-                or src_node.get("address") or src_node.get("juspay_id")
-                or src_node.get("username") or src_node.get("mitre_id")
-                or str(src_node.element_id)
-            )
-            tgt = (
-                end_node.get("name") or end_node.get("id")
-                or end_node.get("address") or end_node.get("juspay_id")
-                or end_node.get("username") or end_node.get("mitre_id")
-                or str(end_node.element_id)
-            )
-            if src and tgt:
+
+            src = _node_name(record["r"].start_node)
+            tgt = _node_name(record["r"].end_node)
+            rel_type = record["r"].type
+            link_key = (min(src, tgt), max(src, tgt), rel_type)
+            if src and tgt and link_key not in links_set:
+                links_set.add(link_key)
                 links.append({
                     "source": src,
                     "target": tgt,
-                    "type": rel.type,
+                    "type": rel_type,
                     "confirmed_at": record.get("confirmed_at"),
                 })
 
