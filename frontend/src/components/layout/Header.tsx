@@ -6,18 +6,23 @@
  * status with a pulsing indicator dot.
  */
 import { useEffect, useState } from "react";
-import { Shield, Wifi, WifiOff, Activity } from "lucide-react";
-import { healthCheck } from "../../lib/api";
+import { Shield, Wifi, WifiOff, Activity, Cpu } from "lucide-react";
+import { healthCheck, rocketrideHealthCheck } from "../../lib/api";
 import { cn } from "../../lib/utils";
 
 export function Header() {
   /* Track whether the backend is reachable */
   const [online, setOnline] = useState(false);
+  /* Track whether RocketRide pipeline service is reachable */
+  const [rocketrideOnline, setRocketrideOnline] = useState(false);
 
   useEffect(() => {
-    const check = () => healthCheck().then(setOnline);
+    const check = () => {
+      healthCheck().then(setOnline);
+      rocketrideHealthCheck().then(setRocketrideOnline);
+    };
     check();
-    const id = setInterval(check, 30_000);
+    const id = setInterval(check, 10_000);
     return () => clearInterval(id);
   }, []);
 
@@ -68,40 +73,68 @@ export function Header() {
           </div>
         </div>
 
-        {/* ── Status indicator with pulsing dot ─────────────── */}
-        <div
-          className={cn(
-            "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono",
-            "transition-all duration-500",
-            online
-              ? "bg-success/10 text-success border border-success/20"
-              : "bg-threat-critical/10 text-threat-critical border border-threat-critical/20"
-          )}
-        >
-          {/* Live pulsing dot */}
-          <span className="relative flex h-2 w-2">
-            <span
-              className={cn(
-                "absolute inline-flex h-full w-full rounded-full opacity-75",
-                online ? "bg-success animate-ping" : "bg-threat-critical animate-ping"
+        {/* ── Status indicators ─────────────────────────────── */}
+        <div className="flex items-center gap-2">
+          {/* Backend status */}
+          <div
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono",
+              "transition-all duration-500",
+              online
+                ? "bg-success/10 text-success border border-success/20"
+                : "bg-threat-critical/10 text-threat-critical border border-threat-critical/20"
+            )}
+          >
+            <span className="relative flex h-2 w-2">
+              <span
+                className={cn(
+                  "absolute inline-flex h-full w-full rounded-full opacity-75",
+                  online ? "bg-success animate-ping" : "bg-threat-critical animate-ping"
+                )}
+                style={{ animationDuration: "2s" }}
+              />
+              <span
+                className={cn(
+                  "relative inline-flex h-2 w-2 rounded-full",
+                  online ? "bg-success" : "bg-threat-critical"
+                )}
+              />
+            </span>
+            {online ? <Wifi className="h-3 w-3" /> : <WifiOff className="h-3 w-3" />}
+            <span className="hidden sm:inline">
+              {online ? "NEO4J" : "OFFLINE"}
+            </span>
+          </div>
+
+          {/* RocketRide pipeline status */}
+          <div
+            className={cn(
+              "flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono",
+              "transition-all duration-500",
+              rocketrideOnline
+                ? "bg-success/10 text-success border border-success/20"
+                : "bg-muted/20 text-muted-foreground border border-muted/20"
+            )}
+          >
+            <span className="relative flex h-2 w-2">
+              {rocketrideOnline && (
+                <span
+                  className="absolute inline-flex h-full w-full rounded-full bg-success opacity-75 animate-ping"
+                  style={{ animationDuration: "2s" }}
+                />
               )}
-              style={{ animationDuration: "2s" }}
-            />
-            <span
-              className={cn(
-                "relative inline-flex h-2 w-2 rounded-full",
-                online ? "bg-success" : "bg-threat-critical"
-              )}
-            />
-          </span>
-          {online ? (
-            <Wifi className="h-3 w-3" />
-          ) : (
-            <WifiOff className="h-3 w-3" />
-          )}
-          <span className="hidden sm:inline">
-            {online ? "CONNECTED" : "OFFLINE"}
-          </span>
+              <span
+                className={cn(
+                  "relative inline-flex h-2 w-2 rounded-full",
+                  rocketrideOnline ? "bg-success" : "bg-muted-foreground/40"
+                )}
+              />
+            </span>
+            <Cpu className="h-3 w-3" />
+            <span className="hidden sm:inline">
+              {rocketrideOnline ? "ROCKETRIDE" : "PIPELINE"}
+            </span>
+          </div>
         </div>
       </div>
 
