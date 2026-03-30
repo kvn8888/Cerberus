@@ -1,0 +1,43 @@
+{
+	"components": [
+		{
+			"id": "chat_1",
+			"provider": "chat",
+			"config": { "hideForm": true, "mode": "Source", "parameters": {}, "type": "chat" },
+			"ui": { "position": { "x": 20, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+		},
+		{
+			"id": "prompt_1",
+			"provider": "prompt",
+			"config": {
+				"instructions": [
+					"You are a senior threat intelligence analyst in a security operations center.\n\nYou will receive a request to analyze a threat entity (npm package, IP address, domain, CVE, or threat actor) along with Neo4j graph traversal data showing how that entity connects to threat actors, malicious infrastructure, and fraud signals across three domains:\n  1. Software supply-chain (Package, CVE, Account nodes)\n  2. Infrastructure (IP, Domain nodes)\n  3. Financial fraud (FraudSignal nodes)\n\nYour task:\n- Explain the cross-domain attack chain in plain language, step by step.\n- Highlight each domain boundary crossing (e.g., software→infrastructure, infrastructure→financial).\n- Name every node and relationship type you reference — be specific.\n- Identify the ThreatActor responsible if attribution exists.\n- Rate the overall threat level: CRITICAL / HIGH / MEDIUM / LOW.\n- Keep the narrative under 400 words. Lead with the threat level rating.\n\nIf the graph data shows no paths, clearly state that no cross-domain attack chain was found and suggest what this might mean."
+				],
+				"parameters": {}
+			},
+			"input": [{ "lane": "questions", "from": "chat_1" }],
+			"ui": { "position": { "x": 240, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+		},
+		{
+			"id": "llm_anthropic_1",
+			"provider": "llm_anthropic",
+			"config": {
+				"profile": "claude-sonnet-4-6",
+				"claude-sonnet-4-6": { "apikey": "${ROCKETRIDE_ANTHROPIC_KEY}" },
+				"parameters": {}
+			},
+			"input": [{ "lane": "questions", "from": "prompt_1" }],
+			"ui": { "position": { "x": 460, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+		},
+		{
+			"id": "response_answers_1",
+			"provider": "response_answers",
+			"config": { "laneName": "answers" },
+			"input": [{ "lane": "answers", "from": "llm_anthropic_1" }],
+			"ui": { "position": { "x": 680, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+		}
+	],
+	"project_id": "68743ea2-cfa6-4c19-882d-791d820fdb97",
+	"viewport": { "x": 0, "y": 0, "zoom": 1 },
+	"version": 1
+}

@@ -1,33 +1,25 @@
 """
 rocketride.py — RocketRide AI pipeline integration with direct-LLM fallback.
 
-When RocketRide is running (ROCKETRIDE_URL is reachable), the query stream
-is routed through the cerberus-query pipeline so judges see the full agent
-flow: NER → Classify → Cache check → Graph traversal → LLM narrative → SSE.
+Uses the RocketRide Python SDK (pip install rocketride) to orchestrate
+the cerberus-query pipeline. The pipeline runs on the RocketRide server
+(ROCKETRIDE_URI from .env) and uses Claude Sonnet 4.6 to generate the
+threat narrative.
 
-When RocketRide is unavailable (no API key, not running, or network error),
-the backend falls back to calling Anthropic directly via llm.py. This fallback
-ensures the app keeps working during development and as a safety net at demo.
+Flow:
+1. Backend does Neo4j graph traversal (in neo4j_client.py)
+2. Traversal data + entity info are passed as context to RocketRide
+3. RocketRide runs: chat → prompt (threat analyst) → llm_anthropic → response_answers
+4. Answer is streamed back to the frontend as SSE chunks
+
+When RocketRide is unavailable (server not running, SDK import error, timeout),
+the backend falls back to calling Anthropic directly via llm.py.
 
 Usage in routes/query.py:
     from rocketride import stream_via_rocketride_or_fallback
 
     async for chunk in stream_via_rocketride_or_fallback(entity, entity_type, traversal):
         yield chunk
-
-RocketRide pipeline invocation (cerberus-query pipeline):
-    POST {ROCKETRIDE_URL}/api/pipelines/cerberus-query/run
-    Content-Type: application/json
-    Body: {"message": "analyze {entity}", "entity": entity, "entity_type": entity_type}
-
-    Response: SSE stream of events:
-        data: {"stage": "ner"}
-        data: {"stage": "traverse"}
-        data: {"text": "narrative chunk..."}
-        data: [DONE]
-
-If RocketRide's SSE event format differs from the above contract, update
-_normalize_rocketride_chunk() below to translate before yielding to the frontend.
 """
 
 from __future__ import annotations
@@ -35,37 +27,71 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
+from pathlib import Path
 from typing import Any, AsyncIterator
-
-import httpx
 
 import config
 import llm
 
 logger = logging.getLogger(__name__)
 
-# RocketRide pipeline endpoint path — cerberus-query uses ChatSource with endpoint:/query
-_PIPELINE_RUN_PATH = "/query"
-# Health check path — used to detect if RocketRide is reachable
-_HEALTH_PATH = "/health"
-# Request timeout for checking availability (seconds)
-_HEALTH_TIMEOUT = 2.0
-# Stream timeout — how long to wait for narrative to complete (seconds)
-_STREAM_TIMEOUT = 60.0
+# Path to the cerberus-query pipeline definition
+_PIPELINE_PATH = str(Path(__file__).parent.parent / "pipelines" / "cerberus-query.pipe")
+
+# Cached pipeline token — reused across requests to avoid reloading the pipeline
+_pipeline_token: str | None = None
+_rocketride_client = None
+
+
+def _get_client():
+    """
+    Lazily import and initialize the RocketRide client.
+    Returns None if the rocketride package is not installed.
+    """
+    global _rocketride_client
+    if _rocketride_client is not None:
+        return _rocketride_client
+    try:
+        from rocketride import RocketRideClient  # type: ignore
+        uri = config.get("ROCKETRIDE_URI", "http://localhost:5565")
+        apikey = config.get("ROCKETRIDE_APIKEY", "")
+        _rocketride_client = RocketRideClient(uri=uri, auth=apikey)
+        return _rocketride_client
+    except ImportError:
+        logger.warning("rocketride package not installed — will use direct LLM fallback")
+        return None
 
 
 async def is_available() -> bool:
     """
-    Check if RocketRide is reachable. Returns False (never raises) so callers
-    can safely fall through to the direct-LLM path.
+    Check if the RocketRide server is reachable and the SDK is installed.
+    Returns False (never raises) so callers can fall through to direct LLM.
     """
-    url = config.get("ROCKETRIDE_URL", "http://127.0.0.1:3000")
-    try:
-        async with httpx.AsyncClient(timeout=_HEALTH_TIMEOUT) as client:
-            resp = await client.get(f"{url}{_HEALTH_PATH}")
-            return resp.status_code < 500
-    except Exception:
+    client = _get_client()
+    if client is None:
         return False
+    try:
+        await client.connect()
+        await client.ping()
+        return True
+    except Exception as exc:
+        logger.debug("RocketRide not available: %s", exc)
+        return False
+
+
+async def _get_pipeline_token(client) -> str:
+    """
+    Load the cerberus-query pipeline into RocketRide and return its token.
+    Token is cached after first load to avoid reloading on every request.
+    """
+    global _pipeline_token
+    if _pipeline_token is not None:
+        return _pipeline_token
+    result = await client.use(filepath=_PIPELINE_PATH)
+    _pipeline_token = result["token"]
+    logger.info("cerberus-query pipeline loaded, token=%s", _pipeline_token)
+    return _pipeline_token
 
 
 async def generate_narrative_or_fallback(
@@ -76,7 +102,6 @@ async def generate_narrative_or_fallback(
     """
     Collect the full narrative string (non-streaming).
     Used by the sync POST /api/query endpoint.
-    Tries RocketRide first; falls back to direct Anthropic call.
     """
     chunks: list[str] = []
     async for sse_line in stream_via_rocketride_or_fallback(entity, entity_type, traversal):
@@ -98,22 +123,17 @@ async def stream_via_rocketride_or_fallback(
     """
     Yield SSE-formatted data strings for the narrative stream.
 
-    Tries RocketRide first. On any failure (not running, bad response,
-    timeout, missing keys) silently falls back to direct Anthropic calls.
+    Tries RocketRide first. On any failure silently falls back to direct
+    Anthropic calls via llm.py.
 
     Each yielded string is already formatted as "data: {...}\\n\\n" or
     "data: [DONE]\\n\\n" — ready to be yielded directly from the FastAPI
     StreamingResponse generator.
     """
-    rocketride_url = config.get("ROCKETRIDE_URL", "http://127.0.0.1:3000")
-    rocketride_key = config.get("ROCKETRIDE_API_KEY")  # optional
-
     if await is_available():
         logger.info("RocketRide is available — routing through pipeline")
         try:
-            async for chunk in _stream_rocketride(
-                rocketride_url, rocketride_key, entity, entity_type, traversal
-            ):
+            async for chunk in _stream_via_sdk(entity, entity_type, traversal):
                 yield chunk
             return
         except Exception as exc:
@@ -122,7 +142,9 @@ async def stream_via_rocketride_or_fallback(
                 type(exc).__name__,
                 exc,
             )
-            # Signal frontend that we switched to fallback
+            # Reset cached token so next request reloads the pipeline
+            global _pipeline_token
+            _pipeline_token = None
             yield f"data: {json.dumps({'rocketride_fallback': True})}\n\n"
 
     # Direct Anthropic fallback
@@ -145,95 +167,72 @@ async def stream_via_rocketride_or_fallback(
         yield f"data: {json.dumps({'text': fallback_text})}\n\n"
 
 
-async def _stream_rocketride(
-    base_url: str,
-    api_key: str | None,
+async def _stream_via_sdk(
     entity: str,
     entity_type: str,
     traversal: dict[str, Any],
 ) -> AsyncIterator[str]:
     """
-    POST to the cerberus-query RocketRide pipeline and proxy its SSE output.
-    Normalizes RocketRide event format to the Cerberus SSE contract.
+    Use the RocketRide SDK to run the cerberus-query pipeline and stream
+    the answer back as SSE chunks.
+
+    The SDK's client.chat() returns a complete response (not streaming),
+    so we yield stage events first, then stream the answer word-by-word
+    to keep the frontend's streaming animation alive.
     """
-    headers = {"Content-Type": "application/json", "Accept": "text/event-stream"}
-    if api_key:
-        headers["Authorization"] = f"Bearer {api_key}"
+    from rocketride.schema import Question  # type: ignore
 
-    # RocketRide ChatSource expects natural language in "message".
-    # The NERNode inside the pipeline extracts entity + type from it.
-    payload = {
-        "message": f"analyze {entity}",
-    }
+    client = _get_client()
+    await client.connect()
 
-    url = f"{base_url}{_PIPELINE_RUN_PATH}"
-    async with httpx.AsyncClient(timeout=_STREAM_TIMEOUT) as client:
-        async with client.stream("POST", url, json=payload, headers=headers) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
-                    continue
-                raw = line[6:].strip()
-                # Handle both "[DONE]" string and {"done": true} JSON terminal
-                if raw == "[DONE]":
-                    return  # caller emits [DONE] after write-back
-                try:
-                    event = json.loads(raw)
-                    # RocketRide terminal event — emit metadata then stop
-                    if event.get("done") is True:
-                        normalized = _normalize_rocketride_chunk(event)
-                        if normalized:
-                            yield f"data: {json.dumps(normalized)}\n\n"
-                        return
-                    normalized = _normalize_rocketride_chunk(event)
-                    if normalized is not None:
-                        yield f"data: {json.dumps(normalized)}\n\n"
-                except json.JSONDecodeError:
-                    pass  # skip non-JSON lines
+    token = await _get_pipeline_token(client)
 
+    # Signal pipeline stages to the frontend
+    yield f"data: {json.dumps({'stage': 'ner'})}\n\n"
+    await asyncio.sleep(0)
+    yield f"data: {json.dumps({'stage': 'classify'})}\n\n"
+    await asyncio.sleep(0)
+    yield f"data: {json.dumps({'stage': 'traverse'})}\n\n"
+    await asyncio.sleep(0)
 
-def _normalize_rocketride_chunk(event: dict) -> dict | None:
-    """
-    Translate a RocketRide SSE event into the Cerberus SSE contract.
+    # Emit paths_found metadata
+    paths_found = traversal.get("paths_found", 0)
+    yield f"data: {json.dumps({'paths_found': paths_found})}\n\n"
+    await asyncio.sleep(0)
 
-    Confirmed RocketRide SSE format (from pipeline YAML analysis):
-        Mid-stream:  {"chunk": "text fragment", "done": false}
-        Terminal:    {"done": true, "paths_found": int, "from_cache": bool}
+    yield f"data: {json.dumps({'stage': 'analyze'})}\n\n"
+    await asyncio.sleep(0)
 
-    Cerberus contract (what the frontend expects):
-        {"stage": str}                          — pipeline stage transition
-        {"text": str}                           — narrative chunk
-        {"paths_found": int, "from_cache": bool}  — metadata (terminal)
-        "[DONE]"                                — handled separately in caller
+    # Build the question with graph context
+    question = Question()
+    question.addContext(
+        f"Entity to investigate: {entity} (type: {entity_type})\n\n"
+        f"Graph traversal result:\n{json.dumps(traversal, indent=2)}"
+    )
+    question.addQuestion(
+        f"Analyze the threat entity '{entity}' ({entity_type}) using the graph traversal data above. "
+        f"Generate a threat intelligence narrative."
+    )
 
-    Note: {"done": true} is handled by the caller (_stream_rocketride checks
-    for it to stop iteration). This function only maps non-terminal chunks.
-    """
-    # RocketRide confirmed format: {"chunk": "...", "done": false}
-    if "chunk" in event and not event.get("done", False):
-        return {"text": event["chunk"]}
+    # Call RocketRide — this blocks until the full answer is ready
+    response = await client.chat(token=token, question=question)
 
-    # RocketRide terminal metadata: {"done": true, "paths_found": N, "from_cache": bool}
-    # The "done" signal itself is handled by caller; emit the metadata here.
-    if event.get("done") is True:
-        result: dict = {}
-        if "paths_found" in event:
-            result["paths_found"] = event["paths_found"]
-        if "from_cache" in event:
-            result["from_cache"] = event["from_cache"]
-        return result if result else None
+    yield f"data: {json.dumps({'stage': 'narrate'})}\n\n"
+    await asyncio.sleep(0)
 
-    # Already in Cerberus contract format (stage events, etc.)
-    if "stage" in event or "text" in event or "paths_found" in event:
-        return event
+    # Extract the answer text
+    answers = response.get("answers", [])
+    narrative = answers[0] if answers else ""
 
-    # Alternative field names seen in other orchestrators — keep as fallback
-    if "content" in event:
-        return {"text": event["content"]}
-    if "node" in event:
-        return {"stage": event["node"]}
-    if "step" in event:
-        return {"stage": event["step"]}
+    if not narrative:
+        raise ValueError("RocketRide returned empty answer")
 
-    # Unknown event — pass through for debugging
-    return event
+    # Stream the narrative word-by-word for live animation effect
+    words = narrative.split(" ")
+    chunk_size = 5  # words per SSE chunk
+    for i in range(0, len(words), chunk_size):
+        chunk = " ".join(words[i : i + chunk_size])
+        if i + chunk_size < len(words):
+            chunk += " "
+        yield f"data: {json.dumps({'text': chunk})}\n\n"
+        await asyncio.sleep(0.02)  # small delay for streaming effect

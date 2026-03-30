@@ -11,6 +11,9 @@ neo4j==5.19.0
 # Anthropic
 anthropic==0.26.0
 
+# RocketRide AI pipeline orchestration
+rocketride
+
 # Data import scripts
 requests==2.31.0
 stix2==3.0.1

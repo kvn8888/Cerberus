@@ -1,0 +1,43 @@
+{
+	"components": [
+		{
+			"id": "chat_1",
+			"provider": "chat",
+			"config": { "hideForm": true, "mode": "Source", "parameters": {}, "type": "chat" },
+			"ui": { "position": { "x": 20, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+		},
+		{
+			"id": "prompt_1",
+			"provider": "prompt",
+			"config": {
+				"instructions": [
+					"You are a threat intelligence data extraction assistant.\n\nExtract threat entities from the provided text and classify them. For each entity found, return a JSON object with:\n- type: one of Package, IP, Domain, CVE, ThreatActor, FraudSignal\n- value: the identifier (e.g., package name, IP address, domain, CVE ID, actor name)\n- threat_domain: one of software_supply_chain, infrastructure, financial\n- confidence: high / medium / low\n\nReturn a JSON array of extracted entities. If no threat entities are found, return an empty array []."
+				],
+				"parameters": {}
+			},
+			"input": [{ "lane": "questions", "from": "chat_1" }],
+			"ui": { "position": { "x": 240, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+		},
+		{
+			"id": "llm_anthropic_1",
+			"provider": "llm_anthropic",
+			"config": {
+				"profile": "claude-haiku-4-5",
+				"claude-haiku-4-5": { "apikey": "${ROCKETRIDE_ANTHROPIC_KEY}" },
+				"parameters": {}
+			},
+			"input": [{ "lane": "questions", "from": "prompt_1" }],
+			"ui": { "position": { "x": 460, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+		},
+		{
+			"id": "response_answers_1",
+			"provider": "response_answers",
+			"config": { "laneName": "answers" },
+			"input": [{ "lane": "answers", "from": "llm_anthropic_1" }],
+			"ui": { "position": { "x": 680, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+		}
+	],
+	"project_id": "0a09f5e3-d6a7-4847-b67d-9da9e1b922b1",
+	"viewport": { "x": 0, "y": 0, "zoom": 1 },
+	"version": 1
+}
