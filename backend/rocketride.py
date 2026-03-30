@@ -1,16 +1,27 @@
 """
 rocketride.py — RocketRide AI pipeline integration with direct-LLM fallback.
 
-Uses the RocketRide Python SDK (pip install rocketride) to orchestrate
-the cerberus-query pipeline. The pipeline runs on the RocketRide server
-(ROCKETRIDE_URI from .env) and uses Claude Sonnet 4.6 to generate the
-threat narrative.
+Architecture:
+  The cerberus-threat-agent pipeline runs a CrewAI agent inside RocketRide
+  that autonomously explores the Neo4j threat graph via an MCP Client node
+  connected to our neo4j-mcp server.  The agent uses Claude Sonnet 4.6 for
+  reasoning and generates the threat narrative.
+
+  Pipeline shape:
+    chat → agent_crewai → [invoke] → mcp_client (neo4j-mcp)
+                        → [invoke] → llm_anthropic (Claude)
+             ↓
+        response_answers
 
 Flow:
-1. Backend does Neo4j graph traversal (in neo4j_client.py)
-2. Traversal data + entity info are passed as context to RocketRide
-3. RocketRide runs: chat → prompt (threat analyst) → llm_anthropic → response_answers
-4. Answer is streamed back to the frontend as SSE chunks
+  1. Backend sends the entity name + type to RocketRide via SDK send()
+  2. RocketRide's CrewAI agent queries Neo4j via MCP tools (get-schema,
+     read-cypher) — it explores the graph autonomously
+  3. Agent generates a cross-domain threat intelligence narrative
+  4. Answer is returned to the backend and streamed to the frontend as SSE
+
+  The backend still runs db.traverse() in parallel for the GraphPanel
+  visualization — the agent's graph exploration is independent.
 
 When RocketRide is unavailable (server not running, SDK import error, timeout),
 the backend falls back to calling Anthropic directly via llm.py.
@@ -27,7 +38,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Any, AsyncIterator
 
@@ -36,11 +46,20 @@ import llm
 
 logger = logging.getLogger(__name__)
 
-# Path to the cerberus-query pipeline definition
-_PIPELINE_PATH = str(Path(__file__).parent.parent / "pipelines" / "cerberus-query.pipe")
+# ── Pipeline paths ────────────────────────────────────────────────────────────
+# Primary: agent-based pipeline with MCP Client → neo4j-mcp
+_AGENT_PIPELINE_PATH = str(
+    Path(__file__).parent.parent / "pipelines" / "cerberus-threat-agent.pipe"
+)
+# Fallback: simple prompt → LLM pipeline (no MCP, uses pre-fetched traversal)
+_QUERY_PIPELINE_PATH = str(
+    Path(__file__).parent.parent / "pipelines" / "cerberus-query.pipe"
+)
 
-# Cached pipeline token — reused across requests to avoid reloading the pipeline
+# Cached pipeline token — reused across requests to avoid reloading
 _pipeline_token: str | None = None
+# Which pipeline was loaded (so we know which send strategy to use)
+_active_pipeline: str | None = None
 _rocketride_client = None
 
 
@@ -54,6 +73,7 @@ def _get_client():
         return _rocketride_client
     try:
         from rocketride import RocketRideClient  # type: ignore
+
         uri = config.get("ROCKETRIDE_URI", "http://localhost:5565")
         apikey = config.get("ROCKETRIDE_APIKEY", "")
         _rocketride_client = RocketRideClient(uri=uri, auth=apikey)
@@ -80,17 +100,46 @@ async def is_available() -> bool:
         return False
 
 
-async def _get_pipeline_token(client) -> str:
+async def _load_pipeline(client) -> str:
     """
-    Load the cerberus-query pipeline into RocketRide and return its token.
-    Token is cached after first load to avoid reloading on every request.
+    Load the best available pipeline and return its token.
+
+    Tries the agent pipeline first (cerberus-threat-agent.pipe) which uses
+    the MCP Client for autonomous Neo4j exploration.  Falls back to the
+    simple query pipeline (cerberus-query.pipe) if the agent pipeline fails.
+
+    Token is cached after first successful load.
     """
-    global _pipeline_token
+    global _pipeline_token, _active_pipeline
+
     if _pipeline_token is not None:
         return _pipeline_token
-    result = await client.use(filepath=_PIPELINE_PATH)
+
+    # Try agent pipeline first (MCP Client → neo4j-mcp)
+    try:
+        result = await client.use(filepath=_AGENT_PIPELINE_PATH)
+        _pipeline_token = result["token"]
+        _active_pipeline = "agent"
+        logger.info(
+            "cerberus-threat-agent pipeline loaded (MCP+agent), token=%s",
+            _pipeline_token,
+        )
+        return _pipeline_token
+    except Exception as exc:
+        logger.warning(
+            "Agent pipeline failed to load (%s: %s) — trying query pipeline",
+            type(exc).__name__,
+            exc,
+        )
+
+    # Fallback: simple prompt → LLM pipeline
+    result = await client.use(filepath=_QUERY_PIPELINE_PATH)
     _pipeline_token = result["token"]
-    logger.info("cerberus-query pipeline loaded, token=%s", _pipeline_token)
+    _active_pipeline = "query"
+    logger.info(
+        "cerberus-query pipeline loaded (simple LLM), token=%s",
+        _pipeline_token,
+    )
     return _pipeline_token
 
 
@@ -123,12 +172,11 @@ async def stream_via_rocketride_or_fallback(
     """
     Yield SSE-formatted data strings for the narrative stream.
 
-    Tries RocketRide first. On any failure silently falls back to direct
-    Anthropic calls via llm.py.
+    Tries RocketRide first (agent pipeline, then query pipeline).
+    On any failure silently falls back to direct Anthropic calls via llm.py.
 
-    Each yielded string is already formatted as "data: {...}\\n\\n" or
-    "data: [DONE]\\n\\n" — ready to be yielded directly from the FastAPI
-    StreamingResponse generator.
+    Each yielded string is already formatted as "data: {...}\\n\\n" —
+    ready to be yielded directly from the FastAPI StreamingResponse.
     """
     if await is_available():
         logger.info("RocketRide is available — routing through pipeline")
@@ -143,11 +191,12 @@ async def stream_via_rocketride_or_fallback(
                 exc,
             )
             # Reset cached token so next request reloads the pipeline
-            global _pipeline_token
+            global _pipeline_token, _active_pipeline
             _pipeline_token = None
+            _active_pipeline = None
             yield f"data: {json.dumps({'rocketride_fallback': True})}\n\n"
 
-    # Direct Anthropic fallback
+    # Direct Anthropic fallback — no RocketRide needed
     logger.info("Using direct Anthropic LLM (RocketRide not available)")
     yield f"data: {json.dumps({'stage': 'analyze'})}\n\n"
     yield f"data: {json.dumps({'stage': 'narrate'})}\n\n"
@@ -161,8 +210,8 @@ async def stream_via_rocketride_or_fallback(
     except Exception as exc:
         fallback_text = (
             f"[LLM unavailable: {type(exc).__name__}] "
-            f"Graph traversal found {traversal.get('paths_found', 0)} threat path(s) for {entity}. "
-            f"Review the raw graph data for detail."
+            f"Graph traversal found {traversal.get('paths_found', 0)} threat path(s) "
+            f"for {entity}. Review the raw graph data for detail."
         )
         yield f"data: {json.dumps({'text': fallback_text})}\n\n"
 
@@ -173,19 +222,17 @@ async def _stream_via_sdk(
     traversal: dict[str, Any],
 ) -> AsyncIterator[str]:
     """
-    Use the RocketRide SDK to run the cerberus-query pipeline and stream
-    the answer back as SSE chunks.
+    Send a query to the loaded RocketRide pipeline and stream the answer.
 
-    The SDK's client.chat() returns a complete response (not streaming),
-    so we yield stage events first, then stream the answer word-by-word
-    to keep the frontend's streaming animation alive.
+    If the agent pipeline is active, we send just the entity name — the
+    agent will autonomously explore Neo4j via MCP tools.
+
+    If the simple query pipeline is active (fallback), we send the full
+    traversal data as context, same as before.
     """
-    from rocketride.schema import Question  # type: ignore
-
     client = _get_client()
     await client.connect()
-
-    token = await _get_pipeline_token(client)
+    token = await _load_pipeline(client)
 
     # Signal pipeline stages to the frontend
     yield f"data: {json.dumps({'stage': 'ner'})}\n\n"
@@ -195,7 +242,7 @@ async def _stream_via_sdk(
     yield f"data: {json.dumps({'stage': 'traverse'})}\n\n"
     await asyncio.sleep(0)
 
-    # Emit paths_found metadata
+    # Emit paths_found from the backend's own traversal (used by GraphPanel)
     paths_found = traversal.get("paths_found", 0)
     yield f"data: {json.dumps({'paths_found': paths_found})}\n\n"
     await asyncio.sleep(0)
@@ -203,26 +250,36 @@ async def _stream_via_sdk(
     yield f"data: {json.dumps({'stage': 'analyze'})}\n\n"
     await asyncio.sleep(0)
 
-    # Build the question with graph context
-    question = Question()
-    question.addContext(
-        f"Entity to investigate: {entity} (type: {entity_type})\n\n"
-        f"Graph traversal result:\n{json.dumps(traversal, indent=2)}"
-    )
-    question.addQuestion(
-        f"Analyze the threat entity '{entity}' ({entity_type}) using the graph traversal data above. "
-        f"Generate a threat intelligence narrative."
-    )
+    # ── Build and send the question ───────────────────────────────────────
+    if _active_pipeline == "agent":
+        # Agent pipeline: send just the entity name — the CrewAI agent
+        # will use MCP tools to query Neo4j and explore the graph itself.
+        message = (
+            f"Investigate the threat entity '{entity}' (type: {entity_type}). "
+            f"Use your Neo4j MCP tools to explore the graph and generate "
+            f"a cross-domain threat intelligence narrative."
+        )
+    else:
+        # Simple query pipeline: send the full traversal data as context
+        # because this pipeline has no MCP access.
+        message = (
+            f"Entity to investigate: {entity} (type: {entity_type})\n\n"
+            f"Graph traversal result:\n{json.dumps(traversal, indent=2)}\n\n"
+            f"Analyze the threat entity using the graph traversal data above. "
+            f"Generate a threat intelligence narrative."
+        )
 
-    # Call RocketRide — this blocks until the full answer is ready
-    response = await client.chat(token=token, question=question)
+    # Use SDK send() — works with both chat and webhook source nodes.
+    # send() posts data to the running pipeline and returns the result.
+    response = await client.send(token, message)
 
     yield f"data: {json.dumps({'stage': 'narrate'})}\n\n"
     await asyncio.sleep(0)
 
-    # Extract the answer text
-    answers = response.get("answers", [])
-    narrative = answers[0] if answers else ""
+    # ── Extract the answer from the response ──────────────────────────────
+    # Response format: {"data": {"objects": {"<id>": {"text": "..."}}}}
+    # or: {"answers": ["..."]}
+    narrative = _extract_narrative(response)
 
     if not narrative:
         raise ValueError("RocketRide returned empty answer")
@@ -235,4 +292,29 @@ async def _stream_via_sdk(
         if i + chunk_size < len(words):
             chunk += " "
         yield f"data: {json.dumps({'text': chunk})}\n\n"
-        await asyncio.sleep(0.02)  # small delay for streaming effect
+        await asyncio.sleep(0.02)  # small delay for streaming animation
+
+
+def _extract_narrative(response: dict[str, Any]) -> str:
+    """
+    Pull the narrative text out of a RocketRide pipeline response.
+
+    Handles two response formats:
+      - SDK chat():  {"answers": ["text..."]}
+      - SDK send():  {"data": {"objects": {"<uuid>": {"text": "..."}}}}
+    """
+    # Try answers format first (from chat())
+    answers = response.get("answers", [])
+    if answers:
+        return answers[0] if isinstance(answers[0], str) else str(answers[0])
+
+    # Try data.objects format (from send() / webhook)
+    data = response.get("data", {})
+    objects = data.get("objects", {})
+    for obj in objects.values():
+        if isinstance(obj, dict) and "text" in obj:
+            return obj["text"]
+
+    # Last resort: stringify the whole response
+    logger.warning("Unexpected RocketRide response format: %s", list(response.keys()))
+    return json.dumps(response, indent=2)

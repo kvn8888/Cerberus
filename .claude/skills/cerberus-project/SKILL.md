@@ -91,9 +91,40 @@ Primary demo target. Hijacked Oct 2021 — versions 0.7.29, 0.8.0, 1.0.0 contain
 
 ## RocketRide Pipelines
 
-1. **cerberus-ingest** — Raw input → NER → classify → write to graph
-2. **cerberus-query** — Entity → reason → route → traverse → narrate → learn
-3. **cerberus-juspay** (stretch) — Juspay fraud alerts → enrich graph
+### Primary: Agent + MCP Client Pipeline (`cerberus-threat-agent.pipe`)
+
+The main pipeline uses RocketRide's **CrewAI agent** with an **MCP Client** node
+that connects directly to our neo4j-mcp server. The agent autonomously explores
+the Neo4j threat graph using MCP tools (get-schema, read-cypher) and generates
+threat narratives using Claude Sonnet 4.6.
+
+```
+chat → agent_crewai → [invoke] → mcp_client (neo4j-mcp @ NEO4J_MCP_ENDPOINT)
+                    → [invoke] → llm_anthropic (Claude Sonnet 4.6)
+         ↓
+    response_answers
+```
+
+This is the natural integration — RocketRide is the AI orchestration layer,
+not just a wrapper around LLM calls.
+
+### Fallbacks
+
+| File | Purpose | Nodes | When Used |
+|------|---------|-------|-----------|
+| `cerberus-threat-agent.pipe` | **Primary** — Agent with MCP Client queries Neo4j directly | chat → agent_crewai → mcp_client + llm_anthropic → response_answers | Default when RocketRide + neo4j-mcp are reachable |
+| `cerberus-query.pipe` | **Fallback** — Simple prompt + LLM (no MCP) | chat → prompt → llm_anthropic → response_answers | Agent pipeline fails to load |
+| `cerberus-ingest.pipe` | NER entity extraction from free-text | chat → prompt → llm_anthropic (Haiku) → response_answers | `/api/demo/natural` endpoint |
+| Direct Anthropic (llm.py) | **Last resort** — no RocketRide at all | Backend calls Anthropic SDK directly | RocketRide unavailable |
+
+### RocketRide Env Vars
+
+```
+ROCKETRIDE_URI=http://localhost:5565      # RocketRide engine (local or cloud)
+ROCKETRIDE_APIKEY=...                     # Auth key
+ROCKETRIDE_ANTHROPIC_KEY=sk-ant-...       # Anthropic key interpolated into pipeline LLM nodes
+NEO4J_MCP_ENDPOINT=http://localhost:8787/mcp  # MCP endpoint for RocketRide's MCP Client node
+```
 
 ## Self-Improvement Loop
 
@@ -157,6 +188,7 @@ NEO4J_MCP_URL=http://127.0.0.1:8787    # MCP server (optional, has default)
 ROCKETRIDE_URI=http://localhost:5565    # RocketRide SDK server
 ROCKETRIDE_APIKEY=...                   # RocketRide auth key
 ROCKETRIDE_ANTHROPIC_KEY=sk-ant-...     # Anthropic key for pipeline LLM nodes
+NEO4J_MCP_ENDPOINT=http://localhost:8787/mcp  # MCP endpoint for RocketRide's MCP Client node
 CERBERUS_API=http://localhost:8000
 ```
 
@@ -219,8 +251,9 @@ Pipeline definitions live in `pipelines/` as `.pipe` files (JSON format for the 
 
 | File | Purpose | Nodes |
 |------|---------|-------|
+| `cerberus-threat-agent.pipe` | **Primary** — Agent with MCP Client for autonomous Neo4j exploration | chat → agent_crewai → mcp_client (neo4j-mcp) + llm_anthropic (Sonnet 4.6) → response_answers |
 | `cerberus-ingest.pipe` | NER entity extraction from free-text | chat → prompt (extract+classify) → llm_anthropic (Haiku 4.5) → response_answers |
-| `cerberus-query.pipe` | Threat narrative generation from graph data | chat → prompt (threat analyst) → llm_anthropic (Sonnet 4.6) → response_answers |
+| `cerberus-query.pipe` | **Fallback** — Simple prompt+LLM narrative (no MCP) | chat → prompt (threat analyst) → llm_anthropic (Sonnet 4.6) → response_answers |
 
 Note: `cerberus-juspay` pipeline (stretch goal) not yet ported to `.pipe` format.
 
@@ -271,19 +304,40 @@ Base URL hardcoded as `http://localhost:8000` — uses the backend's CORS `allow
 ## RocketRide Integration (rocketride.py)
 
 Backend integrates with RocketRide AI via the official Python SDK (`pip install rocketride`):
-- **SDK client** — `RocketRideClient(uri=..., auth=...)` with `connect()`, `ping()`, `use()`, `chat()`
-- **Pipeline loading** — `.pipe` files (JSON) loaded via `client.use(filepath=...)`, token cached
-- **Streaming** — SDK returns complete answer; backend chunks it word-by-word for SSE animation
-- **Graceful fallback** — if SDK not installed or server unreachable, falls back to direct Anthropic LLM
-- Used by `query.py` via `rocketride.stream_via_rocketride_or_fallback()`
 
-### RocketRide Env Vars
+### Architecture
+
+The primary pipeline (`cerberus-threat-agent.pipe`) uses a CrewAI agent with an
+MCP Client node that connects to neo4j-mcp. The agent autonomously explores the
+Neo4j graph via MCP tools (get-schema, read-cypher) and reasons with Claude.
 
 ```
-ROCKETRIDE_URI=http://localhost:5565      # RocketRide server (SDK default)
-ROCKETRIDE_APIKEY=...                     # Auth key
-ROCKETRIDE_ANTHROPIC_KEY=sk-ant-...       # Anthropic key for pipeline LLM nodes
+Backend → SDK use() → loads pipeline → SDK send() → sends entity name
+                                                          ↓
+                                              CrewAI agent explores Neo4j
+                                              via MCP Client tools
+                                                          ↓
+                                              Agent generates narrative
+                                                          ↓
+                                              Response → Backend → SSE → Frontend
 ```
+
+### SDK Flow
+
+1. `_get_client()` — lazy init `RocketRideClient(uri, auth)`
+2. `_load_pipeline()` — tries agent pipeline first, falls back to query pipeline
+3. `_stream_via_sdk()` — sends entity name via `client.send(token, message)`
+4. `_extract_narrative()` — handles both `answers[]` and `data.objects{}` response formats
+5. Graceful fallback chain: agent pipeline → query pipeline → direct Anthropic LLM
+
+### Key Differences from Previous Integration
+
+| Before | After |
+|--------|-------|
+| Backend queries Neo4j, passes raw traversal data to RocketRide | RocketRide agent queries Neo4j itself via MCP Client |
+| `client.chat()` with Question object | `client.send()` with plain text |
+| Pipeline: prompt → LLM (just formatting) | Pipeline: agent → MCP tools + LLM (autonomous reasoning) |
+| RocketRide was a glorified LLM wrapper | RocketRide is the AI orchestration brain |
 
 ## Project Structure (Current)
 
@@ -306,8 +360,9 @@ Cerberus/
 │       └── confirm.py          # POST /api/confirm
 │
 ├── pipelines/                  # RocketRide .pipe definitions (JSON)
+│   ├── cerberus-threat-agent.pipe  # Agent + MCP Client (primary)
 │   ├── cerberus-ingest.pipe    # NER extraction (Haiku 4.5)
-│   └── cerberus-query.pipe     # Threat narrative (Sonnet 4.6)
+│   └── cerberus-query.pipe     # Simple LLM narrative (fallback)
 │
 ├── scripts/                    # ALL import scripts + eval (single source of truth)
 │   ├── constraints.cypher      # 8 uniqueness constraints (documented)
