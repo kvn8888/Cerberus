@@ -144,10 +144,23 @@ LIMIT 10
 """
 
 
+_NEIGHBORHOOD = """
+MATCH (start:{label} {{{key}: $value}})-[r]-(neighbor)
+RETURN start, type(r) AS rel_type, labels(neighbor)[0] AS neighbor_label,
+       coalesce(neighbor.name, neighbor.id, neighbor.address,
+                neighbor.juspay_id, neighbor.username, neighbor.mitre_id) AS neighbor_id
+LIMIT 25
+"""
+
+
 def traverse(entity: str, entity_type: str) -> dict[str, Any]:
     """
     Run domain-appropriate traversal.  Returns:
-      {"paths": [...], "cross_domain": [...], "paths_found": int}
+      {"paths": [...], "cross_domain": [...], "neighborhood": [...], "paths_found": int}
+
+    If primary traversal finds no ThreatActor-anchored paths, falls back
+    to a neighborhood query showing directly connected nodes so the user
+    always sees *something* for entities that exist in the graph.
     """
     etype = entity_type.lower()
     paths: list[dict]       = []
@@ -163,7 +176,6 @@ def traverse(entity: str, entity_type: str) -> dict[str, Any]:
         elif etype == "ip":
             r1 = s.run(_TRAVERSE_IP, value=entity)
             paths = [r.data() for r in r1]
-            # cross-domain: find packages/accounts/fraud linked to this IP
             r2 = s.run("""
                 MATCH (ip:IP {address: $value})
                 OPTIONAL MATCH (ip)<-[:LINKED_TO]-(acct:Account)-[:PUBLISHED_BY]-(pkg:Package)
@@ -191,10 +203,22 @@ def traverse(entity: str, entity_type: str) -> dict[str, Any]:
             r1 = s.run(cypher, value=entity)
             paths = [r.data() for r in r1]
 
+    found = max(len(paths), len(cross_domain))
+
+    # Fallback: if no ThreatActor path, show immediate neighbors
+    neighborhood: list[dict] = []
+    if found == 0:
+        label = _entity_label(entity_type)
+        key   = _entity_key(entity_type)
+        cypher = _NEIGHBORHOOD.format(label=label, key=key)
+        with _get_driver().session() as s:
+            neighborhood = [r.data() for r in s.run(cypher, value=entity)]
+
     return {
         "paths":        paths,
         "cross_domain": cross_domain,
-        "paths_found":  max(len(paths), len(cross_domain)),
+        "neighborhood": neighborhood,
+        "paths_found":  max(found, len(neighborhood)),
     }
 
 

@@ -82,10 +82,22 @@ async def query(req: QueryRequest):
     # rocketride.generate_narrative_or_fallback() tries RocketRide first.
     # On any failure it silently falls back to direct llm.py calls.
     if paths_found == 0:
-        narrative = (
-            f"No threat paths found for {entity} in the current graph. "
-            f"The entity may not yet be ingested or has no known connections."
-        )
+        neighborhood = traversal.get("neighborhood", [])
+        if neighborhood:
+            neighbors_desc = ", ".join(
+                f"{n['neighbor_label']}:{n['neighbor_id']} (via {n['rel_type']})"
+                for n in neighborhood[:10]
+            )
+            narrative = (
+                f"No full threat-actor chain found for {entity}, but it has "
+                f"{len(neighborhood)} connected entities in the graph: {neighbors_desc}. "
+                f"These connections may become traversable as more threat intel is ingested."
+            )
+        else:
+            narrative = (
+                f"No threat paths found for {entity} in the current graph. "
+                f"The entity may not yet be ingested or has no known connections."
+            )
         llm_called = False
     else:
         try:
