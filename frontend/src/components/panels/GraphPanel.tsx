@@ -231,23 +231,7 @@ export function GraphPanel({ state }: GraphPanelProps) {
         "grid-bg"
       )}
     >
-      <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
-        {(["graph", "map"] as const).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            onClick={() => setViewMode(mode)}
-            className={cn(
-              "rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.15em]",
-              viewMode === mode
-                ? "border-primary/40 bg-primary/15 text-primary"
-                : "border-border bg-surface/80 text-muted-foreground"
-            )}
-          >
-            {mode === "graph" ? "Threat Graph" : "Geo Map"}
-          </button>
-        ))}
-      </div>
+      {/* View toggle is handled by the parent ViewNav component */}
 
       {/* ── Graph visualization ─────────────────────────── */}
       {hasGraph && viewMode === "graph" && (
