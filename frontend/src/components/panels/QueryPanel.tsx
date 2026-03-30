@@ -24,11 +24,61 @@ interface QueryPanelProps {
 }
 
 /**
+ * Alias dictionary — maps common vulnerability/malware/campaign nicknames
+ * to their canonical identifier + correct entity type.  This lets users
+ * type "log4shell" and have the system resolve it to CVE-2021-44228.
+ */
+const ENTITY_ALIASES: Record<string, { canonical: string; type: EntityType; label: string }> = {
+  // Major CVE nicknames
+  "log4shell":     { canonical: "CVE-2021-44228",  type: "cve", label: "CVE" },
+  "log4j":         { canonical: "CVE-2021-44228",  type: "cve", label: "CVE" },
+  "spring4shell":  { canonical: "CVE-2022-22965",  type: "cve", label: "CVE" },
+  "springshell":   { canonical: "CVE-2022-22965",  type: "cve", label: "CVE" },
+  "heartbleed":    { canonical: "CVE-2014-0160",   type: "cve", label: "CVE" },
+  "shellshock":    { canonical: "CVE-2014-6271",   type: "cve", label: "CVE" },
+  "eternalblue":   { canonical: "CVE-2017-0144",   type: "cve", label: "CVE" },
+  "bluekeep":      { canonical: "CVE-2019-0708",   type: "cve", label: "CVE" },
+  "zerologon":     { canonical: "CVE-2020-1472",   type: "cve", label: "CVE" },
+  "proxylogon":    { canonical: "CVE-2021-26855",  type: "cve", label: "CVE" },
+  "proxyshell":    { canonical: "CVE-2021-34473",  type: "cve", label: "CVE" },
+  "proxynotshell": { canonical: "CVE-2022-41040",  type: "cve", label: "CVE" },
+  "dirty pipe":    { canonical: "CVE-2022-0847",   type: "cve", label: "CVE" },
+  "dirtypipe":     { canonical: "CVE-2022-0847",   type: "cve", label: "CVE" },
+  "dirty cow":     { canonical: "CVE-2016-5195",   type: "cve", label: "CVE" },
+  "dirtycow":      { canonical: "CVE-2016-5195",   type: "cve", label: "CVE" },
+  "poodle":        { canonical: "CVE-2014-3566",   type: "cve", label: "CVE" },
+  "spectre":       { canonical: "CVE-2017-5753",   type: "cve", label: "CVE" },
+  "meltdown":      { canonical: "CVE-2017-5754",   type: "cve", label: "CVE" },
+  "krack":         { canonical: "CVE-2017-13077",  type: "cve", label: "CVE" },
+  "printnightmare":{ canonical: "CVE-2021-34527",  type: "cve", label: "CVE" },
+  "follina":       { canonical: "CVE-2022-30190",  type: "cve", label: "CVE" },
+  "citrixbleed":   { canonical: "CVE-2023-4966",   type: "cve", label: "CVE" },
+  "moveit":        { canonical: "CVE-2023-34362",  type: "cve", label: "CVE" },
+  "regresshion":   { canonical: "CVE-2024-6387",   type: "cve", label: "CVE" },
+
+  // Malware / campaign → threat actor mapping
+  "wannacry":      { canonical: "Lazarus Group",    type: "threatactor", label: "Threat Actor" },
+  "notpetya":      { canonical: "Sandworm Team",    type: "threatactor", label: "Threat Actor" },
+  "stuxnet":       { canonical: "Equation",         type: "threatactor", label: "Threat Actor" },
+  "solarwinds":    { canonical: "APT29",            type: "threatactor", label: "Threat Actor" },
+  "sunburst":      { canonical: "APT29",            type: "threatactor", label: "Threat Actor" },
+  "hafnium":       { canonical: "HAFNIUM",          type: "threatactor", label: "Threat Actor" },
+  "revil":         { canonical: "REvil",            type: "threatactor", label: "Threat Actor" },
+  "darkside":      { canonical: "DarkSide",         type: "threatactor", label: "Threat Actor" },
+  "conti":         { canonical: "Wizard Spider",    type: "threatactor", label: "Threat Actor" },
+  "emotet":        { canonical: "Mummy Spider",     type: "threatactor", label: "Threat Actor" },
+  "trickbot":      { canonical: "Wizard Spider",    type: "threatactor", label: "Threat Actor" },
+  "ryuk":          { canonical: "Wizard Spider",    type: "threatactor", label: "Threat Actor" },
+  "lockbit":       { canonical: "LockBit",          type: "threatactor", label: "Threat Actor" },
+  "cl0p":          { canonical: "FIN11",            type: "threatactor", label: "Threat Actor" },
+  "clop":          { canonical: "FIN11",            type: "threatactor", label: "Threat Actor" },
+};
+
+/**
  * Auto-detect entity type from user input using pattern matching.
- * Handles both raw entities ("CVE-2021-27292") and natural language
- * ("What is CVE-2021-27292?") by extracting known patterns from anywhere
- * in the input. Returns the cleaned entity value alongside the type so
- * the caller can submit the actual entity, not the full sentence.
+ * First checks the alias dictionary for common nicknames, then falls
+ * back to regex-based detection. Returns the cleaned entity value
+ * alongside the type so the caller can submit the canonical entity.
  */
 function detectEntityType(input: string): {
   type: EntityType;
@@ -37,6 +87,19 @@ function detectEntityType(input: string): {
 } {
   const trimmed = input.trim();
 
+  // Strip natural-language wrapper first so aliases match bare terms
+  let core = trimmed;
+  const unwrapped = trimmed
+    .replace(/^(what|who|where|how|why|show|tell|find|is|are|investigate|check|look\s+up|search)\s+(is|are|me|for|about|up)?\s*/i, "")
+    .replace(/[?.!]+$/, "")
+    .trim();
+  if (unwrapped && unwrapped !== trimmed) core = unwrapped;
+
+  // Check alias dictionary (case-insensitive)
+  const alias = ENTITY_ALIASES[core.toLowerCase()];
+  if (alias) return { type: alias.type, label: alias.label, extracted: alias.canonical };
+
+  // Standard regex detection on original input
   const cveMatch = trimmed.match(/CVE-\d{4}-\d{4,7}/i);
   if (cveMatch) return { type: "cve", label: "CVE", extracted: cveMatch[0].toUpperCase() };
 
@@ -56,14 +119,7 @@ function detectEntityType(input: string): {
   if (/\b(group|spider|bear|panda)\b/i.test(trimmed) && trimmed.includes(" "))
     return { type: "threatactor", label: "Threat Actor", extracted: trimmed };
 
-  let entity = trimmed;
-  const unwrapped = trimmed
-    .replace(/^(what|who|where|how|why|show|tell|find|is|are|investigate|check|look\s+up|search)\s+(is|are|me|for|about|up)?\s*/i, "")
-    .replace(/[?.!]+$/, "")
-    .trim();
-  if (unwrapped && unwrapped !== trimmed) entity = unwrapped;
-
-  return { type: "package", label: "Package", extracted: entity };
+  return { type: "package", label: "Package", extracted: core };
 }
 
 const TYPE_ICONS: Record<EntityType, typeof Package> = {

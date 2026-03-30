@@ -43,6 +43,64 @@ def close():
         _driver = None
 
 
+# ── Entity alias normalization ─────────────────────────────────────────────────
+# Maps common vulnerability/malware nicknames to canonical identifiers + type.
+# Applied before every graph query so "log4shell" resolves to CVE-2021-44228.
+
+_ENTITY_ALIASES: dict[str, tuple[str, str]] = {
+    # (canonical_value, canonical_type)
+    # CVE nicknames
+    "log4shell":      ("CVE-2021-44228",  "cve"),
+    "log4j":          ("CVE-2021-44228",  "cve"),
+    "spring4shell":   ("CVE-2022-22965",  "cve"),
+    "springshell":    ("CVE-2022-22965",  "cve"),
+    "heartbleed":     ("CVE-2014-0160",   "cve"),
+    "shellshock":     ("CVE-2014-6271",   "cve"),
+    "eternalblue":    ("CVE-2017-0144",   "cve"),
+    "bluekeep":       ("CVE-2019-0708",   "cve"),
+    "zerologon":      ("CVE-2020-1472",   "cve"),
+    "proxylogon":     ("CVE-2021-26855",  "cve"),
+    "proxyshell":     ("CVE-2021-34473",  "cve"),
+    "proxynotshell":  ("CVE-2022-41040",  "cve"),
+    "dirty pipe":     ("CVE-2022-0847",   "cve"),
+    "dirtypipe":      ("CVE-2022-0847",   "cve"),
+    "dirty cow":      ("CVE-2016-5195",   "cve"),
+    "dirtycow":       ("CVE-2016-5195",   "cve"),
+    "poodle":         ("CVE-2014-3566",   "cve"),
+    "spectre":        ("CVE-2017-5753",   "cve"),
+    "meltdown":       ("CVE-2017-5754",   "cve"),
+    "krack":          ("CVE-2017-13077",  "cve"),
+    "printnightmare": ("CVE-2021-34527",  "cve"),
+    "follina":        ("CVE-2022-30190",  "cve"),
+    "citrixbleed":    ("CVE-2023-4966",   "cve"),
+    "moveit":         ("CVE-2023-34362",  "cve"),
+    "regresshion":    ("CVE-2024-6387",   "cve"),
+    # Malware/campaign → threat actor
+    "wannacry":       ("Lazarus Group",   "threatactor"),
+    "notpetya":       ("Sandworm Team",   "threatactor"),
+    "stuxnet":        ("Equation",        "threatactor"),
+    "solarwinds":     ("APT29",           "threatactor"),
+    "sunburst":       ("APT29",           "threatactor"),
+    "revil":          ("REvil",           "threatactor"),
+    "darkside":       ("DarkSide",        "threatactor"),
+    "conti":          ("Wizard Spider",   "threatactor"),
+    "emotet":         ("Mummy Spider",    "threatactor"),
+    "trickbot":       ("Wizard Spider",   "threatactor"),
+    "ryuk":           ("Wizard Spider",   "threatactor"),
+    "lockbit":        ("LockBit",         "threatactor"),
+    "cl0p":           ("FIN11",           "threatactor"),
+    "clop":           ("FIN11",           "threatactor"),
+}
+
+
+def normalize_entity(entity: str, entity_type: str) -> tuple[str, str]:
+    """Resolve common nicknames to canonical (entity, entity_type) pairs."""
+    alias = _ENTITY_ALIASES.get(entity.strip().lower())
+    if alias:
+        return alias
+    return (entity, entity_type)
+
+
 # ── Entity-type routing ───────────────────────────────────────────────────────
 
 def _entity_key(entity_type: str) -> str:
@@ -80,6 +138,7 @@ LIMIT 1
 """
 
 def cache_check(entity: str, entity_type: str) -> list[dict] | None:
+    entity, entity_type = normalize_entity(entity, entity_type)
     label = _entity_label(entity_type)
     key   = _entity_key(entity_type)
     cypher = _CACHE_CHECK_TMPL.format(label=label, key=key)
@@ -162,6 +221,7 @@ def traverse(entity: str, entity_type: str) -> dict[str, Any]:
     to a neighborhood query showing directly connected nodes so the user
     always sees *something* for entities that exist in the graph.
     """
+    entity, entity_type = normalize_entity(entity, entity_type)
     etype = entity_type.lower()
     paths: list[dict]       = []
     cross_domain: list[dict] = []
@@ -236,6 +296,7 @@ SET start.cached_narrative = $narrative,
 """
 
 def write_back(entity: str, entity_type: str, narrative: str | None = None) -> None:
+    entity, entity_type = normalize_entity(entity, entity_type)
     label  = _entity_label(entity_type)
     key    = _entity_key(entity_type)
     cypher = _WRITE_BACK.format(label=label, key=key)
@@ -268,6 +329,7 @@ def confirm(entity: str, entity_type: str) -> dict:
     and tag nodes as :ConfirmedThreat. Returns the count of confirmed relationships
     so the frontend can display feedback about the self-improvement write-back.
     """
+    entity, entity_type = normalize_entity(entity, entity_type)
     label  = _entity_label(entity_type)
     key    = _entity_key(entity_type)
     cypher = _CONFIRM.format(label=label, key=key)
@@ -298,6 +360,7 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
 
     Returns: {"nodes": [{id, label, type, val}, ...], "links": [{source, target, type, dashed?}, ...]}
     """
+    entity, entity_type = normalize_entity(entity, entity_type)
     label = _entity_label(entity_type)
     key   = _entity_key(entity_type)
     etype = entity_type.lower()
@@ -676,6 +739,7 @@ def get_geo_points(entity: str, entity_type: str) -> list[dict[str, Any]]:
     Uses country-code hints already stored on IP nodes and maps them to
     approximate lat/lon centroids for a simple frontend map view.
     """
+    entity, entity_type = normalize_entity(entity, entity_type)
     label = _entity_label(entity_type)
     key = _entity_key(entity_type)
     query = """
