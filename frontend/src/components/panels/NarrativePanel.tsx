@@ -19,10 +19,9 @@ import {
   AlertTriangle,
   Shield,
   Download,
-  ImageIcon,
 } from "lucide-react";
 import type { InvestigationState } from "../../types/api";
-import { confirmEntity, fetchReport, generateThreatMap } from "../../lib/api";
+import { confirmEntity, fetchReport } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import { ThreatReportPdf } from "../report/ThreatReportPdf";
 
@@ -33,8 +32,6 @@ interface NarrativePanelProps {
 
 export function NarrativePanel({ state, onMemorySaved }: NarrativePanelProps) {
   const [confirmed, setConfirmed] = useState(false);
-  const [threatMapSvg, setThreatMapSvg] = useState<string | null>(null);
-  const [threatMapLoading, setThreatMapLoading] = useState(false);
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     setConfirmed(false);
@@ -139,45 +136,6 @@ export function NarrativePanel({ state, onMemorySaved }: NarrativePanelProps) {
           </span>
         </button>
 
-        <button
-          type="button"
-          disabled={!canExport || threatMapLoading}
-          onClick={async () => {
-            if (!canExport || threatMapLoading) return;
-            setThreatMapLoading(true);
-            setThreatMapSvg(null);
-            try {
-              const data = await generateThreatMap({
-                entity: state.entity,
-                entity_type: state.entityType,
-                narrative: state.narrative?.slice(0, 500) ?? "",
-              });
-              if (data.svg) setThreatMapSvg(data.svg);
-            } catch (e) {
-              console.error("Threat map generation failed:", e);
-            } finally {
-              setThreatMapLoading(false);
-            }
-          }}
-          className={cn(
-            "w-full rounded-lg border px-3 py-2 text-xs font-mono transition-all",
-            canExport && !threatMapLoading
-              ? "border-yellow-500/25 bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/15"
-              : "border-border bg-surface-raised text-muted-foreground"
-          )}
-        >
-          <span className="flex items-center justify-center gap-2">
-            <ImageIcon className="h-3.5 w-3.5" />
-            {threatMapLoading ? "Generating..." : "Generate Threat Map (AI)"}
-          </span>
-        </button>
-
-        {threatMapSvg && (
-          <div
-            className="mt-1 rounded-lg overflow-hidden border border-yellow-500/20 bg-[#0a0e1a]"
-            dangerouslySetInnerHTML={{ __html: threatMapSvg }}
-          />
-        )}
       </div>
 
       {/* ── Narrative body ─────────────────────────────────── */}
