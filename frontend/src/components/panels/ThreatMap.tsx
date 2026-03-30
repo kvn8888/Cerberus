@@ -10,7 +10,7 @@
  * The map uses a simplified equirectangular projection with hand-tuned
  * control points for continent shapes.
  */
-import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import { Shield, Activity, AlertTriangle, Crosshair } from "lucide-react";
 import { cn } from "../../lib/utils";
 import type { InvestigationState } from "../../types/api";
@@ -258,7 +258,6 @@ export function ThreatMap({ state: _state }: ThreatMapProps) {
   /** Container ref for tooltip positioning */
   const containerRef = useRef<HTMLDivElement>(null);
   /** Animation tick — drives the pulse cycle (value unused, setter triggers re-render) */
-  const [, setTick] = useState(0);
 
   /* Build a lookup map for fast node access */
   const nodeMap = useMemo(() => {
