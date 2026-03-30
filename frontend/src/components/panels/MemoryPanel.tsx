@@ -76,12 +76,19 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
     load();
   }, [load, refreshKey]);
 
-  // Configure force simulation for good spacing
+  // Tune forces based on node count — fewer nodes get more space,
+  // many nodes get pulled tighter so the graph stays readable.
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg) return;
-    fg.d3Force("charge")?.strength(-400);
-    fg.d3Force("link")?.distance(100);
+    const n = graphData.nodes.length;
+    const charge = n > 50 ? -80 : n > 20 ? -150 : -250;
+    const dist = n > 50 ? 40 : n > 20 ? 60 : 80;
+    fg.d3Force("charge")?.strength(charge);
+    fg.d3Force("link")?.distance(dist);
+    // Re-heat and zoom to fit after layout settles
+    fg.d3ReheatSimulation();
+    setTimeout(() => fg.zoomToFit(400, 50), 500);
   }, [graphData]);
 
   // Track container size
@@ -237,7 +244,6 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
           enableZoomInteraction={true}
           enablePanInteraction={true}
           enableNodeDrag={true}
-          onEngineStop={() => fgRef.current?.zoomToFit(400, 60)}
         />
       )}
 
