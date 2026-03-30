@@ -1,14 +1,14 @@
 /**
- * components/panels/MemoryPanel.tsx — Visualizes the system's learned memory
+ * components/panels/MemoryPanel.tsx — Interactive memory graph
  *
- * Shows all confirmed/memorized threat patterns as an animated graph.
- * Each node represents an entity the system has "learned" — grouped by type
- * with pulsing connections. Refreshes automatically when a new pattern
- * is saved via the "Save to Memory" button.
+ * Visualizes all confirmed/memorized threat patterns using the same
+ * force-directed graph library as the Threat Graph tab. Nodes are
+ * draggable, the canvas is pannable and zoomable.
  *
- * Uses canvas rendering for smooth animations of the neural-network aesthetic.
+ * Refreshes automatically when a new pattern is saved via "Save to Memory".
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import ForceGraph2D from "react-force-graph-2d";
 import { Brain, RefreshCw, Zap } from "lucide-react";
 import { fetchMemory } from "../../lib/api";
 import { cn } from "../../lib/utils";
@@ -19,10 +19,6 @@ interface MemoryNode {
   type: string;
   val: number;
   confirmed: boolean;
-  x?: number;
-  y?: number;
-  vx?: number;
-  vy?: number;
 }
 
 interface MemoryLink {
@@ -48,77 +44,19 @@ const NODE_COLORS: Record<string, string> = {
   FraudSignal: "#E6CC33",
 };
 
-/**
- * Simple force simulation that positions nodes in a radial layout
- * grouped by type, then applies a spring model for connected nodes.
- */
-function layoutNodes(
-  nodes: MemoryNode[],
-  links: MemoryLink[],
-  width: number,
-  height: number,
-): MemoryNode[] {
-  const cx = width / 2;
-  const cy = height / 2;
-
-  const typeGroups = new Map<string, MemoryNode[]>();
-  for (const n of nodes) {
-    const group = typeGroups.get(n.type) || [];
-    group.push(n);
-    typeGroups.set(n.type, group);
-  }
-
-  const types = Array.from(typeGroups.keys());
-  const radius = Math.min(width, height) * 0.32;
-
-  types.forEach((type, ti) => {
-    const angle = (ti / types.length) * Math.PI * 2 - Math.PI / 2;
-    const group = typeGroups.get(type)!;
-    group.forEach((node, ni) => {
-      const spread = group.length > 1 ? (ni / (group.length - 1) - 0.5) * 0.6 : 0;
-      const r = radius + spread * radius * 0.5;
-      node.x = cx + Math.cos(angle + spread * 0.4) * r;
-      node.y = cy + Math.sin(angle + spread * 0.4) * r;
-    });
-  });
-
-  // Pull connected nodes slightly closer together
-  for (let i = 0; i < 30; i++) {
-    for (const link of links) {
-      const src = nodes.find((n) => n.id === link.source);
-      const tgt = nodes.find((n) => n.id === link.target);
-      if (!src?.x || !tgt?.x || !src.y || !tgt.y) continue;
-      const dx = tgt.x - src.x;
-      const dy = tgt.y - src.y;
-      const dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      const force = (dist - 120) * 0.002;
-      src.x += dx * force;
-      src.y += dy * force;
-      tgt.x -= dx * force;
-      tgt.y -= dy * force;
-    }
-  }
-
-  return nodes;
-}
-
 export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const [nodes, setNodes] = useState<MemoryNode[]>([]);
-  const [links, setLinks] = useState<MemoryLink[]>([]);
+  const [graphData, setGraphData] = useState<{ nodes: MemoryNode[]; links: MemoryLink[] }>({ nodes: [], links: [] });
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
-  const animFrameRef = useRef<number>(0);
-  const timeRef = useRef(0);
+  const [dimensions, setDimensions] = useState({ w: 800, h: 600 });
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchMemory();
-      setNodes(data.nodes);
-      setLinks(data.links);
+      setGraphData({ nodes: data.nodes, links: data.links });
       setTotal(data.total_memorized);
       onCountChange?.(data.total_memorized);
       if (data.total_memorized > 0) {
@@ -129,144 +67,109 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onCountChange]);
 
   useEffect(() => {
     load();
   }, [load, refreshKey]);
 
-  // Canvas animation loop
+  // Track container size for the force graph
   useEffect(() => {
-    const canvas = canvasRef.current;
-    const container = containerRef.current;
-    if (!canvas || !container) return;
+    const el = containerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => {
+      setDimensions({ w: entry.contentRect.width, h: entry.contentRect.height });
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
 
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  /** Custom node renderer — glowing circles with labels */
+  const paintNode = useCallback((node: MemoryNode, ctx: CanvasRenderingContext2D) => {
+    const x = (node as MemoryNode & { x: number }).x;
+    const y = (node as MemoryNode & { y: number }).y;
+    if (x == null || y == null) return;
 
-    const resize = () => {
-      const rect = container.getBoundingClientRect();
-      canvas.width = rect.width * window.devicePixelRatio;
-      canvas.height = rect.height * window.devicePixelRatio;
-      canvas.style.width = `${rect.width}px`;
-      canvas.style.height = `${rect.height}px`;
-      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-    };
-    resize();
+    const color = NODE_COLORS[node.type] || "#888";
+    const r = node.type === "Package" || node.type === "ThreatActor" ? 7 : 5;
 
-    const observer = new ResizeObserver(resize);
-    observer.observe(container);
+    // Outer glow
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, r * 3.5);
+    grad.addColorStop(0, color + "50");
+    grad.addColorStop(1, color + "00");
+    ctx.beginPath();
+    ctx.arc(x, y, r * 3.5, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.fill();
 
-    const positioned = layoutNodes(
-      [...nodes],
-      links,
-      container.getBoundingClientRect().width,
-      container.getBoundingClientRect().height,
-    );
+    // Core circle
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    ctx.strokeStyle = color + "80";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
-    const draw = () => {
-      const w = container.getBoundingClientRect().width;
-      const h = container.getBoundingClientRect().height;
-      timeRef.current += 0.016;
-      const t = timeRef.current;
+    // Label
+    ctx.fillStyle = "rgba(255,255,255,0.8)";
+    ctx.font = "10px 'JetBrains Mono', monospace";
+    ctx.textAlign = "center";
+    const label = node.label.length > 20 ? node.label.slice(0, 18) + "..." : node.label;
+    ctx.fillText(label, x, y + r + 13);
 
-      ctx.clearRect(0, 0, w, h);
+    // Type sub-label
+    ctx.fillStyle = color + "aa";
+    ctx.font = "8px 'JetBrains Mono', monospace";
+    ctx.fillText(node.type, x, y + r + 23);
+  }, []);
 
-      // Background grid
-      ctx.strokeStyle = "rgba(0, 255, 200, 0.03)";
-      ctx.lineWidth = 0.5;
-      for (let x = 0; x < w; x += 40) {
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x, h);
-        ctx.stroke();
-      }
-      for (let y = 0; y < h; y += 40) {
-        ctx.beginPath();
-        ctx.moveTo(0, y);
-        ctx.lineTo(w, y);
-        ctx.stroke();
-      }
+  /** Custom link renderer — glowing teal connections */
+  const paintLink = useCallback((link: MemoryLink, ctx: CanvasRenderingContext2D) => {
+    const src = link.source as unknown as { x: number; y: number };
+    const tgt = link.target as unknown as { x: number; y: number };
+    if (!src?.x || !tgt?.x) return;
 
-      if (positioned.length === 0) return;
-
-      // Draw links with animated pulse
-      for (const link of links) {
-        const src = positioned.find((n) => n.id === link.source);
-        const tgt = positioned.find((n) => n.id === link.target);
-        if (!src?.x || !tgt?.x || !src.y || !tgt.y) continue;
-
-        const pulse = 0.15 + Math.sin(t * 2 + links.indexOf(link) * 0.5) * 0.1;
-        ctx.beginPath();
-        ctx.moveTo(src.x, src.y);
-        ctx.lineTo(tgt.x, tgt.y);
-        ctx.strokeStyle = `rgba(0, 255, 200, ${pulse})`;
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Animated particle traveling along the link
-        const particleT = ((t * 0.3 + links.indexOf(link) * 0.2) % 1);
-        const px = src.x + (tgt.x - src.x) * particleT;
-        const py = src.y + (tgt.y - src.y) * particleT;
-        ctx.beginPath();
-        ctx.arc(px, py, 2, 0, Math.PI * 2);
-        ctx.fillStyle = "rgba(0, 255, 200, 0.6)";
-        ctx.fill();
-      }
-
-      // Draw nodes
-      for (const node of positioned) {
-        if (!node.x || !node.y) continue;
-        const color = NODE_COLORS[node.type] || "#888";
-        const r = node.val * 1.2 + Math.sin(t * 1.5 + node.x * 0.01) * 1.5;
-
-        // Outer glow
-        const grad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, r * 3);
-        grad.addColorStop(0, color + "40");
-        grad.addColorStop(1, color + "00");
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, r * 3, 0, Math.PI * 2);
-        ctx.fillStyle = grad;
-        ctx.fill();
-
-        // Core
-        ctx.beginPath();
-        ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.strokeStyle = color + "80";
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
-
-        // Label
-        ctx.fillStyle = "rgba(255,255,255,0.75)";
-        ctx.font = "10px 'JetBrains Mono', monospace";
-        ctx.textAlign = "center";
-        const label = node.label.length > 18 ? node.label.slice(0, 16) + "..." : node.label;
-        ctx.fillText(label, node.x, node.y + r + 14);
-
-        // Type badge
-        ctx.fillStyle = color + "90";
-        ctx.font = "8px 'JetBrains Mono', monospace";
-        ctx.fillText(node.type, node.x, node.y + r + 24);
-      }
-
-      animFrameRef.current = requestAnimationFrame(draw);
-    };
-
-    animFrameRef.current = requestAnimationFrame(draw);
-
-    return () => {
-      cancelAnimationFrame(animFrameRef.current);
-      observer.disconnect();
-    };
-  }, [nodes, links]);
+    ctx.beginPath();
+    ctx.moveTo(src.x, src.y);
+    ctx.lineTo(tgt.x, tgt.y);
+    ctx.strokeStyle = "rgba(0, 255, 200, 0.18)";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }, []);
 
   return (
     <div className="relative w-full h-full bg-background" ref={containerRef}>
-      <canvas ref={canvasRef} className="absolute inset-0" />
+      {/* Force-directed graph — interactive with drag/pan/zoom */}
+      {graphData.nodes.length > 0 && (
+        <ForceGraph2D
+          width={dimensions.w}
+          height={dimensions.h}
+          graphData={graphData}
+          backgroundColor="transparent"
+          nodeCanvasObject={paintNode as (node: object, ctx: CanvasRenderingContext2D, globalScale: number) => void}
+          nodePointerAreaPaint={(node: object, color: string, ctx: CanvasRenderingContext2D) => {
+            const n = node as MemoryNode & { x: number; y: number };
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, 12, 0, Math.PI * 2);
+            ctx.fillStyle = color;
+            ctx.fill();
+          }}
+          linkCanvasObject={paintLink as (link: object, ctx: CanvasRenderingContext2D, globalScale: number) => void}
+          linkDirectionalParticles={2}
+          linkDirectionalParticleWidth={2}
+          linkDirectionalParticleColor={() => "rgba(0, 255, 200, 0.5)"}
+          linkDirectionalParticleSpeed={0.004}
+          d3VelocityDecay={0.3}
+          d3AlphaDecay={0.02}
+          cooldownTime={3000}
+          enableZoomInteraction={true}
+          enablePanInteraction={true}
+          enableNodeDrag={true}
+        />
+      )}
 
-      {/* Overlay HUD */}
+      {/* Overlay HUD — top right */}
       <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
         <button
           onClick={load}
@@ -283,7 +186,7 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
         </button>
       </div>
 
-      {/* Stats overlay */}
+      {/* Stats overlay — bottom left */}
       <div className="absolute bottom-3 left-3 z-10 flex items-center gap-3">
         <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-primary/20 bg-surface/80 backdrop-blur-sm">
           <Brain className="h-3.5 w-3.5 text-primary" />
@@ -299,7 +202,7 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
       </div>
 
       {/* Empty state */}
-      {!loading && nodes.length === 0 && (
+      {!loading && graphData.nodes.length === 0 && (
         <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
           <div className="relative mb-4">
             <Brain className="h-16 w-16 text-muted-foreground/20 animate-float" />
