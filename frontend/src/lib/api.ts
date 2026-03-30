@@ -322,6 +322,19 @@ export async function fetchMemory(): Promise<{
   return res.json();
 }
 
+/** Expand a node in the memory graph to reveal its hidden children. */
+export async function expandMemoryNode(nodeId: string): Promise<{
+  nodes: Array<{ id: string; label: string; type: string; val: number; confirmed: boolean; expandable: boolean; hidden_children: number }>;
+  links: Array<{ source: string; target: string; type: string }>;
+}> {
+  const params = new URLSearchParams({ node: nodeId });
+  const res = await fetch(`${API_BASE}/api/memory/expand?${params}`);
+  if (!res.ok) {
+    throw new Error(`Memory expand failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
 /** Generate a visual threat map image for an entity. */
 export async function generateThreatMap(req: {
   entity: string;

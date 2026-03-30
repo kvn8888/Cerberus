@@ -441,8 +441,9 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
 
 def get_memory() -> dict[str, Any]:
     """
-    Return all ConfirmedThreat nodes and their confirmed relationships,
-    deduplicated for the frontend Memory visualization.
+    Return memorized entities and their confirmed relationships for the
+    Memory visualization. Excludes Technique nodes (MITRE ATT&CK) to keep
+    the view focused on the core entities the user actually investigated.
     """
     nodes_map: dict[str, dict] = {}
     links_set: set[tuple[str, str, str]] = set()
@@ -458,14 +459,16 @@ def get_memory() -> dict[str, Any]:
     with _get_driver().session() as s:
         result = s.run("""
             MATCH (n:ConfirmedThreat)-[r]-(m:ConfirmedThreat)
-            WHERE r.confirmed = true AND id(n) < id(m)
+            WHERE r.confirmed = true
+              AND elementId(n) < elementId(m)
+              AND NOT n:Technique AND NOT m:Technique
             RETURN DISTINCT n, r, m, r.confirmed_at AS confirmed_at
         """)
         for record in result:
             for node in [record["n"], record["m"]]:
                 labels = list(node.labels)
                 node_type = next(
-                    (l for l in labels if l != "ConfirmedThreat"),
+                    (l for l in labels if l not in ("ConfirmedThreat", "Technique")),
                     labels[0] if labels else "Unknown",
                 )
                 name = _node_name(node)
@@ -491,11 +494,83 @@ def get_memory() -> dict[str, Any]:
                     "confirmed_at": record.get("confirmed_at"),
                 })
 
+    # Mark nodes that have hidden children (Techniques or other confirmed neighbors)
+    if nodes_map:
+        with _get_driver().session() as s:
+            for name, node_data in nodes_map.items():
+                result = s.run("""
+                    MATCH (n:ConfirmedThreat)-[r {confirmed: true}]-(child:ConfirmedThreat)
+                    WHERE coalesce(n.name, n.id, n.address, n.juspay_id, n.username, n.mitre_id) = $name
+                      AND NOT coalesce(child.name, child.id, child.address, child.juspay_id, child.username, child.mitre_id) IN $visible
+                    RETURN count(child) AS hidden_count
+                """, name=name, visible=list(nodes_map.keys()))
+                record = result.single()
+                node_data["expandable"] = (record["hidden_count"] > 0) if record else False
+                node_data["hidden_children"] = record["hidden_count"] if record else 0
+
     return {
         "nodes": list(nodes_map.values()),
         "links": links,
         "total_memorized": len(nodes_map),
     }
+
+
+def get_memory_expand(node_id: str) -> dict[str, Any]:
+    """
+    Return the direct confirmed neighbors of a specific node, used for
+    click-to-expand in the Memory visualization.
+    """
+    nodes_map: dict[str, dict] = {}
+    links_set: set[tuple[str, str, str]] = set()
+    links: list[dict] = []
+
+    def _node_name(node) -> str:
+        return (
+            node.get("name") or node.get("id") or node.get("address")
+            or node.get("juspay_id") or node.get("username")
+            or node.get("mitre_id") or str(node.element_id)
+        )
+
+    with _get_driver().session() as s:
+        result = s.run("""
+            MATCH (parent:ConfirmedThreat)-[r {confirmed: true}]-(child:ConfirmedThreat)
+            WHERE coalesce(parent.name, parent.id, parent.address,
+                           parent.juspay_id, parent.username, parent.mitre_id) = $node_id
+            RETURN parent, r, child
+        """, node_id=node_id)
+
+        for record in result:
+            child = record["child"]
+            labels = list(child.labels)
+            node_type = next(
+                (l for l in labels if l not in ("ConfirmedThreat",)),
+                labels[0] if labels else "Unknown",
+            )
+            name = _node_name(child)
+            if name and name not in nodes_map:
+                nodes_map[name] = {
+                    "id": name,
+                    "label": name,
+                    "type": node_type,
+                    "val": 5,
+                    "confirmed": True,
+                    "expandable": False,
+                    "hidden_children": 0,
+                }
+
+            src = _node_name(record["r"].start_node)
+            tgt = _node_name(record["r"].end_node)
+            rel_type = record["r"].type
+            link_key = (min(src, tgt), max(src, tgt), rel_type)
+            if src and tgt and link_key not in links_set:
+                links_set.add(link_key)
+                links.append({
+                    "source": src,
+                    "target": tgt,
+                    "type": rel_type,
+                })
+
+    return {"nodes": list(nodes_map.values()), "links": links}
 
 
 def get_schema() -> dict[str, list[dict[str, Any]] | list[str]]:

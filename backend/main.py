@@ -98,3 +98,11 @@ async def memory():
     import asyncio
 
     return await asyncio.to_thread(db.get_memory)
+
+
+@app.get("/api/memory/expand")
+async def memory_expand(node: str):
+    """Return the children of a specific memorized node (click-to-expand)."""
+    import asyncio
+
+    return await asyncio.to_thread(db.get_memory_expand, node)
