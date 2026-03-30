@@ -51,6 +51,7 @@ TRAVERSE    = "neo4j_client.traverse"
 WRITE_BACK  = "neo4j_client.write_back"
 CONFIRM     = "neo4j_client.confirm"
 GENERATE    = "llm.generate_narrative"
+GENERATE_PIPELINE = "rocketride.generate_narrative_or_fallback"
 GET_GRAPH   = "neo4j_client.get_graph"
 INGEST_FRAUD = "neo4j_client.ingest_fraud_signals"
 JUSPAY_SUMMARY = "neo4j_client.get_juspay_summary"
@@ -114,12 +115,13 @@ class TestQueryEndpointCacheMissWithPaths(unittest.TestCase):
     """Cache miss + paths found → LLM should be called."""
 
     def _post(self):
-        mock_message = MagicMock()
-        mock_message.content = [MagicMock(text="CRITICAL: ua-parser-js linked to APT41.")]
         with patch(CACHE_CHECK, return_value=None), \
              patch(TRAVERSE, return_value=FOUND_TRAVERSAL), \
              patch(WRITE_BACK), \
-             patch(GENERATE, return_value="CRITICAL: ua-parser-js linked to APT41.") as mock_llm:
+             patch(
+                 GENERATE_PIPELINE,
+                 return_value="CRITICAL: ua-parser-js linked to APT41.",
+             ) as mock_llm:
             resp = CLIENT.post(
                 "/api/query",
                 json={"entity": "ua-parser-js", "type": "package"},
@@ -153,7 +155,7 @@ class TestQueryEndpointCacheMissWithPaths(unittest.TestCase):
         with patch(CACHE_CHECK, return_value=None), \
              patch(TRAVERSE, return_value=FOUND_TRAVERSAL), \
              patch(WRITE_BACK), \
-             patch(GENERATE, return_value="narrative") as mock_llm:
+             patch(GENERATE_PIPELINE, return_value="narrative") as mock_llm:
             CLIENT.post("/api/query", json={"entity": "ua-parser-js", "type": "package"})
         call_args = mock_llm.call_args
         self.assertEqual(call_args[0][0], "ua-parser-js")
@@ -164,7 +166,7 @@ class TestQueryEndpointCacheMissWithPaths(unittest.TestCase):
         with patch(CACHE_CHECK, return_value=None), \
              patch(TRAVERSE, return_value=FOUND_TRAVERSAL), \
              patch(WRITE_BACK) as mock_wb, \
-             patch(GENERATE, return_value="narrative"):
+             patch(GENERATE_PIPELINE, return_value="narrative"):
             CLIENT.post("/api/query", json={"entity": "ua-parser-js", "type": "package"})
         mock_wb.assert_called_once_with("ua-parser-js", "package", "narrative")
 
@@ -226,7 +228,7 @@ class TestQueryValidation(unittest.TestCase):
 
 class TestConfirmEndpoint(unittest.TestCase):
     def test_confirm_returns_success_true(self):
-        with patch(CONFIRM) as mock_confirm:
+        with patch(CONFIRM, return_value={"count": 3}) as mock_confirm:
             resp = CLIENT.post(
                 "/api/confirm",
                 json={"entity": "ua-parser-js", "type": "package"},
@@ -241,7 +243,7 @@ class TestConfirmEndpoint(unittest.TestCase):
         self.assertEqual(resp.status_code, 400)
 
     def test_confirm_calls_db_confirm(self):
-        with patch(CONFIRM) as mock_confirm:
+        with patch(CONFIRM, return_value={"count": 1}) as mock_confirm:
             CLIENT.post(
                 "/api/confirm",
                 json={"entity": "ua-parser-js", "type": "package"},
@@ -249,13 +251,13 @@ class TestConfirmEndpoint(unittest.TestCase):
         mock_confirm.assert_called_once_with("ua-parser-js", "package")
 
     def test_confirm_default_type_is_package(self):
-        with patch(CONFIRM) as mock_confirm:
+        with patch(CONFIRM, return_value={"count": 1}) as mock_confirm:
             resp = CLIENT.post("/api/confirm", json={"entity": "ua-parser-js"})
         self.assertEqual(resp.status_code, 200)
         mock_confirm.assert_called_once_with("ua-parser-js", "package")
 
     def test_confirm_ip_entity_type(self):
-        with patch(CONFIRM) as mock_confirm:
+        with patch(CONFIRM, return_value={"count": 1}) as mock_confirm:
             resp = CLIENT.post(
                 "/api/confirm",
                 json={"entity": "203.0.113.42", "type": "ip"},

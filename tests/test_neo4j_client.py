@@ -227,7 +227,7 @@ class TestConfirmCypher(unittest.TestCase):
         session = _make_session()
         with patch.object(db, "_driver", _mock_driver(session)):
             db.confirm("ua-parser-js", "package")
-        cypher = session.run.call_args[0][0]
+        cypher = session.run.call_args_list[0][0][0]
         self.assertIn("ConfirmedThreat", cypher)
         self.assertIn("r.confirmed", cypher)
         self.assertIn("confirmed_at", cypher)
@@ -236,7 +236,7 @@ class TestConfirmCypher(unittest.TestCase):
         session = _make_session()
         with patch.object(db, "_driver", _mock_driver(session)):
             db.confirm("203.0.113.42", "ip")
-        cypher = session.run.call_args[0][0]
+        cypher = session.run.call_args_list[0][0][0]
         self.assertIn("IP", cypher)
 
     def test_write_back_sets_last_analyzed(self):

@@ -10,10 +10,11 @@
  * the /api/query/graph endpoint. Falls back to a demo graph if the
  * backend doesn't return data (e.g. empty graph, API unreachable).
  */
-import { useMemo, useRef, useCallback, useEffect } from "react";
+import { useMemo, useRef, useCallback, useEffect, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import type { InvestigationState, EntityType } from "../../types/api";
+import type { InvestigationState, EntityType, GeoPoint } from "../../types/api";
 import { cn } from "../../lib/utils";
+import { fetchGeoMap } from "../../lib/api";
 
 interface GraphPanelProps {
   state: InvestigationState;
@@ -126,6 +127,8 @@ function generateDemoGraph(entity: string, entityType: EntityType) {
 }
 
 export function GraphPanel({ state }: GraphPanelProps) {
+  const [viewMode, setViewMode] = useState<"graph" | "map">("graph");
+  const [mapPoints, setMapPoints] = useState<GeoPoint[]>([]);
   /* Ref for the container div — used to measure dimensions */
   const containerRef = useRef<HTMLDivElement>(null);
   /* Ref for the force graph instance */
@@ -207,7 +210,18 @@ export function GraphPanel({ state }: GraphPanelProps) {
     }
   }, [graphData]);
 
+  useEffect(() => {
+    if (state.status !== "complete" || state.pathsFound === 0) {
+      setMapPoints([]);
+      return;
+    }
+    fetchGeoMap({ entity: state.entity, type: state.entityType })
+      .then((data) => setMapPoints(data.points))
+      .catch(() => setMapPoints([]));
+  }, [state.status, state.pathsFound, state.entity, state.entityType]);
+
   const hasGraph = graphData.nodes.length > 0;
+  const hasMap = mapPoints.length > 0;
 
   return (
     <div
@@ -217,8 +231,26 @@ export function GraphPanel({ state }: GraphPanelProps) {
         "grid-bg"
       )}
     >
+      <div className="absolute left-4 top-4 z-20 flex items-center gap-2">
+        {(["graph", "map"] as const).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => setViewMode(mode)}
+            className={cn(
+              "rounded-full border px-3 py-1 text-[10px] font-mono uppercase tracking-[0.15em]",
+              viewMode === mode
+                ? "border-primary/40 bg-primary/15 text-primary"
+                : "border-border bg-surface/80 text-muted-foreground"
+            )}
+          >
+            {mode === "graph" ? "Threat Graph" : "Geo Map"}
+          </button>
+        ))}
+      </div>
+
       {/* ── Graph visualization ─────────────────────────── */}
-      {hasGraph && (
+      {hasGraph && viewMode === "graph" && (
         <ForceGraph2D
           ref={graphRef}
           graphData={graphData}
@@ -235,8 +267,12 @@ export function GraphPanel({ state }: GraphPanelProps) {
         />
       )}
 
+      {viewMode === "map" && hasMap && (
+        <GeoMap points={mapPoints} />
+      )}
+
       {/* ── Idle / waiting state ─────────────────────────── */}
-      {!hasGraph && (
+      {((viewMode === "graph" && !hasGraph) || (viewMode === "map" && !hasMap)) && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="text-center px-8">
             {state.status === "running" ? (
@@ -338,6 +374,42 @@ export function GraphPanel({ state }: GraphPanelProps) {
             <span className="text-muted-foreground/60">Synthetic (simulated)</span>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function GeoMap({ points }: { points: GeoPoint[] }) {
+  return (
+    <div className="absolute inset-0 p-8">
+      <div className="relative h-full w-full overflow-hidden rounded-2xl border border-border/60 bg-[radial-gradient(circle_at_top,_rgba(0,229,255,0.09),_transparent_35%),linear-gradient(180deg,rgba(12,22,34,0.95),rgba(8,14,24,0.98))]">
+        <svg viewBox="0 0 1000 520" className="h-full w-full">
+          <defs>
+            <linearGradient id="mapGlow" x1="0%" x2="100%">
+              <stop offset="0%" stopColor="rgba(0,229,255,0.08)" />
+              <stop offset="100%" stopColor="rgba(0,229,255,0.01)" />
+            </linearGradient>
+          </defs>
+          <rect x="0" y="0" width="1000" height="520" fill="url(#mapGlow)" />
+          <path d="M104 174l73-56 91 13 88-27 98 44 59 63 89-6 74 40 73 10 22 40-58 42-95 16-97-29-58 20-63-19-72 30-110-16-87-50-70-63z" fill="rgba(110,135,170,0.12)" stroke="rgba(0,229,255,0.12)" />
+          <path d="M169 332l60 34 96 18 97-31 66 13 78-19 92 18 122-12 53 42-70 32-105 5-96-15-117 18-99-13-93-48-72-42z" fill="rgba(110,135,170,0.08)" stroke="rgba(0,229,255,0.08)" />
+          {points.map((point) => {
+            const x = ((point.lon + 180) / 360) * 1000;
+            const y = ((90 - point.lat) / 180) * 520;
+            return (
+              <g key={`${point.ip}-${point.geo}`}>
+                <circle cx={x} cy={y} r="12" fill="rgba(0,229,255,0.12)" />
+                <circle cx={x} cy={y} r="5.5" fill="#00e5ff" />
+                <text x={x + 10} y={y - 10} fill="rgba(208,224,235,0.9)" fontSize="12">
+                  {point.ip}
+                </text>
+                <text x={x + 10} y={y + 6} fill="rgba(208,224,235,0.55)" fontSize="10">
+                  {point.geo} {point.actors[0] ? `• ${point.actors[0]}` : ""}
+                </text>
+              </g>
+            );
+          })}
+        </svg>
       </div>
     </div>
   );

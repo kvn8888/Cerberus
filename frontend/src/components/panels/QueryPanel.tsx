@@ -5,7 +5,7 @@
  * and select its type before launching an investigation.
  * Also shows quick-access example entities for demo purposes.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Search,
   Package,
@@ -15,9 +15,18 @@ import {
   UserX,
   Zap,
   ChevronRight,
+  Languages,
+  Radio,
+  Download,
 } from "lucide-react";
 import type { EntityType } from "../../types/api";
+import type { FeedEvent } from "../../types/api";
 import { cn } from "../../lib/utils";
+import {
+  fetchLiveFeed,
+  ingestFeedEvent,
+  parseNaturalLanguage,
+} from "../../lib/api";
 
 /** Props: the parent provides the investigate callback */
 interface QueryPanelProps {
@@ -35,6 +44,7 @@ const ENTITY_TYPES: { value: EntityType; label: string; icon: typeof Package }[]
   { value: "domain", label: "Domain", icon: Globe },
   { value: "cve", label: "CVE", icon: Bug },
   { value: "threatactor", label: "Threat Actor", icon: UserX },
+  { value: "fraudsignal", label: "Fraud Signal", icon: Zap },
 ];
 
 /**
@@ -47,11 +57,35 @@ const EXAMPLES = [
   { entity: "event-stream", type: "package" as EntityType, label: "event-stream" },
   { entity: "CVE-2021-27292", type: "cve" as EntityType, label: "CVE-2021-27292" },
   { entity: "Lazarus Group", type: "threatactor" as EntityType, label: "Lazarus Group" },
+  { entity: "203.0.113.42", type: "ip" as EntityType, label: "203.0.113.42" },
 ];
 
 export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
   const [entity, setEntity] = useState("");
   const [entityType, setEntityType] = useState<EntityType>("package");
+  const [naturalText, setNaturalText] = useState("");
+  const [nlError, setNlError] = useState("");
+  const [nlBusy, setNlBusy] = useState(false);
+  const [feed, setFeed] = useState<FeedEvent[]>([]);
+  const [feedError, setFeedError] = useState("");
+  const [ingestingId, setIngestingId] = useState("");
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await fetchLiveFeed(4);
+        setFeed(data.events);
+        setFeedError("");
+      } catch (err) {
+        setFeedError(err instanceof Error ? err.message : "Feed unavailable");
+      }
+    };
+    void load();
+    const id = setInterval(() => {
+      void load();
+    }, 15000);
+    return () => clearInterval(id);
+  }, []);
 
   /* Fire investigation when user submits */
   const handleSubmit = (e: React.FormEvent) => {
@@ -69,6 +103,36 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
     }
   };
 
+  const handleNaturalInvestigate = async () => {
+    if (!naturalText.trim() || isRunning || nlBusy) return;
+    setNlBusy(true);
+    setNlError("");
+    try {
+      const parsed = await parseNaturalLanguage(naturalText.trim());
+      setEntity(parsed.primary_entity.value);
+      setEntityType(parsed.primary_entity.type);
+      onInvestigate(parsed.primary_entity.value, parsed.primary_entity.type);
+    } catch (err) {
+      setNlError(err instanceof Error ? err.message : "Unable to parse prompt");
+    } finally {
+      setNlBusy(false);
+    }
+  };
+
+  const handleFeedIngest = async (event: FeedEvent) => {
+    if (ingestingId) return;
+    setIngestingId(event.juspay_id);
+    try {
+      await ingestFeedEvent(event);
+      onInvestigate(event.ip_address, "ip");
+      setFeedError("");
+    } catch (err) {
+      setFeedError(err instanceof Error ? err.message : "Ingest failed");
+    } finally {
+      setIngestingId("");
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* ── Section header with decorative accent ──────────── */}
@@ -83,6 +147,42 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
 
       {/* ── Input form ─────────────────────────────────────── */}
       <form onSubmit={handleSubmit} className="p-4 space-y-4">
+        <div className="rounded-lg border border-primary/15 bg-primary/5 p-3">
+          <label className="text-[10px] font-mono text-primary uppercase tracking-[0.15em] mb-2 block">
+            Natural Language
+          </label>
+          <textarea
+            value={naturalText}
+            onChange={(e) => setNaturalText(e.target.value)}
+            placeholder='e.g. "Compare ua-parser-js with 203.0.113.42" or "Investigate Lazarus Group"'
+            rows={3}
+            className={cn(
+              "w-full rounded-lg border border-primary/20 bg-surface px-3 py-2 text-xs",
+              "text-foreground placeholder:text-muted-foreground/40",
+              "focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
+            )}
+          />
+          <button
+            type="button"
+            disabled={!naturalText.trim() || isRunning || nlBusy}
+            onClick={handleNaturalInvestigate}
+            className={cn(
+              "mt-2 w-full rounded-lg px-3 py-2 text-xs font-semibold",
+              !naturalText.trim() || isRunning || nlBusy
+                ? "bg-muted text-muted-foreground"
+                : "bg-primary/15 text-primary border border-primary/25 hover:bg-primary/20"
+            )}
+          >
+            <span className="flex items-center justify-center gap-2">
+              <Languages className="h-3.5 w-3.5" />
+              {nlBusy ? "Parsing prompt..." : "Parse & Investigate"}
+            </span>
+          </button>
+          {nlError && (
+            <p className="mt-2 text-[10px] font-mono text-threat-high">{nlError}</p>
+          )}
+        </div>
+
         {/* Entity type selector — pill buttons with glow on active */}
         <div>
           <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2 block">
@@ -158,6 +258,54 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
           )}
         </button>
       </form>
+
+      <div className="px-4 pb-4">
+        <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2.5 flex items-center gap-1.5">
+          <Radio className="h-3 w-3 text-primary" />
+          Live Feed Ingestion
+        </p>
+        <div className="space-y-2">
+          {feed.map((event) => (
+            <div
+              key={event.juspay_id}
+              className="rounded-lg border border-border bg-surface-raised/50 p-3"
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[10px] font-mono text-primary">{event.juspay_id}</span>
+                <span className="text-[10px] font-mono text-muted-foreground">{event.ip_address}</span>
+              </div>
+              <p className="mt-1 text-xs text-foreground">{event.fraud_type}</p>
+              <p className="text-[10px] text-muted-foreground">
+                {event.currency} {event.amount.toLocaleString()}
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  disabled={!!ingestingId}
+                  onClick={() => handleFeedIngest(event)}
+                  className="flex-1 rounded-md border border-primary/25 bg-primary/10 px-2 py-1.5 text-[10px] font-mono text-primary hover:bg-primary/15 disabled:opacity-50"
+                >
+                  <span className="flex items-center justify-center gap-1">
+                    <Download className="h-3 w-3" />
+                    {ingestingId === event.juspay_id ? "Ingesting" : "Ingest"}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isRunning}
+                  onClick={() => onInvestigate(event.ip_address, "ip")}
+                  className="rounded-md border border-border px-2 py-1.5 text-[10px] font-mono text-muted-foreground hover:text-foreground"
+                >
+                  Investigate
+                </button>
+              </div>
+            </div>
+          ))}
+          {feedError && (
+            <p className="text-[10px] font-mono text-threat-high">{feedError}</p>
+          )}
+        </div>
+      </div>
 
       {/* ── Quick examples with staggered animation ────────── */}
       <div className="px-4 pb-4 mt-auto">

@@ -29,7 +29,7 @@ async def confirm(req: ConfirmRequest):
         raise HTTPException(status_code=400, detail="entity must not be empty")
 
     result = await asyncio.to_thread(db.confirm, entity, entity_type)
-    rel_count = result.get("count", 0)
+    rel_count = result.get("count", 0) if isinstance(result, dict) else 0
 
     return {
         "success":                  True,

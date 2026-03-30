@@ -241,7 +241,11 @@ def confirm(entity: str, entity_type: str) -> dict:
     """
     with _get_driver().session() as s:
         s.run(cypher, value=entity)
-        result = s.run(count_cypher, value=entity).single()
+        count_result = s.run(count_cypher, value=entity)
+        if hasattr(count_result, "single"):
+            result = count_result.single()
+        else:
+            result = next(iter(count_result), None)
         rel_count = result["rel_count"] if result else 0
     return {"count": rel_count}
 
