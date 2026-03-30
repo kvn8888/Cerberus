@@ -6,7 +6,7 @@
  * status with a pulsing indicator dot.
  */
 import { useEffect, useState } from "react";
-import { Shield, Wifi, WifiOff, Activity, Cpu } from "lucide-react";
+import { Shield, Wifi, WifiOff, Activity, Cpu, GitCommit } from "lucide-react";
 import { healthCheck, rocketrideHealthCheck } from "../../lib/api";
 import { cn } from "../../lib/utils";
 
@@ -55,9 +55,14 @@ export function Header() {
           </div>
         </div>
 
-        {/* ── Center — subtle activity pulse ───────────────── */}
-        <div className="hidden md:flex items-center gap-1.5 text-muted-foreground/30">
-          <Activity className="h-3.5 w-3.5" />
+        {/* ── Center — commit hash + activity pulse ─────── */}
+        <div className="hidden md:flex items-center gap-3 text-muted-foreground/40">
+          <div className="flex items-center gap-1.5 font-mono text-[10px] tracking-wider">
+            <GitCommit className="h-3 w-3" />
+            <span>{__COMMIT_HASH__}</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Activity className="h-3.5 w-3.5" />
           <div className="flex gap-0.5">
             {[0, 1, 2, 3, 4].map((i) => (
               <div
@@ -70,6 +75,7 @@ export function Header() {
                 }}
               />
             ))}
+          </div>
           </div>
         </div>
 
