@@ -174,6 +174,65 @@ with driver.session() as s:
         print("    WARNING: Demo chain not found!")
 
 driver.close()
+
+# ── Step 8: Load RocketRide pipelines ───────────────────────────────────
+print("\n" + "=" * 60)
+print("STEP 8: RocketRide Pipeline Loading")
+print("=" * 60)
+
+def load_rocketride_pipelines():
+    """
+    Attempt to load pipeline YAMLs into the running RocketRide instance.
+    Silently skips if RocketRide is not running — data import still succeeds.
+
+    The exact API endpoint used here is inferred from RocketRide conventions
+    (POST /api/pipelines with YAML body). Verify and adjust if RocketRide
+    uses a different route, e.g. /pipelines/load or a CLI command.
+    """
+    import requests as req_lib
+
+    rr_url = os.environ.get("ROCKETRIDE_URL", "http://localhost:3000")
+
+    # Quick reachability check before attempting pipeline loads
+    try:
+        ping = req_lib.get(f"{rr_url}/health", timeout=2)
+        if not ping.ok:
+            print(f"  RocketRide at {rr_url} returned {ping.status_code} — skipping")
+            return
+    except Exception as e:
+        print(f"  RocketRide not reachable at {rr_url}: {e}")
+        print("  Skipping pipeline load — run manually when RocketRide is up")
+        return
+
+    pipelines_dir = os.path.join(os.path.dirname(scripts_dir), "pipelines")
+    # cerberus-query is the main "thoughtful agent" — load it first
+    pipeline_files = ["cerberus-query.yaml", "cerberus-ingest.yaml", "cerberus-juspay.yaml"]
+
+    for filename in pipeline_files:
+        path = os.path.join(pipelines_dir, filename)
+        if not os.path.exists(path):
+            print(f"  ⚠  Pipeline file not found: {filename}")
+            continue
+        try:
+            with open(path) as f:
+                payload = f.read()
+            # NOTE: Update this endpoint to match RocketRide's actual pipeline
+            # registration API once confirmed with their docs or team.
+            resp = req_lib.post(
+                f"{rr_url}/api/pipelines",
+                data=payload,
+                headers={"Content-Type": "application/yaml"},
+                timeout=10,
+            )
+            if resp.ok:
+                print(f"  ✓  Loaded {filename}")
+            else:
+                print(f"  ✗  Failed to load {filename}: {resp.status_code} {resp.text[:120]}")
+        except Exception as e:
+            print(f"  ✗  Error loading {filename}: {e}")
+
+load_rocketride_pipelines()
+
 print("\n" + "=" * 60)
 print("ALL IMPORTS COMPLETE")
 print("=" * 60)
