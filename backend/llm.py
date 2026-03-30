@@ -123,7 +123,7 @@ def generate_clean_assessment(entity: str, entity_type: str) -> str:
 
     message = _get_client().messages.create(
         model="claude-sonnet-4-20250514",
-        max_tokens=300,
+        max_tokens=400,
         system=_CLEAN_ASSESSMENT_PROMPT,
         messages=[{"role": "user", "content": user_content}],
     )
@@ -136,7 +136,7 @@ def generate_clean_assessment_stream(entity: str, entity_type: str):
 
     with _get_client().messages.stream(
         model="claude-sonnet-4-20250514",
-        max_tokens=300,
+        max_tokens=400,
         system=_CLEAN_ASSESSMENT_PROMPT,
         messages=[{"role": "user", "content": user_content}],
     ) as stream:
