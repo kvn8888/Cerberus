@@ -68,6 +68,28 @@ async def is_available() -> bool:
         return False
 
 
+async def generate_narrative_or_fallback(
+    entity: str,
+    entity_type: str,
+    traversal: dict[str, Any],
+) -> str:
+    """
+    Collect the full narrative string (non-streaming).
+    Used by the sync POST /api/query endpoint.
+    Tries RocketRide first; falls back to direct Anthropic call.
+    """
+    chunks: list[str] = []
+    async for sse_line in stream_via_rocketride_or_fallback(entity, entity_type, traversal):
+        if sse_line.startswith("data: ") and not sse_line.startswith("data: ["):
+            try:
+                event = json.loads(sse_line[6:].strip())
+                if "text" in event:
+                    chunks.append(event["text"])
+            except json.JSONDecodeError:
+                pass
+    return "".join(chunks)
+
+
 async def stream_via_rocketride_or_fallback(
     entity: str,
     entity_type: str,

@@ -66,7 +66,9 @@ async def query(req: QueryRequest):
     traversal = await asyncio.to_thread(db.traverse, entity, entity_type)
     paths_found = traversal["paths_found"]
 
-    # ── 3. LLM narrative ──────────────────────────────────────────────────────
+    # ── 3. LLM narrative (via RocketRide or direct Anthropic fallback) ───────
+    # rocketride.generate_narrative_or_fallback() tries RocketRide first.
+    # On any failure it silently falls back to direct llm.py calls.
     if paths_found == 0:
         narrative = (
             f"No threat paths found for {entity} in the current graph. "
@@ -75,13 +77,11 @@ async def query(req: QueryRequest):
         llm_called = False
     else:
         try:
-            narrative  = await asyncio.to_thread(
-                llm.generate_narrative, entity, entity_type, traversal
+            narrative  = await rocketride.generate_narrative_or_fallback(
+                entity, entity_type, traversal
             )
-            llm_called = True
+            llm_called = bool(narrative)
         except Exception as exc:
-            # LLM failure shouldn't block graph results — return traversal data
-            # with a fallback narrative so analysts can still act on the paths.
             cross_domain = traversal.get("cross_domain", [])
             cross_summary = f"{len(cross_domain)} cross-domain link(s) found" if cross_domain else "no cross-domain links"
             narrative = (

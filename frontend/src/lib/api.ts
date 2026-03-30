@@ -117,3 +117,18 @@ export async function healthCheck(): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * RocketRide health check — returns true if the RocketRide pipeline
+ * service is reachable (proxied through the backend).
+ */
+export async function rocketrideHealthCheck(): Promise<boolean> {
+  try {
+    const res = await fetch(`${API_BASE}/api/rocketride/health`);
+    if (!res.ok) return false;
+    const data = await res.json();
+    return data.available === true;
+  } catch {
+    return false;
+  }
+}
