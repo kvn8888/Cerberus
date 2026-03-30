@@ -14,6 +14,7 @@ import neo4j_client as db
 from routes.query   import router as query_router
 from routes.confirm import router as confirm_router
 from routes.demo import router as demo_router
+from routes.ingest import router as ingest_router
 from routes.juspay import router as juspay_router
 
 
@@ -43,6 +44,7 @@ app.add_middleware(
 app.include_router(query_router)
 app.include_router(confirm_router)
 app.include_router(demo_router)
+app.include_router(ingest_router)
 app.include_router(juspay_router)
 
 

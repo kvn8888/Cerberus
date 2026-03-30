@@ -1,22 +1,42 @@
 {
 	"components": [
 		{
-			"id": "chat_1",
-			"provider": "chat",
-			"config": { "hideForm": true, "mode": "Source", "parameters": {}, "type": "chat" },
+			"id": "webhook_1",
+			"provider": "webhook",
+			"config": { "hideForm": true, "mode": "Source", "parameters": {}, "type": "webhook" },
 			"ui": { "position": { "x": 20, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+		},
+		{
+			"id": "parse_1",
+			"provider": "parse",
+			"config": { "parameters": {} },
+			"input": [{ "lane": "tags", "from": "webhook_1" }],
+			"ui": { "position": { "x": 240, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+		},
+		{
+			"id": "ocr_1",
+			"provider": "ocr",
+			"config": {
+				"engine": "easyocr",
+				"parameters": {}
+			},
+			"input": [{ "lane": "image", "from": "parse_1" }],
+			"ui": { "position": { "x": 460, "y": 340 }, "measured": { "width": 150, "height": 66 } }
 		},
 		{
 			"id": "prompt_1",
 			"provider": "prompt",
 			"config": {
 				"instructions": [
-					"You are a threat intelligence data extraction assistant.\n\nExtract threat entities from the provided text and classify them. For each entity found, return a JSON object with:\n- type: one of Package, IP, Domain, CVE, ThreatActor, FraudSignal\n- value: the identifier (e.g., package name, IP address, domain, CVE ID, actor name)\n- threat_domain: one of software_supply_chain, infrastructure, financial\n- confidence: high / medium / low\n\nReturn a JSON array of extracted entities. If no threat entities are found, return an empty array []."
+					"You are a threat intelligence data extraction engine for the Cerberus security platform.\n\nExtract ALL threat-relevant entities from the provided content. For each entity found, return a structured JSON array:\n\n[\n  {\n    \"type\": \"<Package|IP|Domain|CVE|ThreatActor|FraudSignal>\",\n    \"value\": \"<identifier>\",\n    \"threat_domain\": \"<software_supply_chain|infrastructure|financial>\",\n    \"confidence\": \"<high|medium|low>\",\n    \"context\": \"<brief note on why this is suspicious>\"\n  }\n]\n\nExamples of what to extract:\n- npm package names (e.g. ua-parser-js, colors, faker)\n- IP addresses (e.g. 203.0.113.42)\n- Domain names (e.g. malicious-cdn.ru)\n- CVE IDs (e.g. CVE-2021-27292)\n- Threat actor names (e.g. APT41, Lazarus Group)\n- Transaction or fraud signal IDs\n\nIf no threat entities are found, return [].\nReturn ONLY the JSON array, no other text."
 				],
 				"parameters": {}
 			},
-			"input": [{ "lane": "questions", "from": "chat_1" }],
-			"ui": { "position": { "x": 240, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+			"input": [
+				{ "lane": "text", "from": "parse_1" },
+				{ "lane": "text", "from": "ocr_1" }
+			],
+			"ui": { "position": { "x": 460, "y": 200 }, "measured": { "width": 150, "height": 66 } }
 		},
 		{
 			"id": "llm_anthropic_1",
@@ -27,17 +47,17 @@
 				"parameters": {}
 			},
 			"input": [{ "lane": "questions", "from": "prompt_1" }],
-			"ui": { "position": { "x": 460, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+			"ui": { "position": { "x": 680, "y": 200 }, "measured": { "width": 150, "height": 66 } }
 		},
 		{
 			"id": "response_answers_1",
 			"provider": "response_answers",
-			"config": { "laneName": "answers" },
+			"config": { "laneName": "entities" },
 			"input": [{ "lane": "answers", "from": "llm_anthropic_1" }],
-			"ui": { "position": { "x": 680, "y": 200 }, "measured": { "width": 150, "height": 66 } }
+			"ui": { "position": { "x": 900, "y": 200 }, "measured": { "width": 150, "height": 66 } }
 		}
 	],
-	"project_id": "0a09f5e3-d6a7-4847-b67d-9da9e1b922b1",
+	"project_id": "3191b5f7-7ab9-4540-8044-1536f039d7d1",
 	"viewport": { "x": 0, "y": 0, "zoom": 1 },
 	"version": 1
 }
