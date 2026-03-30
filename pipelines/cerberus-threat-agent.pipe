@@ -1,4 +1,34 @@
 {
   "project_id": "8d5b385c-82ac-42fa-8597-2f137aab2565",
-  "components": []
+  "components": [
+    {
+      "id": "webhook_1",
+      "provider": "webhook",
+      "config": {
+        "hideForm": true,
+        "mode": "Source",
+        "parameters": {},
+        "type": "webhook"
+      },
+      "ui": {
+        "position": {
+          "x": 555,
+          "y": 525
+        },
+        "measured": {
+          "width": 150,
+          "height": 136
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      }
+    }
+  ],
+  "viewport": {
+    "x": -843.5,
+    "y": -793,
+    "zoom": 2
+  },
+  "version": 1,
+  "docRevision": 1
 }
