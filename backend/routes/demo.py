@@ -150,10 +150,13 @@ async def report(entity: str, type: EntityType = EntityType.package):
         raise HTTPException(status_code=400, detail="entity must not be empty")
 
     entity_type = type.value
-    cached = await asyncio.to_thread(db.cache_check, entity, entity_type)
-    traversal = await asyncio.to_thread(db.traverse, entity, entity_type)
-    graph = await asyncio.to_thread(db.get_graph, entity, entity_type)
-    juspay = await asyncio.to_thread(db.get_juspay_summary, 5)
+    # Run all DB lookups concurrently — these are independent queries
+    cached, traversal, graph, juspay = await asyncio.gather(
+        asyncio.to_thread(db.cache_check, entity, entity_type),
+        asyncio.to_thread(db.traverse, entity, entity_type),
+        asyncio.to_thread(db.get_graph, entity, entity_type),
+        asyncio.to_thread(db.get_juspay_summary, 5),
+    )
 
     narrative = ""
     from_cache = False

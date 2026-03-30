@@ -8,6 +8,7 @@
  * Implements US-4 (streaming narrative) and US-7 (analyst confirmation).
  */
 import { useMemo, useState } from "react";
+import { pdf } from "@react-pdf/renderer";
 import {
   FileText,
   Zap,
@@ -22,6 +23,7 @@ import {
 import type { InvestigationState } from "../../types/api";
 import { compareEntities, confirmEntity, fetchReport, generateThreatMap } from "../../lib/api";
 import { cn } from "../../lib/utils";
+import { ThreatReportPdf } from "../report/ThreatReportPdf";
 
 interface NarrativePanelProps {
   state: InvestigationState;
@@ -69,73 +71,31 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
     }
   };
 
+  const [pdfBusy, setPdfBusy] = useState(false);
+
   const handleExportPdf = async () => {
-    if (!canExport) return;
-    // Open the window synchronously (in the click handler) so browsers don't block it
-    const popup = window.open("", "_blank", "width=900,height=700");
-    if (!popup) {
-      alert("Popup blocked — please allow popups for this site.");
-      return;
-    }
-    popup.document.write("<html><body><p style='font-family:sans-serif;padding:40px'>Loading report...</p></body></html>");
+    if (!canExport || pdfBusy) return;
+    setPdfBusy(true);
     try {
+      // Fetch the report data from the backend
       const report = await fetchReport({ entity: state.entity, type: state.entityType });
-      popup.document.open();
-      popup.document.write(`
-        <html>
-          <head>
-            <title>Cerberus Report - ${report.entity}</title>
-            <style>
-              body { font-family: Arial, sans-serif; margin: 40px; color: #0f172a; }
-              h1, h2 { margin-bottom: 8px; }
-              .meta { color: #475569; margin-bottom: 24px; }
-              .card { border: 1px solid #cbd5e1; border-radius: 12px; padding: 16px; margin: 16px 0; }
-              .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #e2e8f0; margin-right: 8px; font-size: 12px; }
-              table { width: 100%; border-collapse: collapse; margin-top: 12px; }
-              th, td { text-align: left; padding: 10px; border-bottom: 1px solid #e2e8f0; }
-            </style>
-          </head>
-          <body>
-            <h1>Cerberus Threat Report</h1>
-            <div class="meta">
-              <div><strong>Entity:</strong> ${report.entity}</div>
-              <div><strong>Type:</strong> ${report.entity_type}</div>
-              <div><strong>Generated:</strong> ${new Date(report.generated_at).toLocaleString()}</div>
-            </div>
-            <div class="card">
-              <span class="pill">Paths Found: ${report.paths_found}</span>
-              <span class="pill">Cache: ${report.from_cache ? "Yes" : "No"}</span>
-              <span class="pill">Fraud Signals: ${report.juspay_summary.signals}</span>
-              <p>${report.summary}</p>
-            </div>
-            <div class="card">
-              <h2>Narrative</h2>
-              <p>${(report.narrative || "No cached narrative available yet.").replace(/\n/g, "<br/>")}</p>
-            </div>
-            <div class="card">
-              <h2>Cross-Domain Connections</h2>
-              <table>
-                <thead><tr><th>Fields</th><th>Values</th></tr></thead>
-                <tbody>
-                  ${report.cross_domain.map((row: Record<string, unknown>) => `
-                    <tr>
-                      <td>${Object.keys(row).join(", ")}</td>
-                      <td>${Object.values(row).map((value) => Array.isArray(value) ? value.join(", ") : String(value ?? "")).join(" | ")}</td>
-                    </tr>`).join("") || '<tr><td colspan="2">No cross-domain rows.</td></tr>'}
-                </tbody>
-              </table>
-            </div>
-          </body>
-        </html>
-      `);
-      popup.document.close();
-      popup.focus();
-      popup.print();
+      // Render the React-PDF document to a blob (all client-side, no popups)
+      const blob = await pdf(<ThreatReportPdf report={report} />).toBlob();
+      // Create a temporary download link and trigger the save dialog
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cerberus-report-${report.entity}-${Date.now()}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      // Clean up the object URL and temporary link element
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Export failed:", err);
-      popup.document.open();
-      popup.document.write("<html><body><p style='font-family:sans-serif;padding:40px;color:red'>Report generation failed. Check the console for details.</p></body></html>");
-      popup.document.close();
+      alert("Report generation failed — check the console for details.");
+    } finally {
+      setPdfBusy(false);
     }
   };
 
@@ -192,18 +152,18 @@ export function NarrativePanel({ state }: NarrativePanelProps) {
       <div className="px-4 pt-3 flex flex-col gap-2">
         <button
           type="button"
-          disabled={!canExport}
+          disabled={!canExport || pdfBusy}
           onClick={handleExportPdf}
           className={cn(
             "w-full rounded-lg border px-3 py-2 text-xs font-mono transition-all",
-            canExport
+            canExport && !pdfBusy
               ? "border-primary/25 bg-primary/10 text-primary hover:bg-primary/15"
               : "border-border bg-surface-raised text-muted-foreground"
           )}
         >
           <span className="flex items-center justify-center gap-2">
             <Download className="h-3.5 w-3.5" />
-            Export PDF Report
+            {pdfBusy ? "Generating PDF..." : "Export PDF Report"}
           </span>
         </button>
 
