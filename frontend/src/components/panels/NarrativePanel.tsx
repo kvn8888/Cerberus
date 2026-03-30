@@ -35,7 +35,6 @@ export function NarrativePanel({ state, onMemorySaved }: NarrativePanelProps) {
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     setConfirmed(false);
-    setThreatMapSvg(null);
   }, [state.entity]);
 
   const canExport = useMemo(
