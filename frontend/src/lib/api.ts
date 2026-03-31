@@ -12,9 +12,6 @@ import type {
   ConfirmResponse,
   SchemaResponse,
   GraphResponse,
-  NaturalLanguageResponse,
-  ComparisonResponse,
-  FeedResponse,
   MapResponse,
   ReportResponse,
 } from "../types/api";
@@ -144,72 +141,6 @@ export async function rocketrideHealthCheck(): Promise<boolean> {
   }
 }
 
-export async function parseNaturalLanguage(
-  message: string
-): Promise<NaturalLanguageResponse> {
-  const res = await fetch(`${API_BASE}/api/demo/natural`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message }),
-  });
-  if (!res.ok) {
-    throw new Error(`Natural-language parse failed: ${res.status} ${res.statusText}`);
-  }
-  return res.json();
-}
-
-export async function compareEntities(
-  queries: QueryRequest[]
-): Promise<ComparisonResponse> {
-  const res = await fetch(`${API_BASE}/api/demo/compare`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ queries }),
-  });
-  if (!res.ok) {
-    throw new Error(`Compare failed: ${res.status} ${res.statusText}`);
-  }
-  return res.json();
-}
-
-export async function fetchLiveFeed(limit = 6): Promise<FeedResponse> {
-  const res = await fetch(`${API_BASE}/api/juspay/signals?limit=${limit}`);
-  if (!res.ok) {
-    throw new Error(`Live feed failed: ${res.status} ${res.statusText}`);
-  }
-  const data = await res.json();
-  const now = Date.now();
-  const events = (data.recent_signals ?? []).map((signal: any, idx: number) => ({
-    juspay_id: signal.juspay_id,
-    fraud_type: signal.type,
-    amount: Number(signal.amount ?? 0),
-    currency: signal.currency ?? "USD",
-    ip_address: signal.ip_address,
-    merchant_id: signal.merchant_id,
-    timestamp: now - idx * 30_000,
-  }));
-  return { events };
-}
-
-export async function ingestFeedEvent(event: {
-  juspay_id: string;
-  fraud_type: string;
-  amount: number;
-  currency: string;
-  ip_address: string;
-  merchant_id?: string;
-}): Promise<{ success: boolean; ingested: number }> {
-  const res = await fetch(`${API_BASE}/api/juspay/ingest`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(event),
-  });
-  if (!res.ok) {
-    throw new Error(`Feed ingest failed: ${res.status} ${res.statusText}`);
-  }
-  return res.json();
-}
-
 export async function fetchGeoMap(
   req: QueryRequest
 ): Promise<MapResponse> {
@@ -273,19 +204,3 @@ export async function expandMemoryNode(nodeId: string): Promise<{
   return res.json();
 }
 
-/** Generate a visual threat map image for an entity. */
-export async function generateThreatMap(req: {
-  entity: string;
-  entity_type: string;
-  narrative: string;
-}): Promise<{ entity: string; entity_type: string; svg: string; provider: string }> {
-  const res = await fetch(`${API_BASE}/api/threatmap`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(req),
-  });
-  if (!res.ok) {
-    throw new Error(`Threat map failed: ${res.status} ${res.statusText}`);
-  }
-  return res.json();
-}

@@ -4,7 +4,7 @@
  * Single-panel layout: one search bar, auto-detects entity type,
  * optional NLP expansion, quick-start examples.
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Search,
   Package,
@@ -14,6 +14,8 @@ import {
   UserX,
   Zap,
   ChevronRight,
+  AlertTriangle,
+  DollarSign,
 } from "lucide-react";
 import type { EntityType } from "../../types/api";
 import { cn } from "../../lib/utils";
@@ -140,8 +142,34 @@ const EXAMPLES = [
   { entity: "event-stream", type: "package" as EntityType, desc: "Supply chain compromise" },
 ];
 
+const API_BASE =
+  import.meta.env.VITE_API_URL !== undefined
+    ? import.meta.env.VITE_API_URL
+    : "http://localhost:8000";
+
+interface FraudSignal {
+  juspay_id: string;
+  type: string;
+  amount: number;
+  currency: string;
+  ip_address: string;
+}
+
 export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
   const [query, setQuery] = useState("");
+  const [fraudSignals, setFraudSignals] = useState<FraudSignal[]>([]);
+  const [fraudStats, setFraudStats] = useState<{ signals: number; total_amount: number } | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/api/juspay/signals?limit=5`)
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => {
+        if (!data) return;
+        setFraudStats({ signals: data.signals ?? 0, total_amount: data.total_amount ?? 0 });
+        setFraudSignals(data.recent_signals ?? []);
+      })
+      .catch(() => {});
+  }, []);
 
   const detected = detectEntityType(query);
   const DetectedIcon = TYPE_ICONS[detected.type];
@@ -266,6 +294,64 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
               ))}
             </div>
           </div>
+
+          {/* ── Live Fraud Signals (from Juspay / Neo4j) ───────── */}
+          {fraudSignals.length > 0 && (
+            <div className="pt-2 pb-4">
+              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2.5 flex items-center gap-1.5">
+                <AlertTriangle className="h-3 w-3 text-threat-high" />
+                Live Fraud Signals
+                {fraudStats && (
+                  <span className="ml-auto text-threat-high font-bold">
+                    {fraudStats.signals} active
+                  </span>
+                )}
+              </p>
+              {fraudStats && (
+                <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-md bg-threat-high/5 border border-threat-high/15">
+                  <DollarSign className="h-3 w-3 text-threat-high" />
+                  <span className="text-[10px] font-mono text-threat-high">
+                    ${fraudStats.total_amount.toLocaleString()} flagged
+                  </span>
+                </div>
+              )}
+              <div className="space-y-1">
+                {fraudSignals.map((sig) => (
+                  <button
+                    key={sig.juspay_id}
+                    onClick={() => {
+                      setQuery(sig.ip_address);
+                      if (!isRunning) onInvestigate(sig.ip_address, "ip");
+                    }}
+                    disabled={isRunning}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-md text-xs font-mono group",
+                      "bg-threat-high/5 text-muted-foreground",
+                      "hover:bg-threat-high/10 hover:text-threat-high",
+                      "border border-transparent hover:border-threat-high/20",
+                      "transition-all duration-300",
+                      "disabled:opacity-40 disabled:cursor-not-allowed"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-foreground/80 group-hover:text-threat-high transition-colors">
+                        {sig.juspay_id}
+                      </span>
+                      <span className="text-threat-high/70 text-[10px]">
+                        ${sig.amount.toLocaleString()}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between mt-0.5">
+                      <span className="text-muted-foreground/40 text-[10px]">
+                        {sig.type.replace(/_/g, " ")} · {sig.ip_address}
+                      </span>
+                      <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-all duration-200" />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </form>
       </div>
     </div>
