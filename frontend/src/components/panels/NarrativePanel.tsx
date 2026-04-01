@@ -148,13 +148,13 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, collapsed,
   return (
     <div className="flex flex-col h-full">
       {/* ── Section header ─────────────────────────────────── */}
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
+      <div className="px-4 py-3 border-b border-border flex items-start justify-between gap-2">
+        <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2 flex-shrink-0">
           <FileText className="h-4 w-4 text-primary" />
           {!collapsed && "Threat Narrative"}
         </h2>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
           {/* Metadata badges — only shown when we have results and panel is open */}
           {!collapsed && state.status === "complete" && (
             <>

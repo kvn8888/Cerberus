@@ -815,7 +815,7 @@ function AptAttributionPanel({
         </button>
 
         {!collapsed && (
-          <div className="space-y-1 mt-2">
+          <div className="space-y-1 mt-2 max-h-64 overflow-y-auto">
             {activeNodes.map((node) => (
               <button
                 key={node.id}
