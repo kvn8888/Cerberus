@@ -367,15 +367,14 @@ Note: `cerberus-juspay` pipeline (stretch goal) not yet ported to `.pipe` format
 
 ## Test Suite
 
-Three test files in `tests/`:
+Two test files in `tests/`:
 
 | File | Coverage |
 |------|---------|
 | `test_api_routes.py` | API routes with mocked Neo4j/LLM (health, query cache hit/miss/empty, confirm) |
-| `test_import_scripts.py` | Data parsing logic, integrity checks (MITRE, CVE, npm, synthetic, threats) |
 | `test_neo4j_client.py` | Entity routing, Cypher template rendering, cache/traverse/confirm logic |
 
-**97 tests passing** as of latest push.
+(Import-script tests removed along with the import scripts — DB is already fully seeded.)
 
 ## Frontend Architecture
 
@@ -403,7 +402,7 @@ Pipeline stages rendered in UI: `input → ner → classify → route → traver
 
 | Panel | Features |
 |-------|---------|
-| `QueryPanel` | Entity input with auto-detected type badge, cross-domain fraud alerts (`/api/juspay/signals`), investigation history (localStorage, last 10), quick-start buttons (NLP block and live feed tab removed) |
+| `QueryPanel` | Entity input with auto-detected type badge, NLP toggle (natural language → entity extraction via `/api/demo/natural`), cross-domain fraud alerts (`/api/juspay/signals`), investigation history (localStorage, last 10), quick-start buttons |
 | `NarrativePanel` | Streaming text, Technical/Executive toggle, threat score card + blast radius breakdown, IOC extraction (copy-all / CSV), external enrichment intel (VT/HIBP), "Investigate Next" suggestions, confirm, PDF export + STIX 2.1 bundle export |
 | `GraphPanel` | Force-directed graph (react-force-graph-2d), attack-path stepper (DFS-ordered prev/next with cyan highlight, node label + auto-center), relationship type filter checkboxes, node search + gold highlight, legends, GraphMinimap, collaborative annotations on nodes (add/delete notes), "Watch Entity" button |
 | `ThreatMap` | Geomap tab: scroll-wheel zoom, drag pan, actor offsets, auto zoom-to-fit |
@@ -508,26 +507,21 @@ Cerberus/
 │       ├── diff.py             # Graph diff between two entities (overlap score)
 │       ├── enrichment.py       # VT / HIBP / summary (simulated fallback)
 │       ├── auth_routes.py      # Login, me, list-users
-│       └── apikeys.py          # In-memory API key CRUD
+│       ├── apikeys.py          # In-memory API key CRUD
+│       ├── annotations.py      # Annotation CRUD on graph entities (GET/POST/DELETE)
+│       └── watchlist.py        # Entity watchlist + change detection (GET/POST/DELETE/check)
 │
 ├── pipelines/                  # RocketRide .pipe definitions (JSON)
 │   ├── cerberus-threat-agent.pipe  # Agent + MCP Client (primary)
 │   ├── cerberus-ingest.pipe    # NER extraction (Haiku 4.5)
 │   └── cerberus-query.pipe     # Simple LLM narrative (fallback)
 │
-├── scripts/                    # ALL import scripts + eval
-│   ├── constraints.cypher      # 8 uniqueness constraints
-│   ├── run_all_imports.py      # Run all imports at once
-│   ├── import_mitre.py         # MITRE ATT&CK STIX → Neo4j
-│   ├── import_cve.py           # CVE data → Neo4j
-│   ├── import_npm.py           # Compromised npm packages
-│   ├── import_synthetic.py     # Cross-domain bridges + fraud signals
-│   ├── import_threats.py       # Threat IPs/domains with APT attribution
-│   └── eval_improvement.py     # 3-phase self-improvement eval
+├── scripts/                    # Deploy + schema utilities
+│   ├── constraints.cypher      # 8 uniqueness constraints (schema reference)
+│   └── push_env_to_render.py   # Pushes env vars to Render from .env
 │
 ├── tests/                      # Test suite
 │   ├── test_api_routes.py
-│   ├── test_import_scripts.py
 │   └── test_neo4j_client.py
 │
 ├── frontend/                   # React + Vite + Tailwind app
@@ -538,8 +532,8 @@ Cerberus/
 │   │   ├── hooks/
 │   │   │   └── useInvestigation.ts  # SSE state machine + investigation history
 │   │   ├── lib/
-│   │   │   ├── api.ts               # Typed API client (~15 functions)
-│   │   │   ├── attackPath.ts        # BFS attack-path ordering
+│   │   │   ├── api.ts               # Typed API client (~25 functions)
+│   │   │   ├── attackPath.ts        # DFS attack-path ordering
 │   │   │   ├── iocExtract.ts        # IOC extraction (IP, CVE, domain, hash)
 │   │   │   ├── mitreTactics.ts      # MITRE tactic lookup + T####→tactic map
 │   │   │   └── utils.ts
@@ -547,24 +541,21 @@ Cerberus/
 │   │   │   └── api.ts               # Full TypeScript interfaces (EntityType, InvestigationState, ThreatScore, BlastRadius, Suggestion, etc.)
 │   │   └── components/
 │   │       ├── layout/
-│   │       │   ├── Header.tsx
+│   │       │   ├── Header.tsx         # Status indicators, RocketRide health, watchlist bell (30s auto-check)
 │   │       │   └── ViewNav.tsx       # 5 center tabs: graph, geomap, mitre, memory, compare
 │   │       └── panels/
-│   │           ├── QueryPanel.tsx     # Entity search, type detection, cross-domain alerts, history
-│   │           ├── NarrativePanel.tsx  # Streaming text, Tech/Exec toggle, threat score, blast radius, IOC, suggestions, confirm, PDF
-│   │           ├── GraphPanel.tsx      # 2D force-graph, attack-path stepper, rel filter, node search
+│   │           ├── QueryPanel.tsx     # Entity search, type detection, NLP toggle, cross-domain alerts, history
+│   │           ├── NarrativePanel.tsx  # Streaming text, Tech/Exec toggle, threat score, blast radius, IOC, suggestions, confirm, PDF, STIX export, enrichment intel
+│   │           ├── GraphPanel.tsx      # 2D force-graph, attack-path stepper, rel filter, node search, annotations, watch button
 │   │           ├── GraphMinimap.tsx    # 160×120 canvas overview (bottom-right)
 │   │           ├── Graph3DPanel.tsx    # 3D WebGL graph (exists but not routed)
+│   │           ├── ComparePanel.tsx    # Entity comparison: overlap score, shared/exclusive nodes
 │   │           ├── ThreatMap.tsx       # SVG geomap with zoom controls
 │   │           ├── MitreHeatmapPanel.tsx  # 14-tactic heatmap from Technique nodes
 │   │           ├── TimelinePanel.tsx   # Horizontal investigation timeline
 │   │           └── PipelineStages.tsx  # 9-stage progress indicator
 │   └── ...
 │
-├── seed_data/
-│   ├── enterprise-attack.json  # ~43MB MITRE ATT&CK STIX (gitignored)
-│   ├── threat_ips.json
-│   └── threat_domains.json
 │
 ├── neo4j-mcp_Darwin_arm64/     # MCP server binary (macOS)
 ├── neo4j-mcp_Linux_arm64/      # MCP server binary (Linux ARM)
@@ -583,7 +574,9 @@ Cerberus/
     ├── retro-005-frontend-ui-fixes.md
     ├── retro-005-node-sidebar-and-route-decision.md
     ├── retro-006-cve-enrichment-orphan-fix.md
-    └── retro-007-agent-pipeline-implementation.md
+    ├── retro-007-agent-pipeline-implementation.md
+    ├── retro-008-perf-and-bugfixes.md
+    └── retro-009-phase2-features.md
 ```
 
 ## Implementation Status
@@ -611,7 +604,8 @@ Cerberus/
 - [x] Frontend scaffolded (React + Vite + Tailwind + panels + hooks + types)
 - [x] RocketRide integration (rocketride.py with LLM fallback)
 - [x] Demo APIs (NLP, comparison, feed, map, report)
-- [x] 97 tests passing
+- [x] seed_data/ and import scripts removed (DB is live on Neo4j Aura)
+- [x] Technique nodes capped at 5 per ThreatActor in get_graph() to keep graph readable
 - [x] Graph intelligence: threat_score, blast_radius, shortest_path, suggest_next
 - [x] STIX 2.1 export (`GET /api/stix/bundle`, `/api/stix/indicator-count`)
 - [x] Graph diff comparison (`POST /api/diff/compare` with overlap score)
@@ -628,6 +622,11 @@ Cerberus/
 - [x] Investigation history: localStorage persistence, last 10 entries
 - [x] Frontend libs: attackPath.ts, iocExtract.ts, mitreTactics.ts
 - [x] ViewNav: 5 tabs (Threat Graph, Geomap, MITRE, Memory, Compare)
+- [x] NLP query toggle in QueryPanel (US-16)
+- [x] STIX export from Memory panel (US-17)
+- [x] Entity comparison panel — ComparePanel (US-18)
+- [x] Collaborative annotations on graph nodes (US-19)
+- [x] Watchlist alerts with auto-checking (US-20)
 
 ## Docker Setup
 
