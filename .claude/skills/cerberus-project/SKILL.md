@@ -44,6 +44,8 @@ FRONTEND (React + Tailwind + shadcn/ui + react-force-graph-2d + SVG ThreatMap)
 | Orchestration | RocketRide AI |
 | Frontend | React 18 + Vite + Tailwind + shadcn/ui |
 | Graph Viz | react-force-graph-2d + custom SVG ThreatMap |
+| STIX export | stix2 Python library |
+| Auth | PyJWT (HS256, demo users, role-based) |
 | Streaming | SSE (via sse-starlette + FastAPI StreamingResponse) |
 | LLM | Anthropic Claude (claude-sonnet-4-20250514, via anthropic SDK) |
 | HTTP client | httpx (async) |
@@ -236,12 +238,13 @@ CERBERUS_API=http://localhost:8000
 | GET | `/health` | Health check → `{"status": "ok"}` |
 | GET | `/api/schema` | Live graph schema (labels, rel types, counts) |
 | POST | `/api/query` | Main query: cache check → traverse → LLM narrative |
-| GET | `/api/query/stream` | SSE streaming version of query endpoint |
+| GET | `/api/rocketride/health` | Proxies RocketRide availability (frontend green dot) |
+| GET | `/api/query/stream` | SSE streaming — emits stage, text, threat_score, blast_radius, suggestions events |
 | POST | `/api/confirm` | Analyst confirms threat pattern → write-back (returns count + message) |
 | GET | `/api/query/graph` | Force-directed graph data (nodes + edges) for vis |
-| GET | `/api/memory` | Confirmed-threat subgraph |
+| GET | `/api/memory` | Confirmed-threat subgraph (excludes Technique nodes) |
 | GET | `/api/memory/geo` | Geo points for memorized entities |
-| GET | `/api/memory/expand` | Expand a node in memory graph |
+| GET | `/api/memory/expand` | Expand a node in memory graph (click-to-expand UI) |
 | POST | `/api/demo/natural` | NLP entity extraction (optional; QueryPanel NLP block removed) |
 | POST | `/api/demo/compare` | Multi-entity comparison (optional; UI removed) |
 | POST | `/api/juspay/ingest` | Ingest normalized Juspay-style fraud signals |
@@ -249,22 +252,34 @@ CERBERUS_API=http://localhost:8000
 | GET | `/api/demo/map` | Geo-IP map data (lat/lng points) |
 | GET | `/api/demo/report` | Full investigation report (Juspay summary) |
 | POST | `/api/threatmap` | AI threat map SVG (not in main narrative UI) |
-| GET | `/api/threat-score` | Graph-based risk score |
-| GET | `/api/blast-radius` | Reachable entities |
-| GET | `/api/shortest-path` | Path between two entities |
-| GET | `/api/suggestions` | Next-step suggestions |
-| GET | `/api/stix/bundle` | STIX 2.1 bundle |
-| POST | `/api/diff/compare` | Compare two entity graphs |
-| GET | `/api/enrich/*` | VT / HIBP / summary enrichment |
-| POST | `/api/auth/login` | Demo JWT |
-| * | `/api/keys/*` | API key management |
+| GET | `/api/threat-score` | 0-100 risk score with severity + contributing factors |
+| GET | `/api/blast-radius` | Reachable entity count within 4 hops, grouped by type |
+| GET | `/api/shortest-path` | Shortest path between two entities (nodes + links + hops) |
+| GET | `/api/suggestions` | Top 5 unconfirmed neighbors sorted by connectivity |
+| GET | `/api/stix/bundle` | STIX 2.1 bundle export (SDOs + SROs for MISP/OpenCTI) |
+| GET | `/api/stix/indicator-count` | Indicator counts by STIX type |
+| POST | `/api/diff/compare` | Structural diff between two entity graphs (overlap score) |
+| GET | `/api/enrich/virustotal` | VT-style reputation (simulated if no key) |
+| GET | `/api/enrich/hibp` | Breach lookup for email (simulated if no key) |
+| GET | `/api/enrich/summary` | Unified enrichment summary (auto-detects entity type) |
+| POST | `/api/auth/login` | Demo JWT login (3 hardcoded users: admin, analyst, viewer) |
+| GET | `/api/auth/me` | Current user profile from JWT |
+| GET | `/api/auth/users` | List demo users (admin only) |
+| GET | `/api/keys` | List API keys with masked previews (admin only) |
+| POST | `/api/keys/create` | Generate new API key (admin only) |
+| DELETE | `/api/keys/{id}` | Revoke an API key (admin only) |
 
 See `backend/main.py` for the authoritative router list.
+
+### Threat Score Factors (0-100)
+
+- Entity exists (10) + ConfirmedThreat label (10) + ThreatActor connection (15) + multiple actors (+10) + CVE link (15) + fraud signals (10) + malicious IPs (10) + cross-domain reach (0-30)
+- Severity: critical (80-100), high (60-79), medium (40-59), low (20-39), info (0-19)
 
 ### Query Pipeline Flow
 
 ```
-Input: entity + type (package/ip/domain/cve/threatactor)
+Input: entity + type (package/ip/domain/cve/threatactor/fraudsignal)
   ↓
 Cache hit? → YES → Return cached narrative (no LLM, ~2s)
   ↓ NO
@@ -278,27 +293,55 @@ Paths found? → NO → Real-time enrichment (OSV.dev / NVD / Abuse.ch)
   ↓
 Paths found → YES
   ↓
+Parallel: threat_score + blast_radius (SSE events)
+  ↓
 LLM narrative generation (Claude, 600 tokens max)
   ↓
 Write-back: tag nodes with analysis timestamp
   ↓
-Return response
+suggestions (SSE) → [DONE]
+```
+
+### SSE Stream Event Sequence
+
+```
+data: {"stage": "input"}
+data: {"stage": "ner"}
+data: {"stage": "classify"}
+data: {"stage": "route", "route_info": {...}}
+data: {"stage": "traverse"}
+data: {"paths_found": N, "from_cache": bool}
+data: {"stage": "enrich"}           ← only if enrichment triggered
+data: {"threat_score": {...}}
+data: {"blast_radius": {...}}
+data: {"stage": "narrate"}
+data: {"text": "<chunk>"}           ← repeated, accumulated
+data: {"stage": "complete"}
+data: {"suggestions": [...]}
+data: [DONE]
 ```
 
 ### Key Backend Files
 
 | File | Purpose |
 |------|---------|
-| `backend/main.py` | FastAPI app, CORS, lifespan, schema endpoint |
+| `backend/main.py` | FastAPI app, CORS, lifespan, schema, memory routes, router registry |
 | `backend/config.py` | Env var loader with validation |
-| `backend/neo4j_client.py` | Neo4j driver wrapper, traversal, cache/confirm, graph viz, geo, Juspay |
+| `backend/neo4j_client.py` | Neo4j driver: traverse, cache/confirm, graph viz, geo, Juspay, threat_score, blast_radius, shortest_path, suggest_next, memory |
 | `backend/llm.py` | Anthropic Claude narrative generation (blocking + streaming) |
 | `backend/rocketride.py` | RocketRide pipeline integration (async httpx, SSE proxy, 60s timeout) |
 | `backend/enrich.py` | Real-time threat intel enrichment (OSV.dev, NVD, Abuse.ch) |
+| `backend/auth.py` | JWT authentication & RBAC (demo users, create_token, verify_token, require_role) |
 | `backend/models.py` | Pydantic models: EntityType, QueryRequest, ConfirmRequest |
-| `backend/routes/query.py` | POST /api/query + GET /api/query/stream (enrichment + rocketride fallback) |
+| `backend/routes/query.py` | POST /api/query + GET /api/query/stream (emits threat_score, blast_radius, suggestions SSE events) |
 | `backend/routes/confirm.py` | POST /api/confirm (returns confirmed count + message) |
 | `backend/routes/demo.py` | Demo APIs: NLP, comparison, map, report |
+| `backend/routes/intelligence.py` | GET endpoints: threat-score, blast-radius, shortest-path, suggestions |
+| `backend/routes/stix.py` | STIX 2.1 bundle export + indicator counts |
+| `backend/routes/diff.py` | POST /api/diff/compare — structural overlap analysis |
+| `backend/routes/enrichment.py` | VT / HIBP / summary enrichment (simulated fallback when no API key) |
+| `backend/routes/auth_routes.py` | Login, me, list-users endpoints |
+| `backend/routes/apikeys.py` | In-memory API key CRUD (demo keys pre-seeded) |
 
 ## RocketRide Pipeline Definitions
 
@@ -333,30 +376,49 @@ SSE stream from `GET /api/query/stream`:
 idle → running → complete
          ↓
 SSE events:
-  {"stage": "ner"}    → pipeline stage indicator
+  {"stage": "ner"}          → pipeline stage indicator
   {"stage": "traverse"}
-  {"paths_found": N}  → graph metadata  
-  {"text": "chunk"}   → narrative chunks
-  "[DONE]"            → stream complete
+  {"paths_found": N}        → graph metadata
+  {"route_info": {...}}     → route reasoning display
+  {"threat_score": {...}}   → 0-100 risk score + severity
+  {"blast_radius": {...}}   → reachable entity counts
+  {"text": "chunk"}         → narrative chunks (accumulated)
+  {"suggestions": [...]}    → investigate-next recommendations
+  "[DONE]"                  → stream complete → fetch graph → pushHistory
 ```
 
-Pipeline stages rendered in UI: `input → ner → classify → route → traverse → analyze → narrate → complete`
+Pipeline stages rendered in UI: `input → ner → classify → route → traverse → enrich → analyze → narrate → complete`
 
 ### Panel Components
 
 | Panel | Features |
 |-------|---------|
-| `QueryPanel` | Entity input with auto-detected type badge, cross-domain fraud alerts (`/api/juspay/signals`), investigation history, quick-start buttons (NLP block and live feed tab removed) |
-| `NarrativePanel` | Streaming text, Technical/Executive modes, IOC extraction (copy/CSV), confirm, PDF (comparison + threat map buttons removed) |
-| `GraphPanel` | Force-directed graph (react-force-graph-2d), attack-path stepper, legends (3D tab removed from nav) |
-| `ThreatMap` | Geomap tab: zoom, actor offsets |
-| `MitreHeatmapPanel` | MITRE tactic heatmap from current investigation graph |
-| `MemoryPanel` | Confirmed-threat subgraph + expand |
-| `TimelinePanel` | Session / investigation timeline |
+| `QueryPanel` | Entity input with auto-detected type badge, cross-domain fraud alerts (`/api/juspay/signals`), investigation history (localStorage, last 10), quick-start buttons (NLP block and live feed tab removed) |
+| `NarrativePanel` | Streaming text, Technical/Executive toggle, threat score card + blast radius breakdown, IOC extraction (copy-all / CSV), "Investigate Next" suggestions, confirm, PDF (comparison + threat map buttons removed) |
+| `GraphPanel` | Force-directed graph (react-force-graph-2d), attack-path stepper (BFS-ordered prev/next with cyan highlight), relationship type filter checkboxes, node search + gold highlight, legends, GraphMinimap (3D tab removed from nav) |
+| `ThreatMap` | Geomap tab: zoom controls (+/−/Reset), actor offsets, auto zoom-to-fit |
+| `MitreHeatmapPanel` | MITRE ATT&CK tactic heatmap — counts Technique nodes from investigation graph, 14-tactic grid with intensity coloring |
+| `MemoryPanel` | Confirmed-threat subgraph + click-to-expand |
+| `TimelinePanel` | Horizontal timeline with severity-colored dots, hover tooltip, click-to-replay |
+| `Graph3DPanel` | (Not routed) WebGL 3D graph with search/filter — exists in tree but removed from ViewNav |
+
+### Key Frontend Libraries
+
+| File | Purpose |
+|------|---------|
+| `src/lib/api.ts` | Typed API client (query, graph, geo, memory, intelligence, health) |
+| `src/lib/attackPath.ts` | BFS attack-path ordering from investigation root |
+| `src/lib/iocExtract.ts` | IOC extraction (IP, CVE, domain, package, hash) from graph nodes + narrative text |
+| `src/lib/mitreTactics.ts` | MITRE tactic order, T####→tactic lookup, technique ID extractor |
+| `src/types/api.ts` | TypeScript types: EntityType, InvestigationState, ThreatScore, BlastRadius, Suggestion, InvestigationHistoryItem, StreamChunk, GraphNode, GraphLink |
 
 ### API Client (api.ts)
 
-Typed functions include: `queryEntity()`, `queryEntityStream()`, `confirmEntity()`, `fetchGraph()`, `fetchSchema()`, `fetchGeoMap()`, `fetchReport()`, `fetchMemory()`, `fetchMemoryGeo()`, `expandMemoryNode()`, `fetchThreatScore()`, `fetchBlastRadius()`, `fetchShortestPath()`, `fetchSuggestions()`, plus health helpers. Removed from typical UI flows: live feed, NLP parse, compare, `generateThreatMap`.
+Typed functions include: `queryEntity()`, `queryEntityStream()`, `confirmEntity()`, `fetchGraph()`, `fetchSchema()`, `fetchGeoMap()`, `fetchReport()`, `fetchMemory()`, `expandMemoryNode()`, `fetchThreatScore()`, `fetchBlastRadius()`, `fetchShortestPath()`, `fetchSuggestions()`, plus health helpers. Removed from typical UI flows: live feed, NLP parse, compare, `generateThreatMap`.
+
+### ViewNav Tabs
+
+4 center views: `graph` (Threat Graph), `geomap` (Geomap), `mitre` (MITRE), `memory` (Memory with badge count)
 
 Base URL uses `VITE_API_URL` when provided, otherwise defaults to `http://localhost:8000`. In unified Docker builds, `VITE_API_URL=""` makes all frontend API calls same-origin (`/api/...`).
 
@@ -403,75 +465,114 @@ Backend → SDK use() → loads pipeline → SDK send() → sends entity name
 ```
 Cerberus/
 ├── CLAUDE.md
+├── README.md
+├── changes-from-hackathon.md   # Detailed add/remove ledger
+├── marketing.md                # Technical onboarding & pitch document
 ├── spec.md
-├── .env.example
-├── requirements.txt            # FastAPI, neo4j, anthropic, stix2, etc.
+├── requirements.txt            # FastAPI, neo4j, anthropic, stix2, pyjwt, etc.
 ├── docker-compose.yml          # neo4j-mcp + backend + frontend
+├── Dockerfile                  # Unified build (frontend + backend in one container)
+├── render.yaml                 # Render deployment blueprint
 │
 ├── backend/                    # FastAPI application
 │   ├── Dockerfile
-│   ├── main.py                 # App entry point, CORS, /health, /api/schema
+│   ├── main.py                 # App entry point, CORS, /health, /api/schema, /api/memory
 │   ├── config.py               # Env var loader
-│   ├── neo4j_client.py         # Neo4j driver wrapper, traversal, cache
-│   ├── llm.py                  # Anthropic Claude narrative gen
+│   ├── neo4j_client.py         # Neo4j driver: traverse, cache, confirm, graph viz, geo, Juspay, threat_score, blast_radius, shortest_path, suggest_next, memory
+│   ├── llm.py                  # Anthropic Claude narrative gen (blocking + streaming)
+│   ├── pipeline.py             # Pipeline orchestration
+│   ├── enrich.py               # Real-time enrichment (OSV.dev, NVD, Abuse.ch)
+│   ├── auth.py                 # JWT auth + RBAC (3 demo users, require_role decorator)
+│   ├── models.py               # Pydantic models
 │   └── routes/
-│       ├── query.py            # POST /api/query, GET /api/query/stream
-│       └── confirm.py          # POST /api/confirm
+│       ├── __init__.py
+│       ├── query.py            # POST /api/query + GET /api/query/stream (full SSE pipeline)
+│       ├── confirm.py          # POST /api/confirm
+│       ├── demo.py             # Demo APIs: NLP, comparison, map, report
+│       ├── ingest.py           # Entity ingestion pipeline
+│       ├── threatmap.py        # AI-generated threat map SVG
+│       ├── juspay.py           # Juspay financial integration
+│       ├── intelligence.py     # threat-score, blast-radius, shortest-path, suggestions
+│       ├── stix.py             # STIX 2.1 bundle export + indicator counts
+│       ├── diff.py             # Graph diff between two entities (overlap score)
+│       ├── enrichment.py       # VT / HIBP / summary (simulated fallback)
+│       ├── auth_routes.py      # Login, me, list-users
+│       └── apikeys.py          # In-memory API key CRUD
 │
 ├── pipelines/                  # RocketRide .pipe definitions (JSON)
 │   ├── cerberus-threat-agent.pipe  # Agent + MCP Client (primary)
 │   ├── cerberus-ingest.pipe    # NER extraction (Haiku 4.5)
 │   └── cerberus-query.pipe     # Simple LLM narrative (fallback)
 │
-├── scripts/                    # ALL import scripts + eval (single source of truth)
-│   ├── constraints.cypher      # 8 uniqueness constraints (documented)
-│   ├── import_mitre.py         # MITRE ATT&CK STIX → Neo4j (with caching)
-│   ├── import_cve.py           # CVE data → Neo4j (pre-populated, no API)
+├── scripts/                    # ALL import scripts + eval
+│   ├── constraints.cypher      # 8 uniqueness constraints
+│   ├── run_all_imports.py      # Run all imports at once
+│   ├── import_mitre.py         # MITRE ATT&CK STIX → Neo4j
+│   ├── import_cve.py           # CVE data → Neo4j
 │   ├── import_npm.py           # Compromised npm packages
 │   ├── import_synthetic.py     # Cross-domain bridges + fraud signals
 │   ├── import_threats.py       # Threat IPs/domains with APT attribution
 │   └── eval_improvement.py     # 3-phase self-improvement eval
 │
-├── tests/                      # Test suite (adds scripts/ to sys.path)
+├── tests/                      # Test suite
 │   ├── test_api_routes.py
 │   ├── test_import_scripts.py
 │   └── test_neo4j_client.py
 │
-├── entity_schema.json          # Integration contract JSON schema
+├── frontend/                   # React + Vite + Tailwind app
+│   ├── Dockerfile
+│   ├── nginx.conf
+│   ├── src/
+│   │   ├── App.tsx             # Root layout + state orchestration
+│   │   ├── hooks/
+│   │   │   └── useInvestigation.ts  # SSE state machine + investigation history
+│   │   ├── lib/
+│   │   │   ├── api.ts               # Typed API client (~15 functions)
+│   │   │   ├── attackPath.ts        # BFS attack-path ordering
+│   │   │   ├── iocExtract.ts        # IOC extraction (IP, CVE, domain, hash)
+│   │   │   ├── mitreTactics.ts      # MITRE tactic lookup + T####→tactic map
+│   │   │   └── utils.ts
+│   │   ├── types/
+│   │   │   └── api.ts               # Full TypeScript interfaces (EntityType, InvestigationState, ThreatScore, BlastRadius, Suggestion, etc.)
+│   │   └── components/
+│   │       ├── layout/
+│   │       │   ├── Header.tsx
+│   │       │   └── ViewNav.tsx       # 4 center tabs: graph, geomap, mitre, memory
+│   │       └── panels/
+│   │           ├── QueryPanel.tsx     # Entity search, type detection, cross-domain alerts, history
+│   │           ├── NarrativePanel.tsx  # Streaming text, Tech/Exec toggle, threat score, blast radius, IOC, suggestions, confirm, PDF
+│   │           ├── GraphPanel.tsx      # 2D force-graph, attack-path stepper, rel filter, node search
+│   │           ├── GraphMinimap.tsx    # 160×120 canvas overview (bottom-right)
+│   │           ├── Graph3DPanel.tsx    # 3D WebGL graph (exists but not routed)
+│   │           ├── ThreatMap.tsx       # SVG geomap with zoom controls
+│   │           ├── MitreHeatmapPanel.tsx  # 14-tactic heatmap from Technique nodes
+│   │           ├── TimelinePanel.tsx   # Horizontal investigation timeline
+│   │           └── PipelineStages.tsx  # 9-stage progress indicator
+│   └── ...
 │
-├── seed_data/                  # Pre-downloaded data feeds
-│   ├── README.md
+├── seed_data/
 │   ├── enterprise-attack.json  # ~43MB MITRE ATT&CK STIX (gitignored)
-│   ├── threat_ips.json         # Cached IPs
-│   └── threat_domains.json     # Cached domains
+│   ├── threat_ips.json
+│   └── threat_domains.json
 │
 ├── neo4j-mcp_Darwin_arm64/     # MCP server binary (macOS)
-│   └── neo4j-mcp
+├── neo4j-mcp_Linux_arm64/      # MCP server binary (Linux ARM)
+├── neo4j-mcp_Linux_x86_64/     # MCP server binary (Linux x86)
 │
-├── neo4j-mcp_Linux_arm64/      # MCP server binary (Linux Docker)
-│   ├── neo4j-mcp
-│   └── Dockerfile              # Alpine + binary, HTTP mode
+├── deploy/
+│   ├── nginx-unified.conf
+│   ├── start.sh
+│   └── gmi-cloud/
 │
-├── frontend/                   # React + Vite + Tailwind app
-│   ├── Dockerfile              # Multi-stage: dev (hot-reload) + prod (nginx)
-│   ├── nginx.conf              # SPA routing + API reverse proxy
-│   ├── .dockerignore
-│   ├── src/
-│   │   ├── components/
-│   │   │   ├── Header.tsx
-│   │   │   └── panels/
-│   │   │       ├── QueryPanel.tsx    # NLP input, entity pills, quick-start
-│   │   │       ├── NarrativePanel.tsx # Streaming text, confirm, PDF export, comparison
-│   │   │       └── GraphPanel.tsx    # Force-directed graph, geo map, legends
-│   │   ├── hooks/
-│   │   │   └── useInvestigation.ts   # SSE state machine (idle→running→complete)
-│   │   ├── lib/
-│   │   │   └── api.ts               # 12 API functions (typed)
-│   │   └── types/
-│   │       └── api.ts               # Full TypeScript interfaces
-│   └── ...
-└── docs/
-    └── retro-001-script-consolidation.md
+└── docs/                       # Session retrospectives
+    ├── retro-001-script-consolidation.md
+    ├── retro-002-frontend-build.md
+    ├── retro-003-docker-setup.md
+    ├── retro-004-rocketride-agent-mcp.md
+    ├── retro-005-frontend-ui-fixes.md
+    ├── retro-005-node-sidebar-and-route-decision.md
+    ├── retro-006-cve-enrichment-orphan-fix.md
+    └── retro-007-agent-pipeline-implementation.md
 ```
 
 ## Implementation Status
@@ -500,6 +601,22 @@ Cerberus/
 - [x] RocketRide integration (rocketride.py with LLM fallback)
 - [x] Demo APIs (NLP, comparison, feed, map, report)
 - [x] 97 tests passing
+- [x] Graph intelligence: threat_score, blast_radius, shortest_path, suggest_next
+- [x] STIX 2.1 export (`GET /api/stix/bundle`, `/api/stix/indicator-count`)
+- [x] Graph diff comparison (`POST /api/diff/compare` with overlap score)
+- [x] External enrichment layer: VT / HIBP / summary with simulated fallback
+- [x] JWT auth + RBAC (`auth.py`, 3 demo users: admin, analyst, viewer)
+- [x] API key management (in-memory, 2 pre-seeded demo keys)
+- [x] SSE stream emits threat_score, blast_radius, suggestions events
+- [x] NarrativePanel: threat score card, blast radius breakdown, audience toggle, investigate-next suggestions, IOC extraction
+- [x] GraphPanel: relationship type filter, node search + gold highlight, attack-path stepper
+- [x] MitreHeatmapPanel: 14-tactic heatmap from Technique nodes
+- [x] TimelinePanel: horizontal investigation timeline with replay
+- [x] GraphMinimap: 160×120 canvas overview
+- [x] Graph3DPanel: 3D WebGL graph (exists but not routed in ViewNav)
+- [x] Investigation history: localStorage persistence, last 10 entries
+- [x] Frontend libs: attackPath.ts, iocExtract.ts, mitreTactics.ts
+- [x] ViewNav: 4 tabs (Threat Graph, Geomap, MITRE, Memory)
 
 ## Docker Setup
 
