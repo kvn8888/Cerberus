@@ -296,6 +296,25 @@ export function GraphPanel({ state }: GraphPanelProps) {
     }
   }, [graphData]);
 
+  /* Auto-center the graph on the current attack-path step node when the
+     user clicks next/prev so they don't have to hunt for the cyan ring. */
+  useEffect(() => {
+    if (!graphRef.current || !attackPathOrder.length) return;
+    const nodeId = attackPathOrder[Math.min(attackStepIndex, attackPathOrder.length - 1)];
+    const node = graphData.nodes.find((n: any) => n.id === nodeId);
+    if (node && typeof node.x === "number" && typeof node.y === "number") {
+      graphRef.current.centerAt(node.x, node.y, 300);
+      graphRef.current.zoom(3, 300);
+    }
+  }, [attackStepIndex, attackPathOrder, graphData.nodes]);
+
+  /* Build a quick lookup from node ID → node object for the stepper label */
+  const nodeById = useMemo(() => {
+    const map = new Map<string, GraphNode>();
+    for (const n of graphData.nodes as GraphNode[]) map.set(n.id, n);
+    return map;
+  }, [graphData.nodes]);
+
   /* New graph results invalidate prior node selections and reset filters */
   useEffect(() => {
     setSelectedNode(null);
@@ -534,8 +553,15 @@ export function GraphPanel({ state }: GraphPanelProps) {
       )}
 
       {/* Attack path stepper — walk the kill chain from the investigation root */}
-      {hasGraph && attackPathOrder.length > 0 && (
-        <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-2 rounded-lg bg-surface/95 backdrop-blur-md border border-primary/25 shadow-lg">
+      {hasGraph && attackPathOrder.length > 0 && (() => {
+        const currentNodeId = attackPathOrder[Math.min(attackStepIndex, attackPathOrder.length - 1)];
+        const currentNode = nodeById.get(currentNodeId);
+        const nodeLabel = currentNode?.label || currentNodeId;
+        const nodeType = currentNode?.type || "";
+        /* Truncate long labels so the stepper doesn't blow out horizontally */
+        const displayLabel = nodeLabel.length > 28 ? nodeLabel.slice(0, 26) + "…" : nodeLabel;
+        return (
+        <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-2 rounded-lg bg-surface/95 backdrop-blur-md border border-primary/25 shadow-lg max-w-[90%]">
           <Route className="h-3.5 w-3.5 text-primary flex-shrink-0" />
           <span className="text-[10px] font-mono text-muted-foreground uppercase">Attack path</span>
           <button
@@ -546,9 +572,15 @@ export function GraphPanel({ state }: GraphPanelProps) {
           >
             <ChevronLeft className="h-4 w-4" />
           </button>
-          <span className="text-[11px] font-mono text-foreground min-w-[120px] text-center">
-            {attackStepIndex + 1} / {attackPathOrder.length}
-          </span>
+          <div className="flex flex-col items-center min-w-[140px]">
+            <span className="text-[11px] font-mono text-foreground truncate max-w-[200px]" title={nodeLabel}>
+              {displayLabel}
+            </span>
+            <span className="text-[9px] font-mono text-muted-foreground">
+              {nodeType && <span className="mr-1">{nodeType}</span>}
+              {attackStepIndex + 1} / {attackPathOrder.length}
+            </span>
+          </div>
           <button
             type="button"
             disabled={attackStepIndex >= attackPathOrder.length - 1}
@@ -558,7 +590,8 @@ export function GraphPanel({ state }: GraphPanelProps) {
             <ChevronRight className="h-4 w-4" />
           </button>
         </div>
-      )}
+        );
+      })()}
 
       {/* ── Minimap overview ────────────────────────────── */}
       {hasGraph && <GraphMinimap graphData={filteredGraphData} />}
