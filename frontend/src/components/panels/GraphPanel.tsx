@@ -12,10 +12,11 @@
  */
 import { useMemo, useRef, useCallback, useEffect, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import { X, Search, Filter } from "lucide-react";
+import { X, Search, Filter, ChevronLeft, ChevronRight, Route } from "lucide-react";
 import type { InvestigationState, EntityType, GraphNode } from "../../types/api";
 import { cn } from "../../lib/utils";
 import { GraphMinimap } from "./GraphMinimap";
+import { buildAttackPathOrder } from "../../lib/attackPath";
 
 interface GraphPanelProps {
   state: InvestigationState;
@@ -142,6 +143,8 @@ export function GraphPanel({ state }: GraphPanelProps) {
   const [searchQuery, setSearchQuery] = useState("");
   /* Show/hide the filter panel */
   const [showFilters, setShowFilters] = useState(false);
+  /* Attack path stepper — walk the graph from the investigation root */
+  const [attackStepIndex, setAttackStepIndex] = useState(0);
 
   /* ResizeObserver keeps the canvas size in sync with the container */
   useEffect(() => {

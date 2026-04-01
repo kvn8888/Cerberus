@@ -17,6 +17,7 @@ import { PipelineStages } from "./components/panels/PipelineStages";
 import { GraphPanel } from "./components/panels/GraphPanel";
 import { ThreatMap } from "./components/panels/ThreatMap";
 import { MemoryPanel } from "./components/panels/MemoryPanel";
+import { MitreHeatmapPanel } from "./components/panels/MitreHeatmapPanel";
 import { NarrativePanel } from "./components/panels/NarrativePanel";
 import { TimelinePanel } from "./components/panels/TimelinePanel";
 import { useInvestigation } from "./hooks/useInvestigation";
@@ -62,6 +63,7 @@ function App() {
 
           {centerView === "graph" && <GraphPanel state={state} />}
           {centerView === "geomap" && <ThreatMap state={state} />}
+          {centerView === "mitre" && <MitreHeatmapPanel state={state} />}
           {centerView === "memory" && (
             <MemoryPanel
               refreshKey={memoryRefreshKey}
