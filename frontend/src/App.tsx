@@ -9,18 +9,23 @@
  * The PipelineStages bar sits between the header and main content,
  * showing the agent's progress through each investigation stage.
  */
-import { startTransition, useCallback, useState } from "react";
+import { lazy, startTransition, Suspense, useCallback, useState } from "react";
 import { Header } from "./components/layout/Header";
 import { ViewNav, type CenterView } from "./components/layout/ViewNav";
 import { QueryPanel } from "./components/panels/QueryPanel";
 import { PipelineStages } from "./components/panels/PipelineStages";
-import { GraphPanel } from "./components/panels/GraphPanel";
-import { ThreatMap } from "./components/panels/ThreatMap";
-import { MemoryPanel } from "./components/panels/MemoryPanel";
-import { MitreHeatmapPanel } from "./components/panels/MitreHeatmapPanel";
 import { NarrativePanel } from "./components/panels/NarrativePanel";
 import { TimelinePanel } from "./components/panels/TimelinePanel";
 import { useInvestigation } from "./hooks/useInvestigation";
+
+/* Lazy-load heavy visualization panels — only the active tab's chunk loads.
+   GraphPanel, ThreatMap, MitreHeatmap, and MemoryPanel each pull in large
+   dependencies (d3-force, d3-geo, Three.js references, etc.) that would
+   otherwise bloat the initial bundle. */
+const GraphPanel = lazy(() => import("./components/panels/GraphPanel").then(m => ({ default: m.GraphPanel })));
+const ThreatMap = lazy(() => import("./components/panels/ThreatMap").then(m => ({ default: m.ThreatMap })));
+const MitreHeatmapPanel = lazy(() => import("./components/panels/MitreHeatmapPanel").then(m => ({ default: m.MitreHeatmapPanel })));
+const MemoryPanel = lazy(() => import("./components/panels/MemoryPanel").then(m => ({ default: m.MemoryPanel })));
 
 function App() {
   const { state, investigate, history } = useInvestigation();
@@ -67,15 +72,19 @@ function App() {
             memoryCount={memoryCount}
           />
 
-          {centerView === "graph" && <GraphPanel state={state} />}
-          {centerView === "geomap" && <ThreatMap state={state} />}
-          {centerView === "mitre" && <MitreHeatmapPanel state={state} />}
-          {centerView === "memory" && (
-            <MemoryPanel
-              refreshKey={memoryRefreshKey}
-              onCountChange={setMemoryCount}
-            />
-          )}
+          {/* Suspense wraps lazy-loaded visualization panels so the rest
+              of the UI renders immediately while the active tab's chunk loads */}
+          <Suspense fallback={<div className="flex items-center justify-center h-full text-muted-foreground text-sm">Loading view…</div>}>
+            {centerView === "graph" && <GraphPanel state={state} />}
+            {centerView === "geomap" && <ThreatMap state={state} />}
+            {centerView === "mitre" && <MitreHeatmapPanel state={state} />}
+            {centerView === "memory" && (
+              <MemoryPanel
+                refreshKey={memoryRefreshKey}
+                onCountChange={setMemoryCount}
+              />
+            )}
+          </Suspense>
 
           <TimelinePanel
             investigationHistory={history}

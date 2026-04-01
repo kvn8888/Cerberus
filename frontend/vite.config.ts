@@ -18,4 +18,18 @@ export default defineConfig({
     // Inject the commit hash as a global constant available at runtime
     __COMMIT_HASH__: JSON.stringify(commitHash),
   },
+  build: {
+    rollupOptions: {
+      output: {
+        /* Split heavy visualization libraries into separate chunks so they
+           only load when the corresponding lazy panel activates. */
+        manualChunks: {
+          'vendor-graph': ['react-force-graph-2d'],
+          'vendor-geo': ['d3-geo', 'topojson-client'],
+          'vendor-pdf': ['@react-pdf/renderer'],
+          'vendor-markdown': ['react-markdown'],
+        },
+      },
+    },
+  },
 })
