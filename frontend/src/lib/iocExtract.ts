@@ -52,13 +52,15 @@ export function extractIOCsFromNarrative(text: string): IocRow[] {
   if (!text) return [];
   const rows: IocRow[] = [];
   let m: RegExpExecArray | null;
-  const ipRe = new RegExp(IPV4.source);
+  /* Must use 'g' flag so exec() advances lastIndex on each match —
+     without it, exec() returns the same first match forever (infinite loop). */
+  const ipRe = new RegExp(IPV4.source, "g");
   while ((m = ipRe.exec(text)) !== null) pushUnique(rows, "ip", m[0], "narrative");
-  const cveRe = new RegExp(CVE.source);
+  const cveRe = new RegExp(CVE.source, "gi");
   while ((m = cveRe.exec(text)) !== null) pushUnique(rows, "cve", m[0].toUpperCase(), "narrative");
-  const hashRe = new RegExp(HASH.source);
+  const hashRe = new RegExp(HASH.source, "g");
   while ((m = hashRe.exec(text)) !== null) pushUnique(rows, "hash", m[0], "narrative");
-  const domRe = new RegExp(DOMAIN.source);
+  const domRe = new RegExp(DOMAIN.source, "g");
   while ((m = domRe.exec(text)) !== null) {
     const d = m[0];
     if (/^localhost$/i.test(d) || d.length < 4) continue;
