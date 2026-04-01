@@ -22,6 +22,7 @@ from routes.auth_routes import router as auth_router
 from routes.apikeys import router as apikeys_router
 from routes.stix import router as stix_router
 from routes.diff import router as diff_router
+from routes.enrichment import router as enrichment_router
 
 
 @asynccontextmanager
@@ -75,6 +76,7 @@ app.include_router(stix_router)
 app.include_router(diff_router)
 app.include_router(auth_router)
 app.include_router(apikeys_router)
+app.include_router(enrichment_router)
 
 
 @app.get("/health")
