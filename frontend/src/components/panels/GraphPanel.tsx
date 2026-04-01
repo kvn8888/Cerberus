@@ -171,6 +171,16 @@ export function GraphPanel({ state }: GraphPanelProps) {
     return { nodes: [], links: [] };
   }, [state.status, state.pathsFound, state.entity, state.entityType, state.graphData]);
 
+  /* Ordered walk from investigation root — for attack path stepper */
+  const attackPathOrder = useMemo(() => {
+    if (!graphData.nodes.length) return [] as string[];
+    return buildAttackPathOrder(
+      graphData.nodes as GraphNode[],
+      graphData.links as any,
+      state.entity
+    );
+  }, [graphData.nodes, graphData.links, state.entity]);
+
   /* Extract unique relationship types from links for the filter UI */
   const relTypes = useMemo(() => {
     const types = new Set<string>();
@@ -199,6 +209,9 @@ export function GraphPanel({ state }: GraphPanelProps) {
   }, [graphData, hiddenRelTypes]);
 
   /* Custom node rendering on the canvas — includes search highlight logic */
+  const pathHighlightId =
+    attackPathOrder.length > 0 ? attackPathOrder[Math.min(attackStepIndex, attackPathOrder.length - 1)] : null;
+
   const paintNode = useCallback(
     (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const label = node.label || node.id;
@@ -206,10 +219,20 @@ export function GraphPanel({ state }: GraphPanelProps) {
       const nodeRadius = Math.max(node.val || 5, 3);
       const color = NODE_COLORS[node.type] || "#666";
       const isMatch = searchQuery && label.toLowerCase().includes(searchQuery.toLowerCase());
+      const isPathStep = pathHighlightId && node.id === pathHighlightId;
 
       /* Glow effect — stronger for search matches */
       ctx.shadowColor = isMatch ? "#FFD700" : color;
       ctx.shadowBlur = isMatch ? 20 : 12;
+
+      /* Attack path step — cyan ring */
+      if (isPathStep && !isMatch) {
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, nodeRadius + 5, 0, 2 * Math.PI);
+        ctx.strokeStyle = "#00E5FF";
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
 
       /* Highlight ring for search matches */
       if (isMatch) {
@@ -223,7 +246,7 @@ export function GraphPanel({ state }: GraphPanelProps) {
       /* Node circle */
       ctx.beginPath();
       ctx.arc(node.x, node.y, nodeRadius, 0, 2 * Math.PI);
-      ctx.fillStyle = isMatch ? "#FFD700" : color;
+      ctx.fillStyle = isMatch ? "#FFD700" : isPathStep ? "#00E5FF" : color;
       ctx.fill();
 
       /* Reset shadow for text */
@@ -236,7 +259,7 @@ export function GraphPanel({ state }: GraphPanelProps) {
       ctx.fillStyle = isMatch ? "#FFD700" : "rgba(200, 210, 220, 0.9)";
       ctx.fillText(label, node.x, node.y + nodeRadius + 2);
     },
-    [searchQuery]
+    [searchQuery, pathHighlightId]
   );
 
   /* Custom link rendering — dashed for synthetic edges */
@@ -279,6 +302,7 @@ export function GraphPanel({ state }: GraphPanelProps) {
     setSearchQuery("");
     setHiddenRelTypes(new Set());
     setShowFilters(false);
+    setAttackStepIndex(0);
   }, [state.entity, state.entityType, state.status]);
 
   const hasGraph = graphData.nodes.length > 0;
