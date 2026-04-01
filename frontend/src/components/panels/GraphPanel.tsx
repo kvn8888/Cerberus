@@ -368,9 +368,9 @@ export function GraphPanel({ state }: GraphPanelProps) {
   useEffect(() => {
     if (!graphRef.current || !attackPathOrder.length) return;
     const nodeId = attackPathOrder[Math.min(attackStepIndex, attackPathOrder.length - 1)];
-    const node = graphData.nodes.find((n: any) => n.id === nodeId);
+    const node = graphData.nodes.find((n: any) => n.id === nodeId) as any;
     if (node && typeof node.x === "number" && typeof node.y === "number") {
-      graphRef.current.centerAt(node.x, node.y, 300);
+      graphRef.current.centerAt(node.x as number, node.y as number, 300);
       graphRef.current.zoom(3, 300);
     }
   }, [attackStepIndex, attackPathOrder, graphData.nodes]);

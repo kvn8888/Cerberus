@@ -2,7 +2,6 @@
  * MITRE ATT&CK tactic heatmap from Technique nodes in the current investigation graph.
  */
 import { useMemo } from "react";
-import { Grid3x3 } from "lucide-react";
 import type { InvestigationState } from "../../types/api";
 import { cn } from "../../lib/utils";
 import {
@@ -42,8 +41,6 @@ export function MitreHeatmapPanel({ state }: { state: InvestigationState }) {
 
   const maxCount = useMemo(() => Math.max(1, ...Array.from(counts.values())), [counts]);
   const total = useMemo(() => Array.from(counts.values()).reduce((a, b) => a + b, 0), [counts]);
-
-  const hasData = total > 0;
 
   return (
     <div className="relative h-full w-full overflow-hidden grid-bg flex flex-col">

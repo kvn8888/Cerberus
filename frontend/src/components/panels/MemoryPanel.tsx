@@ -98,8 +98,8 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
         const batch = exportable.slice(i, i + 5);
         const results = await Promise.all(
           batch.map((n) =>
-            fetchStixBundle({ entity: n.label, type: typeMap[n.type] })
-              .then((b) => b.objects ?? [])
+            fetchStixBundle({ entity: n.label, type: typeMap[n.type] as import("../../types/api").EntityType })
+              .then((b) => (b.objects as Record<string, unknown>[] | undefined) ?? [])
               .catch(() => [])
           )
         );
