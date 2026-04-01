@@ -252,6 +252,7 @@ CERBERUS_API=http://localhost:8000
 | GET | `/api/query/graph` | Force-directed graph data (nodes + edges) for vis |
 | GET | `/api/memory` | Confirmed-threat subgraph (excludes Technique nodes) |
 | GET | `/api/memory/geo` | Geo points for memorized entities |
+| GET | `/api/geomap/all` | Geo points for ALL IPs + ThreatActors (no ConfirmedThreat filter) — used for default geomap load |
 | GET | `/api/memory/expand` | Expand a node in memory graph (click-to-expand UI) |
 | POST | `/api/demo/natural` | NLP entity extraction (optional; QueryPanel NLP block removed) |
 | POST | `/api/demo/compare` | Multi-entity comparison (optional; UI removed) |
@@ -335,7 +336,7 @@ data: [DONE]
 |------|---------|
 | `backend/main.py` | FastAPI app, CORS, lifespan, schema, memory routes, router registry |
 | `backend/config.py` | Env var loader with validation |
-| `backend/neo4j_client.py` | Neo4j driver: traverse, cache/confirm, graph viz, geo, Juspay, threat_score, blast_radius, shortest_path, suggest_next, memory |
+| `backend/neo4j_client.py` | Neo4j driver: traverse, cache/confirm, graph viz, geo (`get_memory_geo`, `get_all_geo`), Juspay, threat_score, blast_radius, shortest_path, suggest_next, memory |
 | `backend/llm.py` | Anthropic Claude narrative generation (blocking + streaming) |
 | `backend/rocketride.py` | RocketRide pipeline integration (async httpx, SSE proxy, 60s timeout) |
 | `backend/enrich.py` | Real-time threat intel enrichment (OSV.dev, NVD, Abuse.ch) |
@@ -405,7 +406,7 @@ Pipeline stages rendered in UI: `input → ner → classify → route → traver
 | `QueryPanel` | Entity input with auto-detected type badge, NLP toggle (natural language → entity extraction via `/api/demo/natural`), cross-domain fraud alerts (`/api/juspay/signals`), investigation history (localStorage, last 10), quick-start buttons |
 | `NarrativePanel` | Streaming text, Technical/Executive toggle, threat score card + blast radius breakdown, IOC extraction (copy-all / CSV), external enrichment intel (VT/HIBP), "Investigate Next" suggestions, confirm, PDF export + STIX 2.1 bundle export |
 | `GraphPanel` | Force-directed graph (react-force-graph-2d), attack-path stepper (DFS-ordered prev/next with cyan highlight, node label + auto-center), relationship type filter checkboxes, node search + gold highlight, legends, GraphMinimap, collaborative annotations on nodes (add/delete notes), "Watch Entity" button |
-| `ThreatMap` | Geomap tab: scroll-wheel zoom, drag pan, actor offsets, auto zoom-to-fit |
+| `ThreatMap` | Geomap tab: scroll-wheel zoom, drag pan, actor offsets, auto zoom-to-fit. **Pre-populates on mount with real Neo4j data via `GET /api/geomap/all`** (all IPs + ThreatActors with geo data). Investigation-triggered overlay added on top. No hardcoded demo nodes. |
 | `MitreHeatmapPanel` | MITRE ATT&CK tactic heatmap — counts Technique nodes from investigation graph, 14-tactic grid with intensity coloring |
 | `MemoryPanel` | Confirmed-threat subgraph + click-to-expand + STIX 2.1 bundle export button |
 | `ComparePanel` | Entity comparison — two entity inputs with type selectors, overlap score, shared/exclusive node lists |
