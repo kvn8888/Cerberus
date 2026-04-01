@@ -327,3 +327,44 @@ export async function compareEntities(
   if (!res.ok) throw new Error(`Comparison failed: ${res.status}`);
   return res.json();
 }
+
+/* ── Annotation CRUD ─────────────────────────────────────────────── */
+
+export interface Annotation {
+  id: string;
+  entity: string;
+  text: string;
+  author: string;
+  created_at: number;
+}
+
+/** List annotations for a given entity. */
+export async function listAnnotations(entity: string): Promise<Annotation[]> {
+  const params = new URLSearchParams({ entity });
+  const res = await fetch(`${API_BASE}/api/annotations?${params}`);
+  if (!res.ok) throw new Error(`Annotations fetch failed: ${res.status}`);
+  return res.json();
+}
+
+/** Create a new annotation on an entity. */
+export async function createAnnotation(
+  entity: string,
+  text: string,
+  author?: string
+): Promise<Annotation> {
+  const res = await fetch(`${API_BASE}/api/annotations`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entity, text, author: author ?? "analyst" }),
+  });
+  if (!res.ok) throw new Error(`Create annotation failed: ${res.status}`);
+  return res.json();
+}
+
+/** Delete an annotation by ID. */
+export async function deleteAnnotation(id: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/annotations/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error(`Delete annotation failed: ${res.status}`);
+}

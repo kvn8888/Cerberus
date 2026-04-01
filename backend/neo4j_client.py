@@ -43,6 +43,14 @@ def close():
         _driver = None
 
 
+def run_query(query: str, params: dict | None = None) -> list[dict]:
+    """Execute an arbitrary Cypher query and return all records as dicts.
+    Used by annotation and other generic CRUD endpoints."""
+    with _get_driver().session() as s:
+        result = s.run(query, params or {})
+        return [r.data() for r in result]
+
+
 # ── Entity alias normalization ─────────────────────────────────────────────────
 # Maps common vulnerability/malware nicknames to canonical identifiers + type.
 # Applied before every graph query so "log4shell" resolves to CVE-2021-44228.

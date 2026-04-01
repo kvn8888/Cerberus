@@ -12,11 +12,12 @@
  */
 import { useMemo, useRef, useCallback, useEffect, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import { X, Search, Filter, ChevronLeft, ChevronRight, Route } from "lucide-react";
+import { X, Search, Filter, ChevronLeft, ChevronRight, Route, MessageSquare, Send, Trash2 } from "lucide-react";
 import type { InvestigationState, EntityType, GraphNode } from "../../types/api";
 import { cn } from "../../lib/utils";
 import { GraphMinimap } from "./GraphMinimap";
 import { buildAttackPathOrder } from "../../lib/attackPath";
+import { listAnnotations, createAnnotation, deleteAnnotation, type Annotation } from "../../lib/api";
 
 interface GraphPanelProps {
   state: InvestigationState;
@@ -145,6 +146,46 @@ export function GraphPanel({ state }: GraphPanelProps) {
   const [showFilters, setShowFilters] = useState(false);
   /* Attack path stepper — walk the graph from the investigation root */
   const [attackStepIndex, setAttackStepIndex] = useState(0);
+
+  /* ── Annotation state — notes on graph nodes ───────── */
+  const [annotations, setAnnotations] = useState<Annotation[]>([]);
+  const [annotationText, setAnnotationText] = useState("");
+  const [annotationBusy, setAnnotationBusy] = useState(false);
+
+  /* Fetch annotations when selected node changes */
+  useEffect(() => {
+    if (!selectedNode) { setAnnotations([]); return; }
+    const entity = selectedNode.label || selectedNode.id;
+    listAnnotations(entity).then(setAnnotations).catch(() => setAnnotations([]));
+  }, [selectedNode?.id]);
+
+  /* Create a new annotation on the selected node */
+  const handleAddAnnotation = useCallback(async () => {
+    if (!selectedNode || !annotationText.trim()) return;
+    setAnnotationBusy(true);
+    try {
+      const ann = await createAnnotation(
+        selectedNode.label || selectedNode.id,
+        annotationText.trim()
+      );
+      setAnnotations((prev) => [ann, ...prev]);
+      setAnnotationText("");
+    } catch (err) {
+      console.error("Create annotation failed:", err);
+    } finally {
+      setAnnotationBusy(false);
+    }
+  }, [selectedNode, annotationText]);
+
+  /* Delete an annotation */
+  const handleDeleteAnnotation = useCallback(async (id: string) => {
+    try {
+      await deleteAnnotation(id);
+      setAnnotations((prev) => prev.filter((a) => a.id !== id));
+    } catch (err) {
+      console.error("Delete annotation failed:", err);
+    }
+  }, []);
 
   /* ResizeObserver keeps the canvas size in sync with the container */
   useEffect(() => {
@@ -548,6 +589,55 @@ export function GraphPanel({ state }: GraphPanelProps) {
                   </span>
                 </div>
               ))}
+          </div>
+
+          {/* ── Annotations section ──────────────────────── */}
+          <div className="mt-3 pt-3 border-t border-border/30">
+            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest mb-2 flex items-center gap-1">
+              <MessageSquare className="h-3 w-3" />
+              Notes ({annotations.length})
+            </p>
+
+            {/* Existing annotations */}
+            {annotations.length > 0 && (
+              <div className="space-y-1.5 mb-2 max-h-32 overflow-y-auto">
+                {annotations.map((ann) => (
+                  <div key={ann.id} className="group p-1.5 rounded bg-surface-raised/40 border border-border/20">
+                    <p className="text-[10px] text-foreground/80 leading-relaxed break-words">{ann.text}</p>
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-[8px] text-muted-foreground/40">
+                        {ann.author} · {new Date(ann.created_at).toLocaleDateString()}
+                      </span>
+                      <button
+                        onClick={() => handleDeleteAnnotation(ann.id)}
+                        className="opacity-0 group-hover:opacity-100 p-0.5 text-muted-foreground/40 hover:text-threat-high transition-all"
+                      >
+                        <Trash2 className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add annotation input */}
+            <div className="flex gap-1">
+              <input
+                type="text"
+                value={annotationText}
+                onChange={(e) => setAnnotationText(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleAddAnnotation()}
+                placeholder="Add a note..."
+                className="flex-1 px-2 py-1 rounded text-[10px] font-mono bg-surface-raised border border-border/30 text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/40"
+              />
+              <button
+                onClick={handleAddAnnotation}
+                disabled={!annotationText.trim() || annotationBusy}
+                className="p-1 rounded text-muted-foreground hover:text-primary disabled:opacity-30 transition-colors"
+              >
+                <Send className="h-3 w-3" />
+              </button>
+            </div>
           </div>
         </div>
       )}
