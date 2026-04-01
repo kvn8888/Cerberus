@@ -481,7 +481,7 @@ export function ThreatMap({ state }: ThreatMapProps) {
   return (
     <div ref={containerRef} className="relative h-full w-full overflow-hidden grid-bg">
       {/* Stats header bar */}
-      <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
+      <div className="absolute top-3 right-3 z-20 flex flex-col items-end gap-1.5">
         <StatBadge icon={<Activity className="h-3 w-3" />} label="ACTIVE" value={stats.activeCount} color="text-primary" />
         <StatBadge icon={<Shield className="h-3 w-3" />} label="APT" value={stats.aptCount} color="text-threat-high" />
         <StatBadge icon={<AlertTriangle className="h-3 w-3" />} label="CRITICAL" value={stats.criticalCount} color="text-threat-critical" />
