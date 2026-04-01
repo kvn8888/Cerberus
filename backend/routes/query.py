@@ -213,9 +213,30 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
                 f"[CACHED] Confirmed threat path for {entity}. LLM skipped."
             )
             yield f"data: {json.dumps({'from_cache': True, 'paths_found': len(cached)})}\n\n"
+
+            # Emit threat score and blast radius for cached path
+            try:
+                score_data = await asyncio.to_thread(db.threat_score, entity, entity_type)
+                yield f"data: {json.dumps({'threat_score': score_data})}\n\n"
+            except Exception:
+                pass
+            try:
+                blast = await asyncio.to_thread(db.blast_radius, entity, entity_type)
+                yield f"data: {json.dumps({'blast_radius': blast})}\n\n"
+            except Exception:
+                pass
+
             yield f"data: {json.dumps({'stage': 'narrate'})}\n\n"
             for chunk in _chunk_string(narrative, 80):
                 yield f"data: {json.dumps({'text': chunk})}\n\n"
+
+            # Emit suggestions for next investigation
+            try:
+                suggestions = await asyncio.to_thread(db.suggest_next, entity, entity_type)
+                yield f"data: {json.dumps({'suggestions': suggestions})}\n\n"
+            except Exception:
+                pass
+
             yield "data: [DONE]\n\n"
             return
 
@@ -256,6 +277,18 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
 
         yield f"data: {json.dumps({'paths_found': traversal['paths_found'], 'from_cache': False})}\n\n"
 
+        # Emit threat score and blast radius
+        try:
+            score_data = await asyncio.to_thread(db.threat_score, entity, entity_type)
+            yield f"data: {json.dumps({'threat_score': score_data})}\n\n"
+        except Exception:
+            pass
+        try:
+            blast = await asyncio.to_thread(db.blast_radius, entity, entity_type)
+            yield f"data: {json.dumps({'blast_radius': blast})}\n\n"
+        except Exception:
+            pass
+
         # ── Stage: analyze → narrate (via RocketRide or direct LLM fallback) ──
         # pipeline.stream_via_rocketride_or_fallback() tries RocketRide first.
         # If RocketRide is not running or returns an error, it silently falls
@@ -294,6 +327,14 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
                 entity_type,
                 "".join(narrative_chunks),
             )
+
+        # Emit suggestions for next investigation
+        try:
+            suggestions = await asyncio.to_thread(db.suggest_next, entity, entity_type)
+            yield f"data: {json.dumps({'suggestions': suggestions})}\n\n"
+        except Exception:
+            pass
+
         yield "data: [DONE]\n\n"
 
     return StreamingResponse(

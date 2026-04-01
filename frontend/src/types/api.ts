@@ -81,7 +81,10 @@ export type StreamChunk =
   | { text: string }
   | { from_cache: boolean }
   | { paths_found: number; from_cache: boolean }
-  | { route_info: RouteInfo };
+  | { route_info: RouteInfo }
+  | { threat_score: ThreatScore }
+  | { blast_radius: BlastRadius }
+  | { suggestions: Suggestion[] };
 
 /** Route decision metadata emitted during the ROUTE stage */
 export interface RouteInfo {
@@ -105,6 +108,37 @@ export type PipelineStage =
   | "narrate"
   | "complete";
 
+/** Threat score breakdown from /api/threat-score */
+export interface ThreatScore {
+  score: number;
+  factors: string[];
+  severity: "critical" | "high" | "medium" | "low" | "info";
+}
+
+/** Blast radius from /api/blast-radius */
+export interface BlastRadius {
+  total: number;
+  by_type: Record<string, number>;
+}
+
+/** Investigation suggestion from /api/suggestions */
+export interface Suggestion {
+  entity: string;
+  type: string;
+  reason: string;
+  connections: number;
+}
+
+/** Saved investigation for history */
+export interface InvestigationHistoryItem {
+  entity: string;
+  entityType: EntityType;
+  timestamp: number;
+  threatScore?: number;
+  severity?: string;
+  pathsFound: number;
+}
+
 /** Tracks the overall state of an investigation */
 export interface InvestigationState {
   status: "idle" | "running" | "complete" | "error";
@@ -117,6 +151,10 @@ export interface InvestigationState {
   fromCache: boolean;
   error?: string;
   graphData?: GraphResponse;
+  threatScore?: ThreatScore;
+  blastRadius?: BlastRadius;
+  suggestions?: Suggestion[];
+  audienceMode: "analyst" | "executive";
 }
 
 export interface NaturalLanguageResponse {

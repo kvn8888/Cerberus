@@ -17,6 +17,7 @@ from routes.demo import router as demo_router
 from routes.ingest import router as ingest_router
 from routes.threatmap import router as threatmap_router
 from routes.juspay import router as juspay_router
+from routes.intelligence import router as intelligence_router
 
 
 @asynccontextmanager
@@ -65,6 +66,7 @@ app.include_router(demo_router)
 app.include_router(ingest_router)
 app.include_router(threatmap_router)
 app.include_router(juspay_router)
+app.include_router(intelligence_router)
 
 
 @app.get("/health")

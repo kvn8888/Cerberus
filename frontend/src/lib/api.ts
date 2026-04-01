@@ -14,6 +14,9 @@ import type {
   GraphResponse,
   MapResponse,
   ReportResponse,
+  ThreatScore,
+  BlastRadius,
+  Suggestion,
 } from "../types/api";
 
 /** Base URL for the Cerberus backend — no trailing slash.
@@ -201,6 +204,50 @@ export async function expandMemoryNode(nodeId: string): Promise<{
   if (!res.ok) {
     throw new Error(`Memory expand failed: ${res.status} ${res.statusText}`);
   }
+  return res.json();
+}
+
+/** Fetch threat score for an entity */
+export async function fetchThreatScore(
+  req: QueryRequest
+): Promise<ThreatScore> {
+  const params = new URLSearchParams({ entity: req.entity, type: req.type });
+  const res = await fetch(`${API_BASE}/api/threat-score?${params}`);
+  if (!res.ok) throw new Error(`Threat score failed: ${res.status}`);
+  return res.json();
+}
+
+/** Fetch blast radius for an entity */
+export async function fetchBlastRadius(
+  req: QueryRequest
+): Promise<BlastRadius> {
+  const params = new URLSearchParams({ entity: req.entity, type: req.type });
+  const res = await fetch(`${API_BASE}/api/blast-radius?${params}`);
+  if (!res.ok) throw new Error(`Blast radius failed: ${res.status}`);
+  return res.json();
+}
+
+/** Find shortest path between two entities */
+export async function fetchShortestPath(
+  from: QueryRequest,
+  to: QueryRequest
+): Promise<GraphResponse & { hops: number }> {
+  const params = new URLSearchParams({
+    from_entity: from.entity, from_type: from.type,
+    to_entity: to.entity, to_type: to.type,
+  });
+  const res = await fetch(`${API_BASE}/api/shortest-path?${params}`);
+  if (!res.ok) throw new Error(`Shortest path failed: ${res.status}`);
+  return res.json();
+}
+
+/** Fetch investigation suggestions */
+export async function fetchSuggestions(
+  req: QueryRequest
+): Promise<Suggestion[]> {
+  const params = new URLSearchParams({ entity: req.entity, type: req.type });
+  const res = await fetch(`${API_BASE}/api/suggestions?${params}`);
+  if (!res.ok) throw new Error(`Suggestions failed: ${res.status}`);
   return res.json();
 }
 

@@ -31,6 +31,7 @@ const IDLE_STATE: InvestigationState = {
   narrative: "",
   pathsFound: 0,
   fromCache: false,
+  audienceMode: "analyst" as const,
 };
 
 /**
@@ -84,8 +85,9 @@ export function useInvestigation() {
       const controller = new AbortController();
       abortRef.current = controller;
 
-      /* Full reset — wipe everything from the previous investigation */
-      setState({
+      /* Full reset — wipe everything from the previous investigation,
+         but preserve the audience mode choice across investigations */
+      setState((prev) => ({
         status: "running",
         entity,
         entityType,
@@ -95,7 +97,11 @@ export function useInvestigation() {
         pathsFound: 0,
         fromCache: false,
         graphData: undefined,
-      });
+        threatScore: undefined,
+        blastRadius: undefined,
+        suggestions: undefined,
+        audienceMode: prev.audienceMode,
+      }));
 
       try {
         const res = await queryEntityStream({ entity, type: entityType });
@@ -156,6 +162,21 @@ export function useInvestigation() {
                   pathsFound: chunk.paths_found,
                   fromCache: chunk.from_cache ?? false,
                 }));
+              } else if ("threat_score" in chunk) {
+                setState((prev) => ({
+                  ...prev,
+                  threatScore: chunk.threat_score,
+                }));
+              } else if ("blast_radius" in chunk) {
+                setState((prev) => ({
+                  ...prev,
+                  blastRadius: chunk.blast_radius,
+                }));
+              } else if ("suggestions" in chunk) {
+                setState((prev) => ({
+                  ...prev,
+                  suggestions: chunk.suggestions,
+                }));
               } else if ("text" in chunk) {
                 /* Narrative text fragment — append to accumulated narrative */
                 accumulated += chunk.text;
@@ -191,5 +212,10 @@ export function useInvestigation() {
     setState(IDLE_STATE);
   }, []);
 
-  return { state, investigate, reset };
+  /** Switch between analyst and executive audience modes */
+  const setAudienceMode = useCallback((mode: "analyst" | "executive") => {
+    setState((prev) => ({ ...prev, audienceMode: mode }));
+  }, []);
+
+  return { state, investigate, reset, setAudienceMode };
 }

@@ -895,6 +895,299 @@ def get_memory_geo() -> list[dict[str, Any]]:
     return points
 
 
+# ── Graph Intelligence Functions ──────────────────────────────────────────────
+# These power the /api/threat-score, /api/blast-radius, /api/shortest-path,
+# and /api/suggestions endpoints with advanced graph analytics.
+
+# -- Threat Score --
+# Computes a 0-100 risk score by examining graph connectivity around an entity.
+# Each factor (connection to ThreatActor, CVE, FraudSignal, etc.) adds points.
+_THREAT_SCORE_FACTORS = """
+MATCH (start:{label} {{{key}: $value}})
+OPTIONAL MATCH (start)-[*1..4]-(ta:ThreatActor)
+OPTIONAL MATCH (start)-[*1..4]-(cve:CVE)
+OPTIONAL MATCH (start)-[*1..4]-(fs:FraudSignal)
+OPTIONAL MATCH (start)-[*1..4]-(ip:IP)
+OPTIONAL MATCH path = (start)-[*1..4]-(any)
+RETURN start,
+       collect(DISTINCT ta.name) AS actors,
+       collect(DISTINCT cve.id) AS cves,
+       collect(DISTINCT fs.juspay_id) AS fraud_signals,
+       collect(DISTINCT ip.address) AS ips,
+       collect(DISTINCT labels(any)[0]) AS label_types,
+       labels(start) AS start_labels
+LIMIT 1
+"""
+
+
+def threat_score(entity: str, entity_type: str) -> dict[str, Any]:
+    """
+    Compute a 0-100 threat score based on graph connectivity around an entity.
+    Considers connections to ThreatActors, CVEs, FraudSignals, malicious IPs,
+    cross-domain hops, and ConfirmedThreat status. Returns the numeric score,
+    a list of human-readable factors, and a severity label.
+    """
+    entity, entity_type = normalize_entity(entity, entity_type)
+    label = _entity_label(entity_type)
+    key = _entity_key(entity_type)
+    cypher = _THREAT_SCORE_FACTORS.format(label=label, key=key)
+
+    score = 0
+    factors: list[str] = []
+
+    with _get_driver().session() as s:
+        result = s.run(cypher, value=entity)
+        record = result.single()
+
+        if not record or record["start"] is None:
+            return {"score": 0, "factors": ["Entity not found in graph"], "severity": "info"}
+
+        # Base: entity exists
+        score += 10
+        factors.append("Entity exists in graph")
+
+        # Connected to ThreatActor(s)
+        actors = [a for a in record["actors"] if a]
+        if actors:
+            score += 15
+            factors.append(f"Connected to ThreatActor {actors[0]}")
+            if len(actors) > 1:
+                score += 10
+                factors.append(f"Multiple threat actors connected ({len(actors)} total)")
+
+        # Connected to CVE(s)
+        cves = [c for c in record["cves"] if c]
+        if cves:
+            score += 15
+            factors.append(f"Connected to CVE {cves[0]}")
+
+        # Connected to FraudSignal(s)
+        fraud = [f for f in record["fraud_signals"] if f]
+        if fraud:
+            score += 10
+            factors.append(f"Connected to FraudSignal ({len(fraud)} signal(s))")
+
+        # Connected to IP(s) — treat as potentially malicious infrastructure
+        ips = [i for i in record["ips"] if i]
+        if ips:
+            score += 10
+            factors.append(f"Connected to malicious IP ({len(ips)} address(es))")
+
+        # Cross-domain hops: count distinct label types in reachable paths
+        label_types = [lt for lt in record["label_types"] if lt]
+        distinct_types = set(label_types)
+        cross_domain_count = min(len(distinct_types), 3)  # max 30 points
+        if cross_domain_count > 0:
+            score += cross_domain_count * 10
+            factors.append(f"Cross-domain reach: {len(distinct_types)} entity type(s)")
+
+        # ConfirmedThreat check
+        start_labels = record["start_labels"]
+        if "ConfirmedThreat" in start_labels:
+            score += 10
+            factors.append("Entity is a ConfirmedThreat")
+
+    # Cap at 100
+    score = min(score, 100)
+
+    # Severity mapping
+    if score >= 80:
+        severity = "critical"
+    elif score >= 60:
+        severity = "high"
+    elif score >= 40:
+        severity = "medium"
+    elif score >= 20:
+        severity = "low"
+    else:
+        severity = "info"
+
+    return {"score": score, "factors": factors, "severity": severity}
+
+
+# -- Blast Radius --
+# Counts how many distinct entities are reachable within 4 hops of the target,
+# grouped by node type. Helps analysts understand the potential impact area.
+_BLAST_RADIUS = """
+MATCH (start:{label} {{{key}: $value}})-[*1..4]-(connected)
+RETURN labels(connected)[0] AS type, count(DISTINCT connected) AS count
+"""
+
+
+def blast_radius(entity: str, entity_type: str) -> dict[str, Any]:
+    """
+    Count how many distinct entities are reachable within 4 hops, grouped by
+    node label. Returns a total count and a breakdown by entity type so the
+    frontend can visualize the 'blast radius' of a compromise.
+    """
+    entity, entity_type = normalize_entity(entity, entity_type)
+    label = _entity_label(entity_type)
+    key = _entity_key(entity_type)
+    cypher = _BLAST_RADIUS.format(label=label, key=key)
+
+    by_type: dict[str, int] = {}
+    total = 0
+
+    with _get_driver().session() as s:
+        result = s.run(cypher, value=entity)
+        for record in result:
+            node_type = record["type"]
+            count = record["count"]
+            by_type[node_type] = count
+            total += count
+
+    return {"total": total, "by_type": by_type}
+
+
+# -- Shortest Path --
+# Finds the shortest path between any two entities in the graph (up to 8 hops).
+# Returns nodes and links in the same format as get_graph() for visualization.
+_SHORTEST_PATH = """
+MATCH path = shortestPath(
+  (a:{from_label} {{{from_key}: $from_value}})-[*..8]-(b:{to_label} {{{to_key}: $to_value}})
+)
+RETURN path, length(path) AS hops
+LIMIT 1
+"""
+
+
+def shortest_path(
+    from_entity: str, from_type: str, to_entity: str, to_type: str
+) -> dict[str, Any]:
+    """
+    Find the shortest path between two entities in the graph. Returns nodes
+    and links formatted for the frontend force-directed graph, plus a hop count.
+    Uses the same _add_node/_add_link pattern as get_graph().
+    """
+    from_entity, from_type = normalize_entity(from_entity, from_type)
+    to_entity, to_type = normalize_entity(to_entity, to_type)
+    from_label = _entity_label(from_type)
+    from_key = _entity_key(from_type)
+    to_label = _entity_label(to_type)
+    to_key = _entity_key(to_type)
+
+    cypher = _SHORTEST_PATH.format(
+        from_label=from_label, from_key=from_key,
+        to_label=to_label, to_key=to_key,
+    )
+
+    nodes_map: dict[str, dict] = {}
+    links: list[dict] = []
+
+    def _add_node(name: str, node_label: str, val: int = 5):
+        if name and name not in nodes_map:
+            nodes_map[name] = {"id": name, "label": name, "type": node_label, "val": val}
+
+    def _add_link(src: str, tgt: str, rel_type: str, dashed: bool = False):
+        if src and tgt:
+            links.append({"source": src, "target": tgt, "type": rel_type, "dashed": dashed})
+
+    hops = 0
+
+    with _get_driver().session() as s:
+        result = s.run(cypher, from_value=from_entity, to_value=to_entity)
+        record = result.single()
+
+        if not record:
+            return {"nodes": [], "links": [], "hops": -1}
+
+        hops = record["hops"]
+        path = record["path"]
+
+        # Extract nodes from the path
+        for node in path.nodes:
+            labels = list(node.labels)
+            node_type = next(
+                (l for l in labels if l != "ConfirmedThreat"),
+                labels[0] if labels else "Unknown",
+            )
+            name = (
+                node.get("name") or node.get("id") or node.get("address")
+                or node.get("juspay_id") or node.get("username")
+                or node.get("mitre_id") or str(node.element_id)
+            )
+            size = 7 if node_type in ("Package", "ThreatActor") else 5
+            _add_node(name, node_type, size)
+
+        # Extract relationships from the path
+        for rel in path.relationships:
+            start_node = rel.start_node
+            end_node = rel.end_node
+            src = (
+                start_node.get("name") or start_node.get("id")
+                or start_node.get("address") or start_node.get("juspay_id")
+                or start_node.get("username") or start_node.get("mitre_id")
+                or str(start_node.element_id)
+            )
+            tgt = (
+                end_node.get("name") or end_node.get("id")
+                or end_node.get("address") or end_node.get("juspay_id")
+                or end_node.get("username") or end_node.get("mitre_id")
+                or str(end_node.element_id)
+            )
+            rel_type = rel.type
+            is_synthetic = rel_type == "LINKED_TO"
+            _add_link(src, tgt, rel_type, dashed=is_synthetic)
+
+    return {"nodes": list(nodes_map.values()), "links": links, "hops": hops}
+
+
+# -- Suggest Next --
+# Recommends the top 5 most-connected neighbors (within 3 hops) that haven't
+# been confirmed yet, helping analysts decide what to investigate next.
+_SUGGEST_NEXT = """
+MATCH (start:{label} {{{key}: $value}})-[*1..3]-(neighbor)
+WHERE NOT neighbor:ConfirmedThreat
+WITH DISTINCT neighbor, labels(neighbor)[0] AS type
+OPTIONAL MATCH (neighbor)-[r]-(other)
+RETURN type,
+       coalesce(neighbor.name, neighbor.id, neighbor.address, neighbor.juspay_id, neighbor.username, neighbor.mitre_id) AS entity,
+       count(DISTINCT other) AS connections
+ORDER BY connections DESC
+LIMIT 5
+"""
+
+# Maps Neo4j labels to EntityType enum values for the suggestions response
+_LABEL_TO_ENTITY_TYPE: dict[str, str] = {
+    "Package": "package",
+    "IP": "ip",
+    "Domain": "domain",
+    "CVE": "cve",
+    "ThreatActor": "threatactor",
+    "FraudSignal": "fraudsignal",
+}
+
+
+def suggest_next(entity: str, entity_type: str) -> list[dict[str, Any]]:
+    """
+    Suggest what to investigate next based on graph neighbors. Returns up to 5
+    unconfirmed neighbors sorted by connectivity (most connections first).
+    Each suggestion includes the entity name, type, a human-readable reason,
+    and the raw connection count.
+    """
+    entity, entity_type = normalize_entity(entity, entity_type)
+    label = _entity_label(entity_type)
+    key = _entity_key(entity_type)
+    cypher = _SUGGEST_NEXT.format(label=label, key=key)
+
+    suggestions: list[dict[str, Any]] = []
+
+    with _get_driver().session() as s:
+        result = s.run(cypher, value=entity)
+        for record in result:
+            neo4j_label = record["type"]
+            mapped_type = _LABEL_TO_ENTITY_TYPE.get(neo4j_label, neo4j_label.lower())
+            connections = record["connections"]
+            suggestions.append({
+                "entity": record["entity"],
+                "type": mapped_type,
+                "reason": f"High connectivity ({connections} connections)",
+                "connections": connections,
+            })
+
+    return suggestions
+
+
 _COUNTRY_COORDS: dict[str, tuple[float, float]] = {
     # Americas
     "US": (39.5, -98.35),
