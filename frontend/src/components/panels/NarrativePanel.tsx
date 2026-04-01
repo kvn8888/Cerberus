@@ -9,7 +9,6 @@
  */
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
-import { pdf } from "@react-pdf/renderer";
 import {
   FileText,
   Zap,
@@ -30,7 +29,8 @@ import type { InvestigationState, EntityType } from "../../types/api";
 import { confirmEntity, fetchReport } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import { mergeIOCs, iocsToCsv } from "../../lib/iocExtract";
-import { ThreatReportPdf } from "../report/ThreatReportPdf";
+/* ThreatReportPdf and @react-pdf/renderer are dynamically imported in
+   handleExportPdf so the 518KB vendor-pdf chunk only loads on click. */
 
 const SEVERITY_COLORS: Record<string, string> = {
   critical: "text-threat-critical bg-threat-critical/10 border-threat-critical/30",
@@ -114,6 +114,11 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
     if (!canExport || pdfBusy) return;
     setPdfBusy(true);
     try {
+      // Dynamic imports: @react-pdf/renderer (518KB) loads only on click
+      const [{ pdf }, { ThreatReportPdf }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("../report/ThreatReportPdf"),
+      ]);
       // Fetch the report data from the backend
       const report = await fetchReport({ entity: state.entity, type: state.entityType });
       // Render the React-PDF document to a blob (all client-side, no popups)

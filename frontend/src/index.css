@@ -7,7 +7,9 @@
  */
 
 /* ── Google Fonts ───────────────────────────────────────────────────── */
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap");
+/* Loaded via <link> in index.html with preconnect + swap to avoid
+   render-blocking. CSS @import was removed because it blocks paint
+   until the font stylesheet finishes downloading (~873ms penalty). */
 
 /* ── Tailwind layers ────────────────────────────────────────────────── */
 @tailwind base;
