@@ -20,9 +20,9 @@ import {
   Shield,
   Download,
   Target,
-  Users,
   Crosshair,
   ArrowRight,
+  Users,
 } from "lucide-react";
 import type { InvestigationState, EntityType } from "../../types/api";
 import { confirmEntity, fetchReport } from "../../lib/api";
@@ -49,12 +49,26 @@ interface NarrativePanelProps {
   state: InvestigationState;
   onMemorySaved?: () => void;
   onInvestigate?: (entity: string, type: EntityType) => void;
-  onAudienceModeChange?: (mode: "analyst" | "executive") => void;
 }
 
-export function NarrativePanel({ state, onMemorySaved, onInvestigate, onAudienceModeChange }: NarrativePanelProps) {
+/**
+ * Extract a short executive summary from the full narrative.
+ * Pulls the first meaningful paragraph and trims to ~2 sentences.
+ */
+function buildExecutiveSummary(narrative: string): string {
+  const lines = narrative
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !l.startsWith("#") && !l.startsWith("---") && !l.startsWith("|") && !l.startsWith("```"));
+  const meaningful = lines.filter((l) => l.length > 40);
+  if (meaningful.length === 0) return lines.slice(0, 2).join(" ");
+  return meaningful.slice(0, 2).join(" ");
+}
+
+export function NarrativePanel({ state, onMemorySaved, onInvestigate }: NarrativePanelProps) {
   const [confirmed, setConfirmed] = useState(false);
   const [confirming, setConfirming] = useState(false);
+  const [viewMode, setViewMode] = useState<"technical" | "executive">("technical");
   useEffect(() => {
     setConfirmed(false);
   }, [state.entity]);
@@ -172,14 +186,14 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, onAudience
           </span>
         </button>
 
-        {/* Audience mode toggle */}
+        {/* Audience mode toggle — switches between full technical detail and executive summary */}
         <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-raised/30 p-0.5">
           <button
             type="button"
-            onClick={() => onAudienceModeChange?.("analyst")}
+            onClick={() => setViewMode("technical")}
             className={cn(
               "flex-1 px-3 py-1.5 rounded-md text-[10px] font-mono transition-all",
-              state.audienceMode === "analyst"
+              viewMode === "technical"
                 ? "bg-primary/15 text-primary border border-primary/25"
                 : "text-muted-foreground hover:text-foreground"
             )}
@@ -188,10 +202,10 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, onAudience
           </button>
           <button
             type="button"
-            onClick={() => onAudienceModeChange?.("executive")}
+            onClick={() => setViewMode("executive")}
             className={cn(
               "flex-1 px-3 py-1.5 rounded-md text-[10px] font-mono transition-all",
-              state.audienceMode === "executive"
+              viewMode === "executive"
                 ? "bg-primary/15 text-primary border border-primary/25"
                 : "text-muted-foreground hover:text-foreground"
             )}
@@ -235,85 +249,144 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, onAudience
                 )}
               </div>
 
-              {/* Threat Score detail card */}
-              {state.threatScore && (
-                <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Threat Score</span>
-                    <span className={cn("text-lg font-bold font-mono", SEVERITY_SCORE_COLORS[state.threatScore.severity])}>
-                      {state.threatScore.score}
-                    </span>
-                  </div>
-                  {/* Score bar */}
-                  <div className="w-full h-1.5 rounded-full bg-surface-raised overflow-hidden mb-2">
-                    <div
-                      className={cn("h-full rounded-full transition-all duration-1000", {
-                        "bg-threat-critical": state.threatScore.severity === "critical",
-                        "bg-threat-high": state.threatScore.severity === "high",
-                        "bg-threat-medium": state.threatScore.severity === "medium",
-                        "bg-success": state.threatScore.severity === "low",
-                        "bg-muted-foreground": state.threatScore.severity === "info",
-                      })}
-                      style={{ width: `${state.threatScore.score}%` }}
-                    />
-                  </div>
-                  {/* Factors */}
-                  <div className="space-y-1">
-                    {state.threatScore.factors.slice(0, 4).map((f, i) => (
-                      <p key={i} className="text-[10px] font-mono text-muted-foreground/70 flex items-center gap-1.5">
-                        <span className="w-1 h-1 rounded-full bg-primary/40" />
-                        {f}
+              {viewMode === "executive" ? (
+                /* ── EXECUTIVE VIEW — clean summary for leadership ── */
+                <div className="space-y-4">
+                  {/* Risk verdict */}
+                  {state.threatScore && (
+                    <div className={cn(
+                      "p-4 rounded-lg border text-center",
+                      SEVERITY_COLORS[state.threatScore.severity]
+                    )}>
+                      <p className="text-[10px] font-mono uppercase tracking-wider opacity-70 mb-1">Risk Level</p>
+                      <p className="text-2xl font-bold font-mono uppercase">
+                        {state.threatScore.severity}
                       </p>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Blast Radius breakdown */}
-              {state.blastRadius && state.blastRadius.total > 0 && (
-                <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                      <Crosshair className="h-3 w-3 text-threat-high" />
-                      Blast Radius
-                    </span>
-                    <span className="text-sm font-bold font-mono text-threat-high">{state.blastRadius.total} entities</span>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {Object.entries(state.blastRadius.by_type).map(([type, count]) => (
-                      <span key={type} className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-surface-raised border border-border/40 text-muted-foreground">
-                        {type}: {count}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Narrative text with markdown rendering */}
-              <div className="relative">
-                <div className="absolute left-0 top-0 bottom-0 w-px bg-primary/15" />
-
-                <div
-                  className={cn(
-                    "pl-4 font-mono text-[13px] leading-[1.8] text-foreground/85",
-                    "selection:bg-primary/20",
-                    "prose prose-invert prose-sm max-w-none",
-                    "prose-headings:text-primary prose-headings:font-mono prose-headings:text-sm prose-headings:mt-3 prose-headings:mb-1",
-                    "prose-strong:text-primary prose-strong:font-semibold",
-                    "prose-p:mb-2 prose-p:leading-[1.8]",
-                    "prose-ul:my-1 prose-li:my-0.5 prose-li:marker:text-primary/40",
-                    "prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs",
+                      <p className="text-3xl font-bold font-mono mt-1">
+                        {state.threatScore.score}/100
+                      </p>
+                    </div>
                   )}
-                >
-                  <ReactMarkdown>{state.narrative}</ReactMarkdown>
 
-                  {state.status === "running" && (
-                    <span className="inline-flex items-center gap-1 text-primary">
-                      <span className="w-1.5 h-4 bg-primary animate-pulse" />
-                    </span>
-                  )}
+                  {/* Key finding */}
+                  <div className="p-4 rounded-lg bg-surface-raised/40 border border-border/50">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
+                      <FileText className="h-3 w-3 text-primary" />
+                      Key Finding
+                    </p>
+                    <p className="text-sm text-foreground/90 leading-relaxed">
+                      {buildExecutiveSummary(state.narrative)}
+                    </p>
+                  </div>
+
+                  {/* Impact numbers */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50 text-center">
+                      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">Threat Paths</p>
+                      <p className="text-xl font-bold font-mono text-primary">{state.pathsFound}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50 text-center">
+                      <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">Blast Radius</p>
+                      <p className="text-xl font-bold font-mono text-threat-high">{state.blastRadius?.total ?? 0}</p>
+                    </div>
+                  </div>
+
+                  {/* Recommended action */}
+                  <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-primary mb-2 flex items-center gap-1.5">
+                      <Shield className="h-3 w-3" />
+                      Recommended Action
+                    </p>
+                    <p className="text-sm text-foreground/80 leading-relaxed">
+                      {state.threatScore && state.threatScore.score >= 70
+                        ? `Immediate investigation required. ${state.entity} is linked to active threat infrastructure with ${state.pathsFound} confirmed attack path${state.pathsFound === 1 ? "" : "s"}. Escalate to incident response.`
+                        : state.threatScore && state.threatScore.score >= 40
+                          ? `Monitor closely. ${state.entity} shows indicators of compromise but threat level is moderate. Add to watchlist and review in 24 hours.`
+                          : `Low risk. ${state.entity} shows minimal threat indicators. Continue standard monitoring.`
+                      }
+                    </p>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* ── TECHNICAL VIEW — full detail for analysts ── */
+                <>
+                  {/* Threat Score detail card */}
+                  {state.threatScore && (
+                    <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Threat Score</span>
+                        <span className={cn("text-lg font-bold font-mono", SEVERITY_SCORE_COLORS[state.threatScore.severity])}>
+                          {state.threatScore.score}
+                        </span>
+                      </div>
+                      <div className="w-full h-1.5 rounded-full bg-surface-raised overflow-hidden mb-2">
+                        <div
+                          className={cn("h-full rounded-full transition-all duration-1000", {
+                            "bg-threat-critical": state.threatScore.severity === "critical",
+                            "bg-threat-high": state.threatScore.severity === "high",
+                            "bg-threat-medium": state.threatScore.severity === "medium",
+                            "bg-success": state.threatScore.severity === "low",
+                            "bg-muted-foreground": state.threatScore.severity === "info",
+                          })}
+                          style={{ width: `${state.threatScore.score}%` }}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        {state.threatScore.factors.slice(0, 4).map((f, i) => (
+                          <p key={i} className="text-[10px] font-mono text-muted-foreground/70 flex items-center gap-1.5">
+                            <span className="w-1 h-1 rounded-full bg-primary/40" />
+                            {f}
+                          </p>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Blast Radius breakdown */}
+                  {state.blastRadius && state.blastRadius.total > 0 && (
+                    <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                          <Crosshair className="h-3 w-3 text-threat-high" />
+                          Blast Radius
+                        </span>
+                        <span className="text-sm font-bold font-mono text-threat-high">{state.blastRadius.total} entities</span>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Object.entries(state.blastRadius.by_type).map(([type, count]) => (
+                          <span key={type} className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-surface-raised border border-border/40 text-muted-foreground">
+                            {type}: {count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Narrative text with markdown rendering */}
+                  <div className="relative">
+                    <div className="absolute left-0 top-0 bottom-0 w-px bg-primary/15" />
+                    <div
+                      className={cn(
+                        "pl-4 font-mono text-[13px] leading-[1.8] text-foreground/85",
+                        "selection:bg-primary/20",
+                        "prose prose-invert prose-sm max-w-none",
+                        "prose-headings:text-primary prose-headings:font-mono prose-headings:text-sm prose-headings:mt-3 prose-headings:mb-1",
+                        "prose-strong:text-primary prose-strong:font-semibold",
+                        "prose-p:mb-2 prose-p:leading-[1.8]",
+                        "prose-ul:my-1 prose-li:my-0.5 prose-li:marker:text-primary/40",
+                        "prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs",
+                      )}
+                    >
+                      <ReactMarkdown>{state.narrative}</ReactMarkdown>
+                      {state.status === "running" && (
+                        <span className="inline-flex items-center gap-1 text-primary">
+                          <span className="w-1.5 h-4 bg-primary animate-pulse" />
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

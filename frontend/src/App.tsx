@@ -22,7 +22,7 @@ import { TimelinePanel } from "./components/panels/TimelinePanel";
 import { useInvestigation } from "./hooks/useInvestigation";
 
 function App() {
-  const { state, investigate, setAudienceMode, history } = useInvestigation();
+  const { state, investigate, history } = useInvestigation();
   const [centerView, setCenterView] = useState<CenterView>("geomap");
 
   /* Bumped by NarrativePanel after a successful "Save to Memory" so
@@ -80,7 +80,6 @@ function App() {
             state={state}
             onMemorySaved={onMemorySaved}
             onInvestigate={investigate}
-            onAudienceModeChange={setAudienceMode}
           />
         </aside>
       </main>
