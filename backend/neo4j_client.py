@@ -959,6 +959,66 @@ def get_memory_geo() -> list[dict[str, Any]]:
     return points
 
 
+def get_all_geo() -> list[dict[str, Any]]:
+    """
+    Return geo-plottable points for ALL known IPs and ThreatActors.
+    Unlike get_memory_geo(), this is not limited to ConfirmedThreat nodes —
+    it returns the full live threat picture from Neo4j so the geomap is
+    populated on first load without needing any confirmed investigations.
+    """
+    points: list[dict[str, Any]] = []
+    seen_ips: set[str] = set()
+
+    with _get_driver().session() as s:
+        # 1) All IPs that have a geo (country code) property
+        for record in s.run("""
+            MATCH (ip:IP)
+            WHERE ip.geo IS NOT NULL AND ip.address IS NOT NULL
+            OPTIONAL MATCH (ta:ThreatActor)-[:OPERATES]->(ip)
+            RETURN ip.address AS ip, ip.geo AS geo,
+                   collect(DISTINCT ta.name) AS actors
+            LIMIT 100
+        """):
+            geo = record["geo"]
+            if geo not in _COUNTRY_COORDS:
+                continue
+            addr = record["ip"]
+            if addr in seen_ips:
+                continue
+            seen_ips.add(addr)
+            lat, lon = _COUNTRY_COORDS[geo]
+            points.append({
+                "ip": addr, "geo": geo, "lat": lat, "lon": lon,
+                "actors": [a for a in record["actors"] if a],
+            })
+
+        # 2) ThreatActors with a country_code — plotted as actor-only points
+        for record in s.run("""
+            MATCH (ta:ThreatActor)
+            WHERE ta.country_code IS NOT NULL
+            OPTIONAL MATCH (ta)-[:OPERATES]->(ip:IP)
+            WHERE ip.address IS NULL  // only emit actor-only if they have no IPs already plotted
+            RETURN ta.name AS actor, ta.country_code AS geo,
+                   ta.sophistication AS sophistication
+            LIMIT 40
+        """):
+            geo = record["geo"]
+            if not geo or geo not in _COUNTRY_COORDS:
+                continue
+            lat, lon = _COUNTRY_COORDS[geo]
+            points.append({
+                "ip": None,
+                "geo": geo,
+                "lat": lat,
+                "lon": lon,
+                "actors": [record["actor"]] if record["actor"] else [],
+                "actor_only": True,
+                "sophistication": record.get("sophistication") or "unknown",
+            })
+
+    return points
+
+
 # ── Graph Intelligence Functions ──────────────────────────────────────────────
 # These power the /api/threat-score, /api/blast-radius, /api/shortest-path,
 # and /api/suggestions endpoints with advanced graph analytics.

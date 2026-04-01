@@ -125,6 +125,19 @@ async def memory_geo():
     return {"points": points}
 
 
+@app.get("/api/geomap/all")
+async def geomap_all():
+    """
+    Return geo-plottable points for ALL IPs and ThreatActors in the graph,
+    regardless of confirmation status. Used to pre-populate the geomap on
+    first load so real Neo4j data shows immediately without any investigation.
+    """
+    import asyncio
+
+    points = await asyncio.to_thread(db.get_all_geo)
+    return {"points": points}
+
+
 @app.get("/api/memory/expand")
 async def memory_expand(node: str):
     """Return the children of a specific memorized node (click-to-expand)."""

@@ -8,7 +8,7 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { Shield, Activity, AlertTriangle, Crosshair, X } from "lucide-react";
 import { cn } from "../../lib/utils";
-import { fetchGeoMap, fetchMemoryGeo } from "../../lib/api";
+import { fetchGeoMap, fetchAllGeo } from "../../lib/api";
 import type { InvestigationState } from "../../types/api";
 import { geoEquirectangular, geoPath, type GeoPermissibleObjects } from "d3-geo";
 import { feature } from "topojson-client";
@@ -71,121 +71,6 @@ interface ThreatConnection {
 }
 
 /* ════════════════════════════════════════════════════════════════════════
- * STATIC THREAT DATA — Known APT groups and infrastructure
- * Coordinates are real-world [longitude, latitude].
- * ════════════════════════════════════════════════════════════════════════ */
-
-const THREAT_NODES: ThreatNode[] = [
-  {
-    id: "apt28",
-    name: "APT-28 (Fancy Bear)",
-    type: "apt",
-    coordinates: [37.6, 55.8],
-    severity: "critical",
-    region: "Eastern Europe",
-    active: true,
-    techniques: ["T1566", "T1078", "T1055"],
-  },
-  {
-    id: "lazarus",
-    name: "Lazarus Group",
-    type: "apt",
-    coordinates: [125.7, 39.0],
-    severity: "critical",
-    region: "East Asia",
-    active: true,
-    techniques: ["T1195", "T1059", "T1486"],
-  },
-  {
-    id: "apt41",
-    name: "APT-41 (Winnti)",
-    type: "apt",
-    coordinates: [116.4, 39.9],
-    severity: "high",
-    region: "East Asia",
-    active: true,
-    techniques: ["T1190", "T1505", "T1071"],
-  },
-  {
-    id: "c2-eu",
-    name: "C2 Server (NL)",
-    type: "c2",
-    coordinates: [4.9, 52.4],
-    severity: "high",
-    region: "Netherlands",
-    active: true,
-  },
-  {
-    id: "c2-us",
-    name: "C2 Relay (US-East)",
-    type: "c2",
-    coordinates: [-74.0, 40.7],
-    severity: "medium",
-    region: "United States",
-    active: false,
-  },
-  {
-    id: "target-fin",
-    name: "Financial Sector",
-    type: "target",
-    coordinates: [-73.9, 40.8],
-    severity: "high",
-    region: "North America",
-    active: true,
-  },
-  {
-    id: "target-tech",
-    name: "Tech Infrastructure",
-    type: "target",
-    coordinates: [-122.4, 37.8],
-    severity: "medium",
-    region: "US West Coast",
-    active: false,
-  },
-  {
-    id: "infra-sea",
-    name: "Proxy Network",
-    type: "infrastructure",
-    coordinates: [103.8, 1.4],
-    severity: "medium",
-    region: "Southeast Asia",
-    active: true,
-  },
-  {
-    id: "apt-sandworm",
-    name: "Sandworm",
-    type: "apt",
-    coordinates: [30.5, 50.4],
-    severity: "critical",
-    region: "Eastern Europe",
-    active: true,
-    techniques: ["T1498", "T1485", "T1561"],
-  },
-  {
-    id: "target-energy",
-    name: "Energy Grid",
-    type: "target",
-    coordinates: [2.3, 48.9],
-    severity: "critical",
-    region: "Western Europe",
-    active: true,
-  },
-];
-
-const THREAT_CONNECTIONS: ThreatConnection[] = [
-  { from: "apt28", to: "c2-eu", active: true, type: "c2" },
-  { from: "c2-eu", to: "target-fin", active: true, type: "attack" },
-  { from: "lazarus", to: "infra-sea", active: true, type: "c2" },
-  { from: "infra-sea", to: "c2-us", active: false, type: "lateral" },
-  { from: "c2-us", to: "target-tech", active: false, type: "attack" },
-  { from: "apt41", to: "infra-sea", active: true, type: "c2" },
-  { from: "apt41", to: "target-fin", active: true, type: "attack" },
-  { from: "apt-sandworm", to: "c2-eu", active: true, type: "c2" },
-  { from: "apt-sandworm", to: "target-energy", active: true, type: "attack" },
-  { from: "lazarus", to: "target-fin", active: true, type: "exfil" },
-];
-
-/* ════════════════════════════════════════════════════════════════════════
  * COLOR MAPS
  * ════════════════════════════════════════════════════════════════════════ */
 
@@ -233,9 +118,9 @@ export function ThreatMap({ state }: ThreatMapProps) {
   const [liveNodes, setLiveNodes] = useState<ThreatNode[]>([]);
   const [liveConnections, setLiveConnections] = useState<ThreatConnection[]>([]);
 
-  /* Memorized entities loaded on mount */
-  const [memoryNodes, setMemoryNodes] = useState<ThreatNode[]>([]);
-  const [memoryConns, setMemoryConns] = useState<ThreatConnection[]>([]);
+  /* All-geo entities loaded on mount from live Neo4j data */
+  const [baseNodes, setBaseNodes] = useState<ThreatNode[]>([]);
+  const [baseConns, setBaseConns] = useState<ThreatConnection[]>([]);
 
   /* ── Zoom / Pan state ─────────────────────────────── */
   const [viewBox, setViewBox] = useState({ x: 0, y: 0, w: MAP_W, h: MAP_H });
@@ -298,9 +183,9 @@ export function ThreatMap({ state }: ThreatMapProps) {
 
   const handleMouseUp = useCallback(() => { isPanning.current = false; }, []);
 
-  /* Load memorized geo points on mount */
+  /* Load all geo points from Neo4j on mount — shows real threat infrastructure immediately */
   useEffect(() => {
-    fetchMemoryGeo()
+    fetchAllGeo()
       .then((data) => {
         if (!data.points?.length) return;
         const nodes: ThreatNode[] = [];
@@ -310,11 +195,29 @@ export function ThreatMap({ state }: ThreatMapProps) {
         for (const pt of data.points) {
           const actors: string[] = pt.actors || [];
           const actorName = actors[0] || "";
-          const ipId = `mem-ip-${pt.ip}`;
 
+          // Actor-only points (ThreatActors with country_code but no specific IP)
+          if ((pt as { actor_only?: boolean }).actor_only) {
+            if (!actorName || seenActors.has(actorName)) continue;
+            seenActors.add(actorName);
+            const actorId = `base-actor-${actorName.replace(/\s+/g, "-").toLowerCase()}`;
+            nodes.push({
+              id: actorId,
+              name: actorName,
+              type: "apt",
+              coordinates: [pt.lon ?? 0, pt.lat ?? 0],
+              severity: "critical",
+              region: pt.geo || "Unknown",
+              active: true,
+            });
+            continue;
+          }
+
+          // IP-based point
+          const ipId = `base-ip-${pt.ip}`;
           nodes.push({
             id: ipId,
-            name: pt.ip,
+            name: pt.ip || pt.geo,
             type: "infrastructure",
             coordinates: [pt.lon ?? 0, pt.lat ?? 0],
             severity: actorName ? "high" : "medium",
@@ -322,41 +225,31 @@ export function ThreatMap({ state }: ThreatMapProps) {
             active: true,
           });
 
+          // Emit APT node(s) linked to this IP if not yet seen
           for (const actor of actors) {
             if (!actor || seenActors.has(actor)) continue;
             seenActors.add(actor);
-            const matchingStatic = THREAT_NODES.find(
-              (n) => n.type === "apt" && n.name.toLowerCase().includes(actor.toLowerCase().split(" ")[0])
-            );
-            if (!matchingStatic) {
-              const actorId = `mem-actor-${actor.replace(/\s+/g, "-").toLowerCase()}`;
-              nodes.push({
-                id: actorId,
-                name: actor,
-                type: "apt",
-                coordinates: [(pt.lon ?? 0) + 1.5, (pt.lat ?? 0) + 1],
-                severity: "critical",
-                region: pt.geo || "Unknown",
-                active: true,
-              });
-            }
-          }
-
-          if (actorName) {
-            const matchStatic = THREAT_NODES.find(
-              (n) => n.type === "apt" && n.name.toLowerCase().includes(actorName.toLowerCase().split(" ")[0])
-            );
-            const targetId = matchStatic
-              ? matchStatic.id
-              : `mem-actor-${actorName.replace(/\s+/g, "-").toLowerCase()}`;
-            conns.push({ from: ipId, to: targetId, active: true, type: "c2" });
+            const actorId = `base-actor-${actor.replace(/\s+/g, "-").toLowerCase()}`;
+            nodes.push({
+              id: actorId,
+              name: actor,
+              type: "apt",
+              coordinates: [(pt.lon ?? 0) + 1.5, (pt.lat ?? 0) + 1],
+              severity: "critical",
+              region: pt.geo || "Unknown",
+              active: true,
+            });
+            // Draw a C2 connection from the APT actor to the IP
+            conns.push({ from: actorId, to: ipId, active: true, type: "c2" });
           }
         }
-        setMemoryNodes(nodes);
-        setMemoryConns(conns);
+        setBaseNodes(nodes);
+        setBaseConns(conns);
+        // Zoom to fit the base nodes so the map is not empty on first load
+        if (nodes.length > 0) zoomToFitNodes(nodes);
       })
-      .catch((err) => console.error("Memory geo fetch failed:", err));
-  }, []);
+      .catch((err) => console.error("All-geo fetch failed:", err));
+  }, [zoomToFitNodes]);
 
   /* Fetch geo data when an investigation completes */
   useEffect(() => {
@@ -378,20 +271,15 @@ export function ThreatMap({ state }: ThreatMapProps) {
           if (pt.actor_only) {
             if (!actorName || seenActors.has(actorName)) continue;
             seenActors.add(actorName);
-            const matchingStatic = THREAT_NODES.find(
-              (n) => n.type === "apt" && n.name.toLowerCase().includes(actorName.toLowerCase().split(" ")[0])
-            );
-            if (!matchingStatic) {
-              newNodes.push({
-                id: `live-actor-${actorName.replace(/\s+/g, "-").toLowerCase()}`,
-                name: actorName,
-                type: "apt",
-                coordinates: [pt.lon ?? 0, pt.lat ?? 0],
-                severity: "critical",
-                region: pt.geo || "Unknown",
-                active: true,
-              });
-            }
+            newNodes.push({
+              id: `live-actor-${actorName.replace(/\s+/g, "-").toLowerCase()}`,
+              name: actorName,
+              type: "apt",
+              coordinates: [pt.lon ?? 0, pt.lat ?? 0],
+              severity: "critical",
+              region: pt.geo || "Unknown",
+              active: true,
+            });
             continue;
           }
 
@@ -410,55 +298,45 @@ export function ThreatMap({ state }: ThreatMapProps) {
           for (const actor of actors) {
             if (!actor || seenActors.has(actor)) continue;
             seenActors.add(actor);
-            const matchingStatic = THREAT_NODES.find(
-              (n) => n.type === "apt" && n.name.toLowerCase().includes(actor.toLowerCase().split(" ")[0])
-            );
-            if (!matchingStatic) {
-              const actorId = `live-actor-${actor.replace(/\s+/g, "-").toLowerCase()}`;
-              newNodes.push({
-                id: actorId,
-                name: actor,
-                type: "apt",
-                coordinates: [(pt.lon ?? 0) + 1.5, (pt.lat ?? 0) + 1],
-                severity: "critical",
-                region: pt.geo || "Unknown",
-                active: true,
-              });
-            }
+            const actorId = `live-actor-${actor.replace(/\s+/g, "-").toLowerCase()}`;
+            newNodes.push({
+              id: actorId,
+              name: actor,
+              type: "apt",
+              coordinates: [(pt.lon ?? 0) + 1.5, (pt.lat ?? 0) + 1],
+              severity: "critical",
+              region: pt.geo || "Unknown",
+              active: true,
+            });
           }
 
           if (actorName) {
-            const matchStatic = THREAT_NODES.find(
-              (n) => n.type === "apt" && n.name.toLowerCase().includes(actorName.toLowerCase().split(" ")[0])
-            );
-            const targetId = matchStatic
-              ? matchStatic.id
-              : `live-actor-${actorName.replace(/\s+/g, "-").toLowerCase()}`;
+            const targetId = `live-actor-${actorName.replace(/\s+/g, "-").toLowerCase()}`;
             newConns.push({ from: ipId, to: targetId, active: true, type: "c2" });
           }
         }
         setLiveNodes(newNodes);
         setLiveConnections(newConns);
         if (newNodes.length > 0) {
-          zoomToFitNodes([...THREAT_NODES, ...newNodes]);
+          zoomToFitNodes(newNodes);
         }
       })
       .catch((err) => console.error("Geo map fetch failed:", err));
 
     return () => { cancelled = true; };
-  }, [state.status, state.entity, state.entityType]);
+  }, [state.status, state.entity, state.entityType, zoomToFitNodes]);
 
-  /* Deduplicate: memory + live → merge by IP/actor id */
+  /* Deduplicate: base (live Neo4j) + investigation live nodes → merge by id */
   const allNodes = useMemo(() => {
     const seen = new Set<string>();
     const merged: ThreatNode[] = [];
-    for (const n of [...THREAT_NODES, ...liveNodes, ...memoryNodes]) {
+    for (const n of [...baseNodes, ...liveNodes]) {
       if (!seen.has(n.id)) { seen.add(n.id); merged.push(n); }
     }
     return merged;
-  }, [liveNodes, memoryNodes]);
+  }, [baseNodes, liveNodes]);
 
-  const allConnections = useMemo(() => [...THREAT_CONNECTIONS, ...liveConnections, ...memoryConns], [liveConnections, memoryConns]);
+  const allConnections = useMemo(() => [...baseConns, ...liveConnections], [baseConns, liveConnections]);
 
   const nodeMap = useMemo(() => {
     const map = new Map<string, ThreatNode>();

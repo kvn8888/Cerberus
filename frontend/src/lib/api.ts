@@ -187,6 +187,16 @@ export async function fetchMemoryGeo(): Promise<MapResponse> {
   return res.json();
 }
 
+/** Fetch geo-plottable points for ALL IPs and ThreatActors in Neo4j (not just confirmed).
+ *  Used to pre-populate the geomap on first load with real data. */
+export async function fetchAllGeo(): Promise<MapResponse> {
+  const res = await fetch(`${API_BASE}/api/geomap/all`);
+  if (!res.ok) {
+    throw new Error(`All-geo fetch failed: ${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
+
 /** Fetch all memorized entities and their confirmed connections. */
 export async function fetchMemory(): Promise<{
   nodes: Array<{ id: string; label: string; type: string; val: number; confirmed: boolean }>;
