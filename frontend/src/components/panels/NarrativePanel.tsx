@@ -469,38 +469,40 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
           </div>
         )}
 
-      </div>
-
-      {/* ── Investigate Next suggestions ────────────────────── */}
-      {state.status === "complete" && state.suggestions && state.suggestions.length > 0 && (
-        <div className="px-4 pb-3 border-t border-border/50">
-          <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider pt-3 pb-2 flex items-center gap-1.5">
-            <ArrowRight className="h-3 w-3 text-primary" />
-            Investigate Next
-          </p>
-          <div className="space-y-1">
-            {state.suggestions.map((s, i) => (
-              <button
-                key={i}
-                onClick={() => onInvestigate?.(s.entity, s.type as EntityType)}
-                className="w-full text-left px-3 py-2 rounded-md text-xs font-mono group bg-surface-raised/30 hover:bg-primary/8 hover:text-primary border border-transparent hover:border-primary/15 transition-all duration-200"
-              >
-                <div className="flex items-center justify-between">
-                  <span className="text-foreground/80 group-hover:text-primary transition-colors truncate">
-                    {s.entity}
+        {/* ── Investigate Next suggestions (inside scroll area so
+             they flow naturally after the narrative instead of
+             covering it as a fixed footer) ────────────────────── */}
+        {state.status === "complete" && state.suggestions && state.suggestions.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-border/50">
+            <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider pb-2 flex items-center gap-1.5">
+              <ArrowRight className="h-3 w-3 text-primary" />
+              Investigate Next
+            </p>
+            <div className="space-y-1">
+              {state.suggestions.map((s, i) => (
+                <button
+                  key={i}
+                  onClick={() => onInvestigate?.(s.entity, s.type as EntityType)}
+                  className="w-full text-left px-3 py-2 rounded-md text-xs font-mono group bg-surface-raised/30 hover:bg-primary/8 hover:text-primary border border-transparent hover:border-primary/15 transition-all duration-200"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-foreground/80 group-hover:text-primary transition-colors truncate">
+                      {s.entity}
+                    </span>
+                    <span className="text-[9px] text-muted-foreground/50 ml-2 flex-shrink-0">
+                      {s.connections} links
+                    </span>
+                  </div>
+                  <span className="text-muted-foreground/40 text-[10px] block mt-0.5">
+                    {s.reason}
                   </span>
-                  <span className="text-[9px] text-muted-foreground/50 ml-2 flex-shrink-0">
-                    {s.connections} links
-                  </span>
-                </div>
-                <span className="text-muted-foreground/40 text-[10px] block mt-0.5">
-                  {s.reason}
-                </span>
-              </button>
-            ))}
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+      </div>
 
       {/* ── Memory save — shown when complete with paths, hidden if already memorized ── */}
       {state.status === "complete" && state.pathsFound > 0 && (
