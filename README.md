@@ -424,14 +424,6 @@ python scripts/import_threats.py    # Malicious IPs + domains
 python scripts/import_synthetic.py  # Synthetic cross-domain links + fraud signals
 ```
 
-### Seed Data Files
-
-| File | Contents |
-|------|----------|
-| `seed_data/enterprise-attack.json` | MITRE ATT&CK STIX bundle |
-| `seed_data/threat_domains.json` | Known malicious domains |
-| `seed_data/threat_ips.json` | Known malicious IP addresses |
-
 ### Demo Entity: ua-parser-js
 
 Primary demo target. Hijacked in October 2021 — versions 0.7.29, 0.8.0, and 1.0.0 contained cryptomining + credential-stealing malware. Also has CVE-2021-27292 (ReDoS). The full cross-domain attack chain spans packages → CVEs → threat actors → IPs → domains → fraud signals.
@@ -448,7 +440,6 @@ python -m pytest tests/ -v
 | File | Coverage |
 |------|----------|
 | `tests/test_api_routes.py` | API routes with mocked Neo4j/LLM |
-| `tests/test_import_scripts.py` | Data parsing logic + integrity checks |
 | `tests/test_neo4j_client.py` | Entity routing, Cypher templates, cache/traverse/confirm |
 
 97 tests passing.
@@ -496,13 +487,12 @@ Cerberus/
 │   │       └── ui/            # shadcn/ui primitives
 │   └── vite.config.ts         # Vite build config (injects git commit hash)
 ├── pipelines/                 # RocketRide pipeline definitions (.pipe files)
-├── scripts/                   # Data import + evaluation scripts
-├── seed_data/                 # MITRE ATT&CK, threat IPs/domains
+├── scripts/                   # Schema constraints + deploy utilities
 ├── deploy/
 │   ├── nginx-unified.conf     # nginx config for unified container
-│   ├── start.sh               # Startup script (uvicorn + nginx)
-│   └── gmi-cloud/             # GMI Cloud deployment helpers
-├── neo4j-mcp_*/               # Pre-built neo4j-mcp binaries (per platform)
+│   └── start.sh               # Startup script (uvicorn + nginx)
+├── neo4j-mcp_Linux_*/         # Pre-built neo4j-mcp binaries (ARM64 + x86_64)
+├── docs/                      # Session retrospectives + reference docs
 └── tests/                     # pytest test suite
 ```
 

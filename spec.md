@@ -667,15 +667,15 @@ if __name__ == "__main__":
 ## Files to Prepare Tonight
 
 - [ ] `constraints.cypher` — All 8 uniqueness constraint statements (run first)
-- [ ] `import_mitre.py` — MITRE ATT&CK STIX → Neo4j bulk MERGE (ready to run)
-- [ ] `import_cve.py` — NVD CVE data → Neo4j (top 50 high-profile CVEs including CVE-2021-27292)
-- [ ] `import_threats.py` — Abuse.ch + OTX → IP/Domain nodes
-- [ ] `import_npm.py` — Known compromised packages (ua-parser-js, colors, faker, etc.) → Package + Account nodes
-- [ ] `import_synthetic.py` — Synthetic Account→IP links + Juspay fraud signals linked to known IPs
-- [ ] `eval_improvement.py` — Runnable 3-phase eval script (above)
-- [ ] `seed_data/` directory with all pre-downloaded JSON/CSV feeds
-- [ ] `docker-compose.yml` for RocketRide + neo4j-mcp + frontend dev server
-- [ ] Entity JSON schema (above) saved in shared doc
+- [x] `import_mitre.py` — MITRE ATT&CK STIX → Neo4j bulk MERGE (ready to run)
+- [x] `import_cve.py` — NVD CVE data → Neo4j (top 50 high-profile CVEs including CVE-2021-27292)
+- [x] `import_threats.py` — Abuse.ch + OTX → IP/Domain nodes
+- [x] `import_npm.py` — Known compromised packages (ua-parser-js, colors, faker, etc.) → Package + Account nodes
+- [x] `import_synthetic.py` — Synthetic Account→IP links + Juspay fraud signals linked to known IPs
+- [x] `eval_improvement.py` — Runnable 3-phase eval script (above)
+- [x] ~~`seed_data/` directory~~ — Removed; data now lives in Neo4j Aura
+- [x] `docker-compose.yml` for RocketRide + neo4j-mcp + frontend dev server
+- [x] Entity JSON schema (moved to `docs/entity_schema.json`)
 - [ ] Test APOC availability: `RETURN apoc.version()` against Aura instance
 
 ---

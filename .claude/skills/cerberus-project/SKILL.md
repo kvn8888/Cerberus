@@ -411,7 +411,7 @@ Pipeline stages rendered in UI: `input → ner → classify → route → traver
 | `MemoryPanel` | Confirmed-threat subgraph + click-to-expand + STIX 2.1 bundle export button |
 | `ComparePanel` | Entity comparison — two entity inputs with type selectors, overlap score, shared/exclusive node lists |
 | `TimelinePanel` | Horizontal timeline with severity-colored dots, hover tooltip, click-to-replay |
-| `Graph3DPanel` | (Not routed) WebGL 3D graph with search/filter — exists in tree but removed from ViewNav |
+| `Graph3DPanel` | *(Deleted)* — Was WebGL 3D graph, removed during cleanup |
 
 ### Key Frontend Libraries
 
@@ -478,7 +478,6 @@ Cerberus/
 ├── CLAUDE.md
 ├── README.md
 ├── changes-from-hackathon.md   # Detailed add/remove ledger
-├── marketing.md                # Technical onboarding & pitch document
 ├── spec.md
 ├── requirements.txt            # FastAPI, neo4j, anthropic, stix2, pyjwt, etc.
 ├── docker-compose.yml          # neo4j-mcp + backend + frontend
@@ -558,14 +557,12 @@ Cerberus/
 │   └── ...
 │
 │
-├── neo4j-mcp_Darwin_arm64/     # MCP server binary (macOS)
-├── neo4j-mcp_Linux_arm64/      # MCP server binary (Linux ARM)
-├── neo4j-mcp_Linux_x86_64/     # MCP server binary (Linux x86)
+├── neo4j-mcp_Linux_arm64/      # MCP server binary (Linux ARM, used by docker-compose)
+├── neo4j-mcp_Linux_x86_64/     # MCP server binary (Linux x86, used by Render)
 │
 ├── deploy/
 │   ├── nginx-unified.conf
-│   ├── start.sh
-│   └── gmi-cloud/
+│   └── start.sh
 │
 └── docs/                       # Session retrospectives
     ├── retro-001-script-consolidation.md
@@ -619,7 +616,7 @@ Cerberus/
 - [x] MitreHeatmapPanel: 14-tactic heatmap from Technique nodes
 - [x] TimelinePanel: horizontal investigation timeline with replay
 - [x] GraphMinimap: 160×120 canvas overview
-- [x] Graph3DPanel: 3D WebGL graph (exists but not routed in ViewNav)
+- [x] ~~Graph3DPanel~~: Deleted (superseded by 2D GraphPanel with attack-path stepper)
 - [x] Investigation history: localStorage persistence, last 10 entries
 - [x] Frontend libs: attackPath.ts, iocExtract.ts, mitreTactics.ts
 - [x] ViewNav: 5 tabs (Threat Graph, Geomap, MITRE, Memory, Compare)
@@ -650,7 +647,7 @@ docker compose up --build      # starts all 3 services
 
 1. **neo4j-mcp in HTTP mode** — In HTTP transport mode, Neo4j credentials must NOT be set as env vars on the MCP container. They're passed per-request via Basic Auth headers from the backend.
 2. **Backend build context** — Set to project root (`.`) not `./backend`, because `requirements.txt` lives at root. Dockerfile is at `backend/Dockerfile`.
-3. **neo4j-mcp binary** — The Darwin (macOS) binary won't work in Linux containers. A separate `neo4j-mcp_Linux_arm64/` directory contains the Linux binary + its own Dockerfile.
+3. **neo4j-mcp binary** — Darwin (macOS) binary was removed; only Linux ARM64 and x86_64 remain for Docker/Render.
 4. **neo4j-mcp CLI flags** — v1.5.0 uses `--neo4j-transport-mode`, `--neo4j-http-port`, `--neo4j-http-host` (not `--transport`, `--port`, `--host`).
 5. **neo4j-mcp healthcheck** — No GET health endpoint. The `/mcp` endpoint returns 405 on GET (only accepts POST), which we grep for to confirm the server is alive.
 6. **Frontend multi-stage** — docker-compose targets the `dev` stage. For production: `docker build --target prod -t cerberus-frontend frontend/` uses nginx with SPA routing.

@@ -13,7 +13,6 @@ tests/
 scripts/
 seed_data/
 pipelines/
-neo4j-mcp_Darwin_arm64/
 neo4j-mcp_Linux_arm64/
 docs/
 .claude/
