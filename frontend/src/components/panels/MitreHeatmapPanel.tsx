@@ -45,6 +45,11 @@ export function MitreHeatmapPanel({ state }: { state: InvestigationState }) {
   return (
     <div className="relative h-full w-full overflow-hidden grid-bg flex flex-col">
       <div className="flex-1 overflow-y-auto p-4 pt-14">
+        {total > 0 && (
+          <p className="text-xs text-muted-foreground font-mono mb-3 text-right">
+            {total} technique{total !== 1 ? "s" : ""} across {MITRE_TACTICS_ORDER.filter((t) => (counts.get(t) ?? 0) > 0).length} tactic{MITRE_TACTICS_ORDER.filter((t) => (counts.get(t) ?? 0) > 0).length !== 1 ? "s" : ""}
+          </p>
+        )}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-w-5xl mx-auto">
           {MITRE_TACTICS_ORDER.map((tactic) => {
             const c = counts.get(tactic) ?? 0;
