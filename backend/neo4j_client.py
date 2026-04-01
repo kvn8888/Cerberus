@@ -540,12 +540,17 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
                 """,
                 actors=actor_names,
             )
+            # Cap at 5 technique children per ThreatActor to keep the graph readable
+            actor_tech_counts: dict[str, int] = {}
             for r in tech_result:
                 mitre_id  = r.get("mitre_id")
                 tech_name = r.get("tech_name") or mitre_id
                 actor     = r.get("actor")
                 tactic    = r.get("tactic")
-                if mitre_id:
+                if mitre_id and actor:
+                    if actor_tech_counts.get(actor, 0) >= 5:
+                        continue  # Skip once this actor has 5 technique children
+                    actor_tech_counts[actor] = actor_tech_counts.get(actor, 0) + 1
                     node_id = mitre_id  # Use mitre_id as the unique key
                     if node_id not in nodes_map:
                         nodes_map[node_id] = {
@@ -556,8 +561,7 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
                             "mitre_id": mitre_id,
                             "tactic": tactic or "",
                         }
-                    if actor:
-                        _add_link(actor, node_id, "USES")
+                    _add_link(actor, node_id, "USES")
 
     return {"nodes": list(nodes_map.values()), "links": links}
 
