@@ -15,7 +15,6 @@ import { ViewNav, type CenterView } from "./components/layout/ViewNav";
 import { QueryPanel } from "./components/panels/QueryPanel";
 import { PipelineStages } from "./components/panels/PipelineStages";
 import { NarrativePanel } from "./components/panels/NarrativePanel";
-import { TimelinePanel } from "./components/panels/TimelinePanel";
 import { useInvestigation } from "./hooks/useInvestigation";
 import { cn } from "./lib/utils";
 
@@ -29,7 +28,7 @@ const MitreHeatmapPanel = lazy(() => import("./components/panels/MitreHeatmapPan
 const MemoryPanel = lazy(() => import("./components/panels/MemoryPanel").then(m => ({ default: m.MemoryPanel })));
 
 function App() {
-  const { state, investigate, history } = useInvestigation();
+  const { state, investigate } = useInvestigation();
   const [centerView, setCenterView] = useState<CenterView>("geomap");
 
   /* Bumped by NarrativePanel after a successful "Save to Memory" so
@@ -88,10 +87,6 @@ function App() {
             )}
           </Suspense>
 
-          <TimelinePanel
-            investigationHistory={history}
-            onReplay={(item) => investigate(item.entity, item.entityType)}
-          />
         </section>
 
         <aside className={cn(
