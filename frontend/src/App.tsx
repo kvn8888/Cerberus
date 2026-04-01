@@ -95,7 +95,7 @@ function App() {
         </section>
 
         <aside className={cn(
-          "flex-shrink-0 border-l border-border bg-surface/40 backdrop-blur-sm overflow-hidden transition-all duration-300",
+          "flex-shrink-0 border-l border-border bg-surface/40 backdrop-blur-sm overflow-x-hidden flex flex-col transition-all duration-300",
           narrativeCollapsed ? "w-12" : "w-96"
         )}>
           <NarrativePanel
