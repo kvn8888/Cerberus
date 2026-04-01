@@ -12,7 +12,7 @@
  */
 import { useMemo, useRef, useCallback, useEffect, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import { X } from "lucide-react";
+import { X, Search, Filter } from "lucide-react";
 import type { InvestigationState, EntityType, GraphNode } from "../../types/api";
 import { cn } from "../../lib/utils";
 
@@ -135,6 +135,12 @@ export function GraphPanel({ state }: GraphPanelProps) {
   const [containerSize, setContainerSize] = useState({ width: 800, height: 600 });
   /* Currently selected node — shown in the detail sidebar */
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
+  /* Relationship type filter — togglable edge types */
+  const [hiddenRelTypes, setHiddenRelTypes] = useState<Set<string>>(new Set());
+  /* Node search — highlights matching nodes */
+  const [searchQuery, setSearchQuery] = useState("");
+  /* Show/hide the filter panel */
+  const [showFilters, setShowFilters] = useState(false);
 
   /* ResizeObserver keeps the canvas size in sync with the container */
   useEffect(() => {
@@ -161,22 +167,59 @@ export function GraphPanel({ state }: GraphPanelProps) {
     return { nodes: [], links: [] };
   }, [state.status, state.pathsFound, state.entity, state.entityType, state.graphData]);
 
-  /* Custom node rendering on the canvas */
+  /* Extract unique relationship types from links for the filter UI */
+  const relTypes = useMemo(() => {
+    const types = new Set<string>();
+    graphData.links.forEach((link: any) => {
+      if (link.type) types.add(link.type);
+    });
+    return Array.from(types).sort();
+  }, [graphData.links]);
+
+  /* Apply relationship type filter to graph data */
+  const filteredGraphData = useMemo(() => {
+    if (hiddenRelTypes.size === 0) return graphData;
+    const filteredLinks = graphData.links.filter(
+      (link: any) => !hiddenRelTypes.has(link.type || "")
+    );
+    /* Keep only nodes that appear in at least one visible link */
+    const visibleNodeIds = new Set<string>();
+    filteredLinks.forEach((link: any) => {
+      const src = typeof link.source === "object" ? link.source.id : link.source;
+      const tgt = typeof link.target === "object" ? link.target.id : link.target;
+      visibleNodeIds.add(src);
+      visibleNodeIds.add(tgt);
+    });
+    const filteredNodes = graphData.nodes.filter((n: any) => visibleNodeIds.has(n.id));
+    return { nodes: filteredNodes, links: filteredLinks };
+  }, [graphData, hiddenRelTypes]);
+
+  /* Custom node rendering on the canvas — includes search highlight logic */
   const paintNode = useCallback(
     (node: any, ctx: CanvasRenderingContext2D, globalScale: number) => {
       const label = node.label || node.id;
       const fontSize = Math.max(10 / globalScale, 3);
       const nodeRadius = Math.max(node.val || 5, 3);
       const color = NODE_COLORS[node.type] || "#666";
+      const isMatch = searchQuery && label.toLowerCase().includes(searchQuery.toLowerCase());
 
-      /* Glow effect */
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 12;
+      /* Glow effect — stronger for search matches */
+      ctx.shadowColor = isMatch ? "#FFD700" : color;
+      ctx.shadowBlur = isMatch ? 20 : 12;
+
+      /* Highlight ring for search matches */
+      if (isMatch) {
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, nodeRadius + 3, 0, 2 * Math.PI);
+        ctx.strokeStyle = "#FFD700";
+        ctx.lineWidth = 2;
+        ctx.stroke();
+      }
 
       /* Node circle */
       ctx.beginPath();
       ctx.arc(node.x, node.y, nodeRadius, 0, 2 * Math.PI);
-      ctx.fillStyle = color;
+      ctx.fillStyle = isMatch ? "#FFD700" : color;
       ctx.fill();
 
       /* Reset shadow for text */
@@ -186,10 +229,10 @@ export function GraphPanel({ state }: GraphPanelProps) {
       ctx.font = `${fontSize}px "JetBrains Mono", monospace`;
       ctx.textAlign = "center";
       ctx.textBaseline = "top";
-      ctx.fillStyle = "rgba(200, 210, 220, 0.9)";
+      ctx.fillStyle = isMatch ? "#FFD700" : "rgba(200, 210, 220, 0.9)";
       ctx.fillText(label, node.x, node.y + nodeRadius + 2);
     },
-    []
+    [searchQuery]
   );
 
   /* Custom link rendering — dashed for synthetic edges */
@@ -226,12 +269,16 @@ export function GraphPanel({ state }: GraphPanelProps) {
     }
   }, [graphData]);
 
-  /* New graph results invalidate prior node selections */
+  /* New graph results invalidate prior node selections and reset filters */
   useEffect(() => {
     setSelectedNode(null);
+    setSearchQuery("");
+    setHiddenRelTypes(new Set());
+    setShowFilters(false);
   }, [state.entity, state.entityType, state.status]);
 
   const hasGraph = graphData.nodes.length > 0;
+  const hasFilteredGraph = filteredGraphData.nodes.length > 0;
 
   return (
     <div
@@ -243,11 +290,72 @@ export function GraphPanel({ state }: GraphPanelProps) {
     >
       {/* View toggle is handled by the parent ViewNav component */}
 
-      {/* ── Graph visualization ─────────────────────────── */}
+      {/* ── Search + Filter toolbar ──────────────────────── */}
       {hasGraph && (
+        <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
+          {/* Node search */}
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search nodes..."
+              className="pl-7 pr-3 py-1.5 rounded-md text-[11px] font-mono bg-surface/90 backdrop-blur-sm border border-border/60 text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 w-40"
+            />
+          </div>
+          {/* Filter toggle */}
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={cn(
+              "p-1.5 rounded-md text-xs font-mono border transition-all",
+              showFilters
+                ? "bg-primary/15 text-primary border-primary/30"
+                : "bg-surface/90 backdrop-blur-sm text-muted-foreground border-border/60 hover:text-foreground"
+            )}
+            title="Filter relationships"
+          >
+            <Filter className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* ── Relationship type filter panel ───────────────── */}
+      {hasGraph && showFilters && relTypes.length > 0 && (
+        <div className="absolute top-12 right-3 z-20 glass-panel rounded-lg p-3 w-52 animate-in slide-in-from-top-2 duration-200">
+          <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">
+            Relationship Types
+          </p>
+          <div className="space-y-1.5">
+            {relTypes.map((rt) => (
+              <label key={rt} className="flex items-center gap-2 text-[11px] font-mono cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={!hiddenRelTypes.has(rt)}
+                  onChange={() => {
+                    setHiddenRelTypes((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(rt)) next.delete(rt);
+                      else next.add(rt);
+                      return next;
+                    });
+                  }}
+                  className="rounded border-border accent-primary h-3 w-3"
+                />
+                <span className="text-muted-foreground group-hover:text-foreground transition-colors">
+                  {rt.replace(/_/g, " ")}
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Graph visualization ─────────────────────────── */}
+      {hasFilteredGraph && (
         <ForceGraph2D
           ref={graphRef}
-          graphData={graphData}
+          graphData={filteredGraphData}
           nodeCanvasObject={paintNode}
           linkCanvasObject={paintLink}
           backgroundColor="transparent"

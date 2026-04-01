@@ -19,18 +19,40 @@ import {
   AlertTriangle,
   Shield,
   Download,
+  Target,
+  Users,
+  Crosshair,
+  ArrowRight,
 } from "lucide-react";
-import type { InvestigationState } from "../../types/api";
+import type { InvestigationState, EntityType } from "../../types/api";
 import { confirmEntity, fetchReport } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import { ThreatReportPdf } from "../report/ThreatReportPdf";
 
+const SEVERITY_COLORS: Record<string, string> = {
+  critical: "text-threat-critical bg-threat-critical/10 border-threat-critical/30",
+  high: "text-threat-high bg-threat-high/10 border-threat-high/30",
+  medium: "text-threat-medium bg-threat-medium/10 border-threat-medium/30",
+  low: "text-success bg-success/10 border-success/30",
+  info: "text-muted-foreground bg-muted/10 border-border",
+};
+
+const SEVERITY_SCORE_COLORS: Record<string, string> = {
+  critical: "text-threat-critical",
+  high: "text-threat-high",
+  medium: "text-threat-medium",
+  low: "text-success",
+  info: "text-muted-foreground",
+};
+
 interface NarrativePanelProps {
   state: InvestigationState;
   onMemorySaved?: () => void;
+  onInvestigate?: (entity: string, type: EntityType) => void;
+  onAudienceModeChange?: (mode: "analyst" | "executive") => void;
 }
 
-export function NarrativePanel({ state, onMemorySaved }: NarrativePanelProps) {
+export function NarrativePanel({ state, onMemorySaved, onInvestigate, onAudienceModeChange }: NarrativePanelProps) {
   const [confirmed, setConfirmed] = useState(false);
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
@@ -113,6 +135,21 @@ export function NarrativePanel({ state, onMemorySaved }: NarrativePanelProps) {
               <Database className="h-3 w-3" />
               {state.pathsFound} PATHS
             </span>
+            {state.threatScore && (
+              <span className={cn(
+                "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono border",
+                SEVERITY_COLORS[state.threatScore.severity]
+              )}>
+                <Target className="h-3 w-3" />
+                {state.threatScore.score}/100
+              </span>
+            )}
+            {state.blastRadius && (
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-threat-high/10 text-threat-high border border-threat-high/20">
+                <Crosshair className="h-3 w-3" />
+                {state.blastRadius.total} AFFECTED
+              </span>
+            )}
           </div>
         )}
       </div>
@@ -135,6 +172,36 @@ export function NarrativePanel({ state, onMemorySaved }: NarrativePanelProps) {
           </span>
         </button>
 
+        {/* Audience mode toggle */}
+        <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-raised/30 p-0.5">
+          <button
+            type="button"
+            onClick={() => onAudienceModeChange?.("analyst")}
+            className={cn(
+              "flex-1 px-3 py-1.5 rounded-md text-[10px] font-mono transition-all",
+              state.audienceMode === "analyst"
+                ? "bg-primary/15 text-primary border border-primary/25"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            Technical
+          </button>
+          <button
+            type="button"
+            onClick={() => onAudienceModeChange?.("executive")}
+            className={cn(
+              "flex-1 px-3 py-1.5 rounded-md text-[10px] font-mono transition-all",
+              state.audienceMode === "executive"
+                ? "bg-primary/15 text-primary border border-primary/25"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            <span className="flex items-center justify-center gap-1">
+              <Users className="h-3 w-3" />
+              Executive
+            </span>
+          </button>
+        </div>
       </div>
 
       {/* ── Narrative body ─────────────────────────────────── */}

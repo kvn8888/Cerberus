@@ -16,13 +16,16 @@ import {
   ChevronRight,
   AlertTriangle,
   DollarSign,
+  Clock,
+  Trash2,
 } from "lucide-react";
-import type { EntityType } from "../../types/api";
+import type { EntityType, InvestigationState, InvestigationHistoryItem } from "../../types/api";
 import { cn } from "../../lib/utils";
 
 interface QueryPanelProps {
   onInvestigate: (entity: string, type: EntityType) => void;
   isRunning: boolean;
+  investigationState?: InvestigationState;
 }
 
 /**
@@ -124,6 +127,14 @@ function detectEntityType(input: string): {
   return { type: "package", label: "Package", extracted: core };
 }
 
+const SEVERITY_DOT_COLORS: Record<string, string> = {
+  critical: "bg-threat-critical",
+  high: "bg-threat-high",
+  medium: "bg-threat-medium",
+  low: "bg-success",
+  info: "bg-muted-foreground/30",
+};
+
 const TYPE_ICONS: Record<EntityType, typeof Package> = {
   package: Package,
   ip: Server,
@@ -155,10 +166,54 @@ interface FraudSignal {
   ip_address: string;
 }
 
-export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
+export function QueryPanel({ onInvestigate, isRunning, investigationState }: QueryPanelProps) {
   const [query, setQuery] = useState("");
   const [fraudSignals, setFraudSignals] = useState<FraudSignal[]>([]);
   const [fraudStats, setFraudStats] = useState<{ signals: number; total_amount: number } | null>(null);
+
+  /* ── Investigation History (localStorage) ──────────────── */
+  const HISTORY_KEY = "cerberus-investigation-history";
+  const MAX_HISTORY = 10;
+
+  const [history, setHistory] = useState<InvestigationHistoryItem[]>(() => {
+    try {
+      const stored = localStorage.getItem(HISTORY_KEY);
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  /* Save to history when investigation completes */
+  useEffect(() => {
+    if (
+      investigationState?.status === "complete" &&
+      investigationState.entity
+    ) {
+      const newItem: InvestigationHistoryItem = {
+        entity: investigationState.entity,
+        entityType: investigationState.entityType,
+        timestamp: Date.now(),
+        threatScore: investigationState.threatScore?.score,
+        severity: investigationState.threatScore?.severity,
+        pathsFound: investigationState.pathsFound,
+      };
+      setHistory((prev) => {
+        /* Deduplicate: remove previous entry for same entity+type */
+        const filtered = prev.filter(
+          (h) => !(h.entity === newItem.entity && h.entityType === newItem.entityType)
+        );
+        const updated = [newItem, ...filtered].slice(0, MAX_HISTORY);
+        try { localStorage.setItem(HISTORY_KEY, JSON.stringify(updated)); } catch {}
+        return updated;
+      });
+    }
+  }, [investigationState?.status, investigationState?.entity]);
+
+  const clearHistory = () => {
+    setHistory([]);
+    try { localStorage.removeItem(HISTORY_KEY); } catch {};
+  };
 
   useEffect(() => {
     fetch(`${API_BASE}/api/juspay/signals?limit=5`)
@@ -294,6 +349,67 @@ export function QueryPanel({ onInvestigate, isRunning }: QueryPanelProps) {
               ))}
             </div>
           </div>
+
+          {/* ── Investigation History ────────────────────── */}
+          {history.length > 0 && (
+            <div className="pt-2">
+              <div className="flex items-center justify-between mb-2.5">
+                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] flex items-center gap-1.5">
+                  <Clock className="h-3 w-3" />
+                  Recent
+                </p>
+                <button
+                  onClick={clearHistory}
+                  className="text-[9px] font-mono text-muted-foreground/40 hover:text-threat-high transition-colors flex items-center gap-1"
+                  title="Clear history"
+                >
+                  <Trash2 className="h-2.5 w-2.5" />
+                </button>
+              </div>
+              <div className="space-y-1">
+                {history.map((h, i) => (
+                  <button
+                    key={`${h.entity}-${h.timestamp}`}
+                    onClick={() => {
+                      setQuery(h.entity);
+                      if (!isRunning) onInvestigate(h.entity, h.entityType);
+                    }}
+                    disabled={isRunning}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-md text-xs font-mono group",
+                      "bg-surface-raised/20 text-muted-foreground",
+                      "hover:bg-primary/8 hover:text-primary",
+                      "border border-transparent hover:border-primary/15",
+                      "transition-all duration-200",
+                      "disabled:opacity-40 disabled:cursor-not-allowed"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 truncate">
+                        {h.severity && (
+                          <span className={cn(
+                            "w-1.5 h-1.5 rounded-full flex-shrink-0",
+                            SEVERITY_DOT_COLORS[h.severity] || "bg-muted-foreground/30"
+                          )} />
+                        )}
+                        <span className="text-foreground/70 group-hover:text-primary transition-colors truncate">
+                          {h.entity}
+                        </span>
+                      </div>
+                      {h.threatScore !== undefined && (
+                        <span className="text-[9px] text-muted-foreground/50 ml-2 flex-shrink-0">
+                          {h.threatScore}/100
+                        </span>
+                      )}
+                    </div>
+                    <span className="text-muted-foreground/30 text-[9px] block mt-0.5">
+                      {new Date(h.timestamp).toLocaleDateString()} · {h.pathsFound} paths
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── Live Fraud Signals (from Juspay / Neo4j) ───────── */}
           {fraudSignals.length > 0 && (
