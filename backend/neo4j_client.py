@@ -1149,7 +1149,7 @@ RETURN type,
        coalesce(neighbor.name, neighbor.id, neighbor.address, neighbor.juspay_id, neighbor.username, neighbor.mitre_id) AS entity,
        count(DISTINCT other) AS connections
 ORDER BY connections DESC
-LIMIT 5
+LIMIT 10
 """
 
 # Maps Neo4j labels to EntityType enum values for the suggestions response
@@ -1162,6 +1162,9 @@ _LABEL_TO_ENTITY_TYPE: dict[str, str] = {
     "FraudSignal": "fraudsignal",
 }
 
+# Set of valid entity types the backend can actually investigate
+_VALID_ENTITY_TYPES = set(_LABEL_TO_ENTITY_TYPE.values())
+
 
 def suggest_next(entity: str, entity_type: str) -> list[dict[str, Any]]:
     """
@@ -1169,6 +1172,9 @@ def suggest_next(entity: str, entity_type: str) -> list[dict[str, Any]]:
     unconfirmed neighbors sorted by connectivity (most connections first).
     Each suggestion includes the entity name, type, a human-readable reason,
     and the raw connection count.
+    
+    Skips nodes whose label doesn't map to a valid EntityType (e.g. Technique,
+    Account) — those can't be investigated via /api/query/stream.
     """
     entity, entity_type = normalize_entity(entity, entity_type)
     label = _entity_label(entity_type)
@@ -1181,7 +1187,11 @@ def suggest_next(entity: str, entity_type: str) -> list[dict[str, Any]]:
         result = s.run(cypher, value=entity)
         for record in result:
             neo4j_label = record["type"]
-            mapped_type = _LABEL_TO_ENTITY_TYPE.get(neo4j_label, neo4j_label.lower())
+            mapped_type = _LABEL_TO_ENTITY_TYPE.get(neo4j_label)
+            # Skip nodes with labels that don't map to a valid EntityType
+            # (e.g. Technique, Account) — they'd cause 422 on investigation
+            if not mapped_type:
+                continue
             connections = record["connections"]
             suggestions.append({
                 "entity": record["entity"],
@@ -1189,6 +1199,8 @@ def suggest_next(entity: str, entity_type: str) -> list[dict[str, Any]]:
                 "reason": f"High connectivity ({connections} connections)",
                 "connections": connections,
             })
+            if len(suggestions) >= 5:
+                break
 
     return suggestions
 
