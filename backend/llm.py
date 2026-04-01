@@ -58,8 +58,7 @@ def generate_narrative(
     )
 
     message = _get_client().messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=600,
+        model="claude-sonnet-4-6",
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
     )
@@ -83,7 +82,7 @@ def generate_narrative_stream(
     )
 
     with _get_client().messages.stream(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=600,
         system=SYSTEM_PROMPT,
         messages=[{"role": "user", "content": user_content}],
@@ -122,7 +121,7 @@ def generate_clean_assessment(entity: str, entity_type: str) -> str:
     user_content = f"Entity: {entity}\nType: {entity_type}\nThreat paths found: 0"
 
     message = _get_client().messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=400,
         system=_CLEAN_ASSESSMENT_PROMPT,
         messages=[{"role": "user", "content": user_content}],
@@ -135,7 +134,7 @@ def generate_clean_assessment_stream(entity: str, entity_type: str):
     user_content = f"Entity: {entity}\nType: {entity_type}\nThreat paths found: 0"
 
     with _get_client().messages.stream(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=400,
         system=_CLEAN_ASSESSMENT_PROMPT,
         messages=[{"role": "user", "content": user_content}],

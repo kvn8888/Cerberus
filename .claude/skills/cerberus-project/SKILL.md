@@ -47,7 +47,7 @@ FRONTEND (React + Tailwind + shadcn/ui + react-force-graph-2d + SVG ThreatMap)
 | STIX export | stix2 Python library |
 | Auth | PyJWT (HS256, demo users, role-based) |
 | Streaming | SSE (via sse-starlette + FastAPI StreamingResponse) |
-| LLM | Anthropic Claude (claude-sonnet-4-20250514, via anthropic SDK) |
+| LLM | Anthropic Claude (claude-sonnet-4-6, via anthropic SDK) |
 | HTTP client | httpx (async) |
 
 ## Neo4j Schema
@@ -668,5 +668,5 @@ docker compose up --build      # starts all 3 services
 12. ~~Enrichment orphan nodes~~ — FIXED. enrich.py now creates EXPLOITED_BY and OPERATES edges after ingesting nodes, so enriched entities have traversable paths
 13. ~~No results for entities without ThreatActor path~~ — FIXED. Neighborhood fallback query returns directly connected entities when no full threat chain exists
 8. ~~Missing LLM error handling~~ — FIXED. Query route gracefully returns graph data when LLM unavailable
-9. ~~Bad model name~~ — FIXED. Changed from `claude-opus-4-6` to `claude-sonnet-4-20250514`
+9. ~~Bad model name~~ — FIXED. Changed from `claude-opus-4-6` to `claude-sonnet-4-6`
 10. **FastAPI version:** Requires FastAPI ≥0.115.0 (incompatible with older Starlette 0.46+)
