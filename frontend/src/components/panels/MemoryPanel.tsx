@@ -8,8 +8,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import ForceGraph2D, { type ForceGraphMethods } from "react-force-graph-2d";
-import { Brain, RefreshCw, Zap } from "lucide-react";
-import { fetchMemory, expandMemoryNode } from "../../lib/api";
+import { Brain, RefreshCw, Zap, Download } from "lucide-react";
+import { fetchMemory, expandMemoryNode, fetchStixBundle } from "../../lib/api";
 import { cn } from "../../lib/utils";
 
 interface MemoryNode {
@@ -52,6 +52,7 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [expanding, setExpanding] = useState<string | null>(null);
+  const [stixBusy, setStixBusy] = useState(false);
   const [lastSaved, setLastSaved] = useState<string | null>(null);
   const [dimensions, setDimensions] = useState({ w: 800, h: 600 });
 
@@ -75,6 +76,65 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
   useEffect(() => {
     load();
   }, [load, refreshKey]);
+
+  /** Export all memorized entities as a merged STIX 2.1 bundle.
+   *  Fetches bundles for each confirmed node and combines them. */
+  const handleStixExport = useCallback(async () => {
+    // Collect confirmed entities that map to an entity type
+    const typeMap: Record<string, string> = {
+      Package: "package", CVE: "cve", IP: "ip",
+      Domain: "domain", ThreatActor: "threatactor", FraudSignal: "fraudsignal",
+    };
+    const exportable = graphData.nodes.filter(
+      (n) => n.confirmed && typeMap[n.type]
+    );
+    if (exportable.length === 0) return;
+
+    setStixBusy(true);
+    try {
+      // Fetch STIX bundles concurrently (capped at 5 at a time)
+      const allObjects: Record<string, unknown>[] = [];
+      for (let i = 0; i < exportable.length; i += 5) {
+        const batch = exportable.slice(i, i + 5);
+        const results = await Promise.all(
+          batch.map((n) =>
+            fetchStixBundle({ entity: n.label, type: typeMap[n.type] })
+              .then((b) => b.objects ?? [])
+              .catch(() => [])
+          )
+        );
+        results.forEach((objs) => allObjects.push(...objs));
+      }
+
+      // Deduplicate by STIX id
+      const seen = new Set<string>();
+      const deduped = allObjects.filter((obj: any) => {
+        if (seen.has(obj.id)) return false;
+        seen.add(obj.id);
+        return true;
+      });
+
+      const merged = {
+        type: "bundle",
+        id: `bundle--cerberus-memory-${Date.now()}`,
+        spec_version: "2.1",
+        objects: deduped,
+      };
+
+      // Trigger download
+      const blob = new Blob([JSON.stringify(merged, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cerberus-memory-stix-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("STIX export failed:", err);
+    } finally {
+      setStixBusy(false);
+    }
+  }, [graphData.nodes]);
 
   // Tune forces based on node count — fewer nodes get more space,
   // many nodes get pulled tighter so the graph stays readable.
@@ -267,6 +327,22 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
           <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
           Refresh
         </button>
+        {/* STIX 2.1 bundle export — merges all memorized entities */}
+        {total > 0 && (
+          <button
+            onClick={handleStixExport}
+            disabled={stixBusy}
+            className={cn(
+              "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-mono",
+              "border border-border/60 bg-surface/80 backdrop-blur-sm",
+              "text-muted-foreground hover:text-foreground transition-colors",
+              stixBusy && "animate-pulse"
+            )}
+          >
+            <Download className={cn("h-3 w-3", stixBusy && "animate-spin")} />
+            {stixBusy ? "Exporting..." : "STIX Export"}
+          </button>
+        )}
       </div>
 
       {/* Stats — bottom left */}
