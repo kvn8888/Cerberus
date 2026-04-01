@@ -18,9 +18,11 @@ import {
   DollarSign,
   Clock,
   Trash2,
+  MessageSquare,
 } from "lucide-react";
 import type { EntityType, InvestigationState, InvestigationHistoryItem } from "../../types/api";
 import { cn } from "../../lib/utils";
+import { parseNaturalLanguage } from "../../lib/api";
 
 interface QueryPanelProps {
   onInvestigate: (entity: string, type: EntityType) => void;
@@ -173,6 +175,9 @@ interface ActorLink {
 
 export function QueryPanel({ onInvestigate, isRunning, investigationState }: QueryPanelProps) {
   const [query, setQuery] = useState("");
+  const [nlpMode, setNlpMode] = useState(false);
+  const [nlpParsing, setNlpParsing] = useState(false);
+  const [nlpError, setNlpError] = useState<string | null>(null);
   const [fraudSignals, setFraudSignals] = useState<FraudSignal[]>([]);
   const [fraudStats, setFraudStats] = useState<{ signals: number; total_amount: number } | null>(null);
   const [actorLinks, setActorLinks] = useState<ActorLink[]>([]);
@@ -236,10 +241,30 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
   const detected = detectEntityType(query);
   const DetectedIcon = TYPE_ICONS[detected.type];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
-    onInvestigate(detected.extracted, detected.type);
+
+    if (nlpMode) {
+      /* NLP mode: send natural language to the backend for entity extraction,
+         then auto-investigate the primary extracted entity. */
+      setNlpParsing(true);
+      setNlpError(null);
+      try {
+        const result = await parseNaturalLanguage(query.trim());
+        const primary = result.primary_entity;
+        if (primary) {
+          onInvestigate(primary.value, primary.type as EntityType);
+        }
+      } catch (err: any) {
+        setNlpError(err.message || "Failed to parse query");
+      } finally {
+        setNlpParsing(false);
+      }
+    } else {
+      /* Standard mode: auto-detect entity type from input pattern. */
+      onInvestigate(detected.extracted, detected.type);
+    }
   };
 
   const handleExample = (ex: (typeof EXAMPLES)[0]) => {
@@ -264,16 +289,32 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
           <form onSubmit={handleSubmit} className="p-4 space-y-4 flex flex-col h-full">
           {/* Search bar */}
             <div>
-              <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2 block">
-              Enter an entity
-              </label>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em]">
+                  {nlpMode ? "Ask a question" : "Enter an entity"}
+                </label>
+                {/* NLP mode toggle — switches between entity search and natural language */}
+                <button
+                  type="button"
+                  onClick={() => { setNlpMode(!nlpMode); setNlpError(null); }}
+                  className={cn(
+                    "flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono transition-all",
+                    nlpMode
+                      ? "bg-primary/15 text-primary border border-primary/30"
+                      : "bg-surface-raised text-muted-foreground border border-border/50 hover:border-primary/20"
+                  )}
+                >
+                  <MessageSquare className="h-2.5 w-2.5" />
+                  NLP
+                </button>
+              </div>
               <div className="relative group">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground transition-colors group-focus-within:text-primary" />
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                placeholder="e.g. ua-parser-js, 203.0.113.42, CVE-2021-44228"
+                placeholder={nlpMode ? "e.g. What packages are linked to APT41?" : "e.g. ua-parser-js, 203.0.113.42, CVE-2021-44228"}
                   className={cn(
                     "w-full pl-10 pr-4 py-3 rounded-lg text-sm font-mono",
                     "bg-surface-raised border border-border",
@@ -283,7 +324,12 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
                   )}
                 />
               </div>
-              {query.trim() && (
+              {nlpError && (
+                <p className="mt-1.5 text-[10px] font-mono text-threat-high animate-fade-in">
+                  {nlpError}
+                </p>
+              )}
+              {!nlpMode && query.trim() && (
               <div className="mt-2 flex items-center gap-2 animate-fade-in flex-wrap">
                   <span className="text-[10px] font-mono text-muted-foreground/60">Detected:</span>
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-primary/10 text-primary border border-primary/20">
@@ -301,16 +347,21 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
 
             <button
               type="submit"
-              disabled={!query.trim()}
+              disabled={!query.trim() || nlpParsing}
               className={cn(
                 "w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
                 "transition-all duration-300 relative",
-                !query.trim()
+                !query.trim() || nlpParsing
                   ? "bg-muted text-muted-foreground cursor-not-allowed"
                   : "bg-primary text-primary-foreground hover:shadow-glow-lg active:scale-[0.97] hover:tracking-wider"
               )}
             >
-              {isRunning ? (
+              {nlpParsing ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/60 border-t-transparent animate-spin" />
+                  <span className="animate-pulse">Parsing...</span>
+                </span>
+              ) : isRunning ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/60 border-t-transparent animate-spin" />
                   <span className="animate-pulse">Restart Investigation</span>

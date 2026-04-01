@@ -277,3 +277,21 @@ export async function fetchEnrichmentSummary(
   if (!res.ok) throw new Error(`Enrichment failed: ${res.status}`);
   return res.json();
 }
+
+/** Natural language → entity extraction via backend NER.
+ *  Returns the primary entity and all extracted entities. */
+export async function parseNaturalLanguage(
+  message: string
+): Promise<{
+  message: string;
+  primary_entity: { type: string; value: string };
+  entities: { type: string; value: string }[];
+}> {
+  const res = await fetch(`${API_BASE}/api/demo/natural`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ message }),
+  });
+  if (!res.ok) throw new Error(`NLP parse failed: ${res.status}`);
+  return res.json();
+}
