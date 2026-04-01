@@ -515,6 +515,42 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
     if entity in nodes_map:
         nodes_map[entity]["val"] = 8
 
+    # ── Technique enrichment ─────────────────────────────────────────
+    # For every ThreatActor discovered in the graph, pull the MITRE
+    # ATT&CK Techniques they use.  This feeds the MITRE heatmap panel.
+    actor_names = [
+        n["id"] for n in nodes_map.values() if n.get("type") == "ThreatActor"
+    ]
+    if actor_names:
+        with _get_driver().session() as s:
+            tech_result = s.run(
+                """
+                UNWIND $actors AS actor_name
+                MATCH (ta:ThreatActor {name: actor_name})-[:USES]->(t:Technique)
+                RETURN ta.name AS actor, t.mitre_id AS mitre_id,
+                       t.name AS tech_name, t.tactic AS tactic
+                """,
+                actors=actor_names,
+            )
+            for r in tech_result:
+                mitre_id  = r.get("mitre_id")
+                tech_name = r.get("tech_name") or mitre_id
+                actor     = r.get("actor")
+                tactic    = r.get("tactic")
+                if mitre_id:
+                    node_id = mitre_id  # Use mitre_id as the unique key
+                    if node_id not in nodes_map:
+                        nodes_map[node_id] = {
+                            "id": node_id,
+                            "label": tech_name,
+                            "type": "Technique",
+                            "val": 3,
+                            "mitre_id": mitre_id,
+                            "tactic": tactic or "",
+                        }
+                    if actor:
+                        _add_link(actor, node_id, "USES")
+
     return {"nodes": list(nodes_map.values()), "links": links}
 
 

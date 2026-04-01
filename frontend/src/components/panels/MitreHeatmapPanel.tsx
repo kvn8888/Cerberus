@@ -17,10 +17,18 @@ function countTechniquesByTactic(nodes: GraphNode[]): Map<string, number> {
   for (const t of MITRE_TACTICS_ORDER) m.set(t, 0);
   for (const n of nodes) {
     if ((n.type || "").toLowerCase() !== "technique") continue;
+
+    /* Prefer the tactic field provided by the backend (from Neo4j).
+       Fall back to the frontend T_TO_TACTIC lookup by technique ID. */
+    const backendTactic = String((n as { tactic?: string }).tactic || "");
     const raw = String((n as { mitre_id?: string }).mitre_id || n.label || n.id || "");
     const tid = extractTechniqueId(raw) || extractTechniqueId(String(n.label || n.id));
-    if (!tid) continue;
-    const tactic = tacticForTechniqueId(tid);
+
+    const tactic =
+      (backendTactic && MITRE_TACTICS_ORDER.includes(backendTactic as any) ? backendTactic : null)
+      || (tid ? tacticForTechniqueId(tid) : null)
+      || "Discovery";
+
     m.set(tactic, (m.get(tactic) ?? 0) + 1);
   }
   return m;
