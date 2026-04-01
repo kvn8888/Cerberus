@@ -256,3 +256,24 @@ export async function fetchSuggestions(
   if (!res.ok) throw new Error(`Suggestions failed: ${res.status}`);
   return res.json();
 }
+
+/** Fetch the STIX 2.1 bundle JSON for a given entity investigation.
+ *  Returns the raw bundle object — caller handles download. */
+export async function fetchStixBundle(
+  req: QueryRequest
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams({ entity: req.entity, type: req.type });
+  const res = await fetch(`${API_BASE}/api/stix/bundle?${params}`);
+  if (!res.ok) throw new Error(`STIX export failed: ${res.status}`);
+  return res.json();
+}
+
+/** Enrichment summary for the current entity (VirusTotal + HIBP + general). */
+export async function fetchEnrichmentSummary(
+  req: QueryRequest
+): Promise<Record<string, unknown>> {
+  const params = new URLSearchParams({ entity: req.entity, type: req.type });
+  const res = await fetch(`${API_BASE}/api/enrich/summary?${params}`);
+  if (!res.ok) throw new Error(`Enrichment failed: ${res.status}`);
+  return res.json();
+}

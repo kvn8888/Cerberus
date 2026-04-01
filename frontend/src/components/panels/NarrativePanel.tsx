@@ -26,9 +26,10 @@ import {
   Table2,
   PanelRightClose,
   PanelRightOpen,
+  Globe,
 } from "lucide-react";
 import type { InvestigationState, EntityType } from "../../types/api";
-import { confirmEntity, fetchReport } from "../../lib/api";
+import { confirmEntity, fetchReport, fetchStixBundle, fetchEnrichmentSummary } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import { mergeIOCs, iocsToCsv } from "../../lib/iocExtract";
 /* ThreatReportPdf and @react-pdf/renderer are dynamically imported in
@@ -91,6 +92,32 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, collapsed,
     [state.status, state.entity]
   );
 
+  /* Enrichment intel — auto-fetches from VirusTotal / HIBP when investigation completes */
+  const [enrichments, setEnrichments] = useState<
+    { source: string; simulated: boolean; highlights: string[] }[]
+  >([]);
+  const [enrichLoading, setEnrichLoading] = useState(false);
+
+  useEffect(() => {
+    if (state.status !== "complete" || !state.entity) {
+      setEnrichments([]);
+      return;
+    }
+    let cancelled = false;
+    setEnrichLoading(true);
+    fetchEnrichmentSummary({ entity: state.entity, type: state.entityType })
+      .then((data: any) => {
+        if (!cancelled) setEnrichments(data.enrichments ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setEnrichments([]);
+      })
+      .finally(() => {
+        if (!cancelled) setEnrichLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, [state.status, state.entity, state.entityType]);
+
   /**
    * Handle analyst confirmation — sends a POST /api/confirm
    * to mark this threat pattern for cache acceleration.
@@ -113,6 +140,7 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, collapsed,
   };
 
   const [pdfBusy, setPdfBusy] = useState(false);
+  const [stixBusy, setStixBusy] = useState(false);
 
   const handleExportPdf = async () => {
     if (!canExport || pdfBusy) return;
@@ -142,6 +170,30 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, collapsed,
       alert("Report generation failed — check the console for details.");
     } finally {
       setPdfBusy(false);
+    }
+  };
+
+  /** Download the investigation as a STIX 2.1 JSON bundle, for import
+   *  into MISP, OpenCTI, or other threat-intel platforms. */
+  const handleExportStix = async () => {
+    if (!canExport || stixBusy) return;
+    setStixBusy(true);
+    try {
+      const bundle = await fetchStixBundle({ entity: state.entity, type: state.entityType });
+      const json = JSON.stringify(bundle, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `cerberus-stix-${state.entity}-${Date.now()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("STIX export failed:", err);
+    } finally {
+      setStixBusy(false);
     }
   };
 
@@ -202,22 +254,40 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, collapsed,
 
       {collapsed ? null : <>
       <div className="px-4 pt-3 flex flex-col gap-2">
-        <button
-          type="button"
-          disabled={!canExport || pdfBusy}
-          onClick={handleExportPdf}
-          className={cn(
-            "w-full rounded-lg border px-3 py-2 text-xs font-mono transition-all",
-            canExport && !pdfBusy
-              ? "border-primary/25 bg-primary/10 text-primary hover:bg-primary/15"
-              : "border-border bg-surface-raised text-muted-foreground"
-          )}
-        >
-          <span className="flex items-center justify-center gap-2">
-            <Download className="h-3.5 w-3.5" />
-            {pdfBusy ? "Generating PDF..." : "Export PDF Report"}
-          </span>
-        </button>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={!canExport || pdfBusy}
+            onClick={handleExportPdf}
+            className={cn(
+              "flex-1 rounded-lg border px-3 py-2 text-xs font-mono transition-all",
+              canExport && !pdfBusy
+                ? "border-primary/25 bg-primary/10 text-primary hover:bg-primary/15"
+                : "border-border bg-surface-raised text-muted-foreground"
+            )}
+          >
+            <span className="flex items-center justify-center gap-2">
+              <Download className="h-3.5 w-3.5" />
+              {pdfBusy ? "Generating..." : "PDF Report"}
+            </span>
+          </button>
+          <button
+            type="button"
+            disabled={!canExport || stixBusy}
+            onClick={handleExportStix}
+            className={cn(
+              "flex-1 rounded-lg border px-3 py-2 text-xs font-mono transition-all",
+              canExport && !stixBusy
+                ? "border-primary/25 bg-primary/10 text-primary hover:bg-primary/15"
+                : "border-border bg-surface-raised text-muted-foreground"
+            )}
+          >
+            <span className="flex items-center justify-center gap-2">
+              <Shield className="h-3.5 w-3.5" />
+              {stixBusy ? "Exporting..." : "STIX Bundle"}
+            </span>
+          </button>
+        </div>
 
         {/* Audience mode toggle — switches between full technical detail and executive summary */}
         <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-raised/30 p-0.5">
@@ -330,6 +400,38 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, collapsed,
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* External enrichment intel — VirusTotal / HIBP highlights */}
+              {state.status === "complete" && (enrichLoading || enrichments.length > 0) && (
+                <div className="p-3 rounded-lg bg-surface-raised/40 border border-border/50">
+                  <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1.5 mb-2">
+                    <Globe className="h-3 w-3 text-primary" />
+                    External Intelligence
+                  </p>
+                  {enrichLoading ? (
+                    <p className="text-[11px] font-mono text-muted-foreground animate-pulse">Querying threat feeds...</p>
+                  ) : (
+                    enrichments.map((e) => (
+                      <div key={e.source} className="mb-2 last:mb-0">
+                        <p className="text-[10px] font-mono text-primary/70 uppercase mb-1 flex items-center gap-1">
+                          {e.source}
+                          {e.simulated && (
+                            <span className="text-[8px] px-1 py-0.5 rounded bg-muted/30 text-muted-foreground normal-case">simulated</span>
+                          )}
+                        </p>
+                        <ul className="space-y-0.5">
+                          {e.highlights.map((h, i) => (
+                            <li key={i} className="text-[11px] font-mono text-foreground/80 flex items-start gap-1.5">
+                              <span className="text-primary/40 mt-0.5">▸</span>
+                              {h}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
 
