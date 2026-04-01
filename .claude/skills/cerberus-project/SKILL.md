@@ -199,7 +199,7 @@ ANALYZE, with a cloud-download icon. Only lights up when enrichment is triggered
 
 ### Comparison / Demo
 
-- **US-15: Split-screen comparison** — As a demo viewer, I can see a side-by-side of Cerberus's multi-domain graph vs `npm audit` output for the same package — making it viscerally clear that single-surface tools miss cross-domain attack chains.
+- **US-15 (backend retained, UI removed):** Multi-entity comparison still exists at `POST /api/demo/compare`, but the split-screen comparison UI was removed from the frontend. Prefer cross-domain narrative + graph + MITRE heatmap for demos.
 
 ## Critical Gotchas
 
@@ -229,7 +229,7 @@ CERBERUS_API=http://localhost:8000
 
 ## Backend API (FastAPI)
 
-### Endpoints
+### Endpoints (core + commonly used)
 
 | Method | Path | Purpose |
 |--------|------|---------|
@@ -239,14 +239,27 @@ CERBERUS_API=http://localhost:8000
 | GET | `/api/query/stream` | SSE streaming version of query endpoint |
 | POST | `/api/confirm` | Analyst confirms threat pattern → write-back (returns count + message) |
 | GET | `/api/query/graph` | Force-directed graph data (nodes + edges) for vis |
-| POST | `/api/demo/natural` | NLP entity extraction from free-text |
-| POST | `/api/demo/compare` | Multi-entity comparison (side-by-side) |
-| GET | `/api/demo/feed` | Synthetic fraud event stream |
-| POST | `/api/demo/feed/ingest` | Upsert fraud signals into graph |
+| GET | `/api/memory` | Confirmed-threat subgraph |
+| GET | `/api/memory/geo` | Geo points for memorized entities |
+| GET | `/api/memory/expand` | Expand a node in memory graph |
+| POST | `/api/demo/natural` | NLP entity extraction (optional; QueryPanel NLP block removed) |
+| POST | `/api/demo/compare` | Multi-entity comparison (optional; UI removed) |
 | POST | `/api/juspay/ingest` | Ingest normalized Juspay-style fraud signals |
-| GET | `/api/juspay/signals` | Summarize FraudSignal layer (counts, actor links, recent) |
+| GET | `/api/juspay/signals` | Fraud signal summary (cross-domain alerts in QueryPanel) |
 | GET | `/api/demo/map` | Geo-IP map data (lat/lng points) |
 | GET | `/api/demo/report` | Full investigation report (Juspay summary) |
+| POST | `/api/threatmap` | AI threat map SVG (not in main narrative UI) |
+| GET | `/api/threat-score` | Graph-based risk score |
+| GET | `/api/blast-radius` | Reachable entities |
+| GET | `/api/shortest-path` | Path between two entities |
+| GET | `/api/suggestions` | Next-step suggestions |
+| GET | `/api/stix/bundle` | STIX 2.1 bundle |
+| POST | `/api/diff/compare` | Compare two entity graphs |
+| GET | `/api/enrich/*` | VT / HIBP / summary enrichment |
+| POST | `/api/auth/login` | Demo JWT |
+| * | `/api/keys/*` | API key management |
+
+See `backend/main.py` for the authoritative router list.
 
 ### Query Pipeline Flow
 
@@ -285,7 +298,7 @@ Return response
 | `backend/models.py` | Pydantic models: EntityType, QueryRequest, ConfirmRequest |
 | `backend/routes/query.py` | POST /api/query + GET /api/query/stream (enrichment + rocketride fallback) |
 | `backend/routes/confirm.py` | POST /api/confirm (returns confirmed count + message) |
-| `backend/routes/demo.py` | Demo APIs: NLP, comparison, feed, map, report |
+| `backend/routes/demo.py` | Demo APIs: NLP, comparison, map, report |
 
 ## RocketRide Pipeline Definitions
 
@@ -333,14 +346,17 @@ Pipeline stages rendered in UI: `input → ner → classify → route → traver
 
 | Panel | Features |
 |-------|---------|
-| `QueryPanel` | Entity input with auto-detected type badge, NLP mode, live fraud feed, quick-start buttons |
-| `NarrativePanel` | Streaming text animation, confirm button, PDF export, comparison mode |
-| `GraphPanel` | Force-directed graph (react-force-graph-2d), custom node/link painters, legends |
-| `ThreatMap` | Standalone geo threat map view (separate from GraphPanel) |
+| `QueryPanel` | Entity input with auto-detected type badge, cross-domain fraud alerts (`/api/juspay/signals`), investigation history, quick-start buttons (NLP block and live feed tab removed) |
+| `NarrativePanel` | Streaming text, Technical/Executive modes, IOC extraction (copy/CSV), confirm, PDF (comparison + threat map buttons removed) |
+| `GraphPanel` | Force-directed graph (react-force-graph-2d), attack-path stepper, legends (3D tab removed from nav) |
+| `ThreatMap` | Geomap tab: zoom, actor offsets |
+| `MitreHeatmapPanel` | MITRE tactic heatmap from current investigation graph |
+| `MemoryPanel` | Confirmed-threat subgraph + expand |
+| `TimelinePanel` | Session / investigation timeline |
 
 ### API Client (api.ts)
 
-Typed functions include: `queryEntity()`, `queryEntityStream()`, `confirmEntity()`, `fetchGraph()`, `fetchSchema()`, `parseNaturalLanguage()`, `compareEntities()`, `fetchLiveFeed()`, `ingestFeedEvent()`, `fetchGeoMap()`, `fetchReport()`, `generateThreatMap()`.
+Typed functions include: `queryEntity()`, `queryEntityStream()`, `confirmEntity()`, `fetchGraph()`, `fetchSchema()`, `fetchGeoMap()`, `fetchReport()`, `fetchMemory()`, `fetchMemoryGeo()`, `expandMemoryNode()`, `fetchThreatScore()`, `fetchBlastRadius()`, `fetchShortestPath()`, `fetchSuggestions()`, plus health helpers. Removed from typical UI flows: live feed, NLP parse, compare, `generateThreatMap`.
 
 Base URL uses `VITE_API_URL` when provided, otherwise defaults to `http://localhost:8000`. In unified Docker builds, `VITE_API_URL=""` makes all frontend API calls same-origin (`/api/...`).
 

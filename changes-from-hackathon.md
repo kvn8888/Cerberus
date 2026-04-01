@@ -105,7 +105,7 @@ These were removed to reduce demo confusion, dead UI, or duplicate flows:
 | **Attack path stepper** | `GraphPanel` + `lib/attackPath.ts`: BFS order from investigation root; Prev/Next; cyan highlight on active node. |
 | **Technical / Executive** | `NarrativePanel`: Executive shows risk summary + key finding + recommended action; Technical shows full markdown narrative. |
 | **Geomap** | Tighter actor offsets, auto zoom-to-fit, +/- / Reset zoom (see recent ThreatMap commits). |
-| **Backend (additive)** | Examples: `routes/stix.py` (STIX bundle), `routes/diff.py` (graph compare), `routes/enrichment.py` (VirusTotal/HIBP-style enrichment with simulated fallback), `auth.py` + `routes/auth_routes.py` + `routes/apikeys.py` (JWT demo users + API keys). |
+| **Backend (additive)** | Examples: `routes/stix.py` (`GET /api/stix/bundle`), `routes/diff.py` (`POST /api/diff/compare`), `routes/enrichment.py` (`GET /api/enrich/*` — VT/HIBP/summary with simulated fallback), `auth.py` + `routes/auth_routes.py` (`POST /api/auth/login`), `routes/apikeys.py` (`/api/keys/*`), `main.py` memory routes (`/api/memory`, `/api/memory/geo`, `/api/memory/expand`). |
 | **Session timeline** | `TimelinePanel` at bottom of center column; `useInvestigation` history for replay. |
 | **Investigation history** | `QueryPanel` localStorage recent list (may overlap with timeline; both support quick re-run). |
 

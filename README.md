@@ -70,9 +70,9 @@ Cerberus is a thoughtful security agent that eliminates the 4-hour manual graph-
 ┌─────────────────────────────────────────────────────────────────┐
 │                      FRONTEND                                   │
 │  React + Tailwind + shadcn/ui                                   │
-│  ├── Query panel (entity input, NLP, live fraud feed)           │
-│  ├── Graph visualization (force-directed + geo IP map)          │
-│  ├── Streaming AI narrative panel (SSE)                         │
+│  ├── Query panel (entity search, cross-domain alerts, history)    │
+│  ├── Center views: Threat Graph, Geomap, MITRE heatmap, Memory    │
+│  ├── Streaming AI narrative panel (SSE; Technical / Executive)   │
 │  └── Pipeline stage indicator (visible agent reasoning)         │
 └─────────────────────────────────────────────────────────────────┘
 ```
@@ -97,16 +97,20 @@ Cerberus is a thoughtful security agent that eliminates the 4-hour manual graph-
 - **Progressive improvement** — Phase 1 (empty, ~8s) → Phase 2 (seeded, ~5s) → Phase 3 (confirmed, ~2s)
 
 ### Graph Visualization
-- **Force-directed graph** — Color-coded nodes (Package=blue, CVE=red, IP=orange, ThreatActor=purple, etc.)
-- **Geo IP map** — Geographic visualization of IP locations with threat actor associations
+- **Force-directed graph (2D)** — Color-coded nodes (Package=blue, CVE=red, IP=orange, ThreatActor=purple, etc.); **attack-path stepper** walks the shortest path from the investigation root
+- **Geo IP map** — Dedicated Geomap tab: zoom controls, actor offsets, fraud/cyber points
+- **MITRE heatmap** — Tactic coverage from `Technique` nodes in the current investigation graph
+- **Memory** — Confirmed-threat subgraph with expand-to-neighbors (`/api/memory`)
 - **Synthetic edge distinction** — Dashed edges mark simulated connections (e.g., Account→IP links)
 
-### Demo Features
-- **Live fraud feed** — Simulated Juspay fraud signals with one-click ingest + investigate
-- **Natural language queries** — Type "is lodash safe?" instead of selecting entity types
-- **Multi-entity comparison** — Compare up to 4 entities side-by-side
+### Demo / analyst features
+- **Cross-domain alerts** — Sidebar block uses `/api/juspay/signals` with actor context (cyber ↔ fraud overlap)
+- **IOC extraction** — IPs, CVEs, domains, packages from graph + narrative; copy-all and CSV
+- **Technical / Executive** — Executive mode surfaces risk summary and recommended actions
 - **PDF export** — Generate a full investigation report
-- **AI threat map** — Claude-generated SVG threat visualization
+- **Session timeline** — Bottom timeline for investigation stages and replay
+
+**Removed from the main UI** (see [changes-from-hackathon.md](changes-from-hackathon.md)): Live Feed tab, 3D Graph tab, QueryPanel NLP block, multi-entity comparison UI, and in-app AI threat map generation. Backend routes such as `POST /api/demo/natural`, `POST /api/demo/compare`, and `POST /api/threatmap` may still exist for tools or future use.
 
 ---
 
@@ -296,17 +300,44 @@ The unified container runs nginx (serving the React build) + uvicorn (FastAPI) o
 | `GET` | `/api/query/graph` | Graph nodes + links for visualization |
 | `POST` | `/api/confirm` | Analyst confirms a threat pattern (self-improvement write-back) |
 
-### Demo Endpoints
+### Demo & Juspay
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/demo/natural` | Parse natural language to entity + type |
-| `POST` | `/api/demo/compare` | Multi-entity comparison (2-4 entities) |
-| `GET` | `/api/demo/feed` | Synthetic Juspay fraud events |
-| `POST` | `/api/demo/feed/ingest` | Ingest a fraud signal into Neo4j |
+| `POST` | `/api/demo/natural` | Parse natural language to entities (optional; UI block removed) |
+| `POST` | `/api/demo/compare` | Multi-entity comparison (optional; comparison UI removed) |
 | `GET` | `/api/demo/map` | Geo-IP coordinates for an entity |
 | `GET` | `/api/demo/report` | Full PDF-ready investigation report |
-| `POST` | `/api/threatmap` | AI-generated threat map SVG |
+| `POST` | `/api/threatmap` | AI-generated threat map SVG (not wired in main narrative UI) |
+| `POST` | `/api/juspay/ingest` | Ingest normalized fraud signals |
+| `GET` | `/api/juspay/signals` | Fraud signal summary (cross-domain alerts block) |
+
+### Memory & intelligence
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/memory` | Confirmed-threat subgraph |
+| `GET` | `/api/memory/geo` | Geo points for memorized entities |
+| `GET` | `/api/memory/expand` | Expand a node in the memory graph |
+| `GET` | `/api/threat-score` | Graph-based risk score |
+| `GET` | `/api/blast-radius` | Reachable entities (4 hops) |
+| `GET` | `/api/shortest-path` | Shortest path between two entities |
+| `GET` | `/api/suggestions` | Suggested next investigations |
+
+### STIX, diff, enrichment, auth
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/stix/bundle` | STIX 2.1 bundle for an entity |
+| `GET` | `/api/stix/indicator-count` | Indicator counts by type |
+| `POST` | `/api/diff/compare` | Structural diff between two entity graphs |
+| `GET` | `/api/enrich/virustotal` | VT-style reputation (simulated if no key) |
+| `GET` | `/api/enrich/hibp` | Breach lookup for email |
+| `GET` | `/api/enrich/summary` | Unified enrichment summary |
+| `POST` | `/api/auth/login` | Demo JWT login |
+| `GET` | `/api/auth/me` | Current user (with token) |
+| `POST` | `/api/keys/create` | Create API key (role-gated) |
+| `GET` | `/api/keys` | List API keys |
 
 ### Query Flow
 
@@ -331,14 +362,16 @@ POST /api/query  { entity: "ua-parser-js", type: "package" }
 
 ## Frontend
 
-The frontend is a three-column React dashboard:
+The frontend is a three-column React dashboard: **QueryPanel** (left), **center column** (view tabs + timeline), **NarrativePanel** (right).
 
-| Panel | Purpose |
-|-------|---------|
-| **QueryPanel** (left) | Entity search, type selector, NLP input, example entities, live fraud feed |
-| **GraphPanel** (center) | Force-directed threat graph with toggle to geo IP map |
-| **NarrativePanel** (right) | Streaming AI narrative, confirm button, PDF export, threat map, comparison |
-| **PipelineStages** (top bar) | 9-stage progress indicator showing agent reasoning |
+| Area | Purpose |
+|------|---------|
+| **QueryPanel** (left) | Entity search, type detection, cross-domain alerts, investigation history, quick-start entities |
+| **ViewNav** (center top) | Tabs: Threat Graph, Geomap, MITRE, Memory |
+| **GraphPanel / ThreatMap / MitreHeatmapPanel / MemoryPanel** | Respective visualizations; Graph includes attack-path controls |
+| **TimelinePanel** (center bottom) | Session timeline / replay |
+| **NarrativePanel** (right) | Streaming narrative, Technical/Executive toggle, IOC table, confirm, PDF |
+| **PipelineStages** (top bar) | 9-stage progress indicator |
 | **Header** | Brand, commit hash, backend + RocketRide connection status |
 
 ### Key Frontend Files
@@ -346,12 +379,15 @@ The frontend is a three-column React dashboard:
 | File | Purpose |
 |------|---------|
 | `src/App.tsx` | Root layout, state management, panel composition |
-| `src/hooks/useInvestigation.ts` | SSE stream state machine (idle → running → complete) |
-| `src/lib/api.ts` | 12 typed API client functions |
-| `src/types/api.ts` | TypeScript types for all API contracts |
-| `src/components/panels/QueryPanel.tsx` | Investigation input + live fraud feed |
-| `src/components/panels/GraphPanel.tsx` | Force-directed graph + geo map |
-| `src/components/panels/NarrativePanel.tsx` | Streaming narrative + analysis tools |
+| `src/hooks/useInvestigation.ts` | SSE stream state machine + investigation history |
+| `src/lib/api.ts` | Typed API client (query, graph, geo, report, memory, intelligence helpers, etc.) |
+| `src/lib/iocExtract.ts` | IOC parsing from narrative + graph |
+| `src/lib/attackPath.ts` | Attack path ordering and navigation |
+| `src/lib/mitreTactics.ts` | MITRE tactic metadata for heatmap |
+| `src/types/api.ts` | TypeScript types for API contracts |
+| `src/components/panels/QueryPanel.tsx` | Investigation input + cross-domain block |
+| `src/components/panels/GraphPanel.tsx` | 2D graph + attack path stepper |
+| `src/components/panels/NarrativePanel.tsx` | Streaming narrative, IOCs, modes |
 | `src/components/panels/PipelineStages.tsx` | Pipeline stage visualization |
 
 ---
@@ -438,10 +474,16 @@ Cerberus/
 │   └── routes/
 │       ├── query.py           # Investigation endpoints (POST + SSE stream)
 │       ├── confirm.py         # Analyst confirmation endpoint
-│       ├── demo.py            # Demo APIs (NLP, compare, feed, map, report)
+│       ├── demo.py            # Demo APIs (NLP, compare, map, report)
 │       ├── ingest.py          # Entity ingestion pipeline
 │       ├── threatmap.py       # AI-generated threat map SVG
-│       └── juspay.py          # Juspay financial integration
+│       ├── juspay.py          # Juspay financial integration
+│       ├── intelligence.py    # threat-score, blast-radius, shortest-path, suggestions
+│       ├── stix.py            # STIX bundle export
+│       ├── diff.py            # Graph diff between two entities
+│       ├── enrichment.py      # VT / HIBP / summary enrichment
+│       ├── auth_routes.py     # Login / session
+│       └── apikeys.py         # API key CRUD
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx            # Root component + layout
@@ -450,7 +492,7 @@ Cerberus/
 │   │   ├── types/             # TypeScript type definitions
 │   │   └── components/
 │   │       ├── layout/        # Header
-│   │       ├── panels/        # QueryPanel, GraphPanel, NarrativePanel, PipelineStages
+│   │       ├── panels/        # Query, Graph, Narrative, MITRE, Memory, Timeline, etc.
 │   │       └── ui/            # shadcn/ui primitives
 │   └── vite.config.ts         # Vite build config (injects git commit hash)
 ├── pipelines/                 # RocketRide pipeline definitions (.pipe files)
