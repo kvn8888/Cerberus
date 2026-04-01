@@ -533,6 +533,33 @@ export function GraphPanel({ state }: GraphPanelProps) {
         </div>
       )}
 
+      {/* Attack path stepper — walk the kill chain from the investigation root */}
+      {hasGraph && attackPathOrder.length > 0 && (
+        <div className="absolute bottom-14 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-2 rounded-lg bg-surface/95 backdrop-blur-md border border-primary/25 shadow-lg">
+          <Route className="h-3.5 w-3.5 text-primary flex-shrink-0" />
+          <span className="text-[10px] font-mono text-muted-foreground uppercase">Attack path</span>
+          <button
+            type="button"
+            disabled={attackStepIndex <= 0}
+            onClick={() => setAttackStepIndex((i) => Math.max(0, i - 1))}
+            className="p-1 rounded hover:bg-primary/10 disabled:opacity-30"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+          <span className="text-[11px] font-mono text-foreground min-w-[120px] text-center">
+            {attackStepIndex + 1} / {attackPathOrder.length}
+          </span>
+          <button
+            type="button"
+            disabled={attackStepIndex >= attackPathOrder.length - 1}
+            onClick={() => setAttackStepIndex((i) => Math.min(attackPathOrder.length - 1, i + 1))}
+            className="p-1 rounded hover:bg-primary/10 disabled:opacity-30"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* ── Minimap overview ────────────────────────────── */}
       {hasGraph && <GraphMinimap graphData={filteredGraphData} />}
 

@@ -23,10 +23,13 @@ import {
   Crosshair,
   ArrowRight,
   Users,
+  Copy,
+  Table2,
 } from "lucide-react";
 import type { InvestigationState, EntityType } from "../../types/api";
 import { confirmEntity, fetchReport } from "../../lib/api";
 import { cn } from "../../lib/utils";
+import { mergeIOCs, iocsToCsv, type IocRow } from "../../lib/iocExtract";
 import { ThreatReportPdf } from "../report/ThreatReportPdf";
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -72,6 +75,11 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
   useEffect(() => {
     setConfirmed(false);
   }, [state.entity]);
+
+  const extractedIocs = useMemo(
+    () => mergeIOCs(state.graphData, state.narrative || ""),
+    [state.graphData, state.narrative]
+  );
 
   const canExport = useMemo(
     () => state.status === "complete" && !!state.entity,
