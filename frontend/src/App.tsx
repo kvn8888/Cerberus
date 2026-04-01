@@ -21,7 +21,7 @@ import { NarrativePanel } from "./components/panels/NarrativePanel";
 import { useInvestigation } from "./hooks/useInvestigation";
 
 function App() {
-  const { state, investigate } = useInvestigation();
+  const { state, investigate, setAudienceMode } = useInvestigation();
   const [centerView, setCenterView] = useState<CenterView>("geomap");
 
   /* Bumped by NarrativePanel after a successful "Save to Memory" so
@@ -48,6 +48,7 @@ function App() {
           <QueryPanel
             onInvestigate={investigate}
             isRunning={state.status === "running"}
+            investigationState={state}
           />
         </aside>
 
@@ -69,7 +70,12 @@ function App() {
         </section>
 
         <aside className="w-96 flex-shrink-0 border-l border-border bg-surface/40 backdrop-blur-sm overflow-hidden">
-          <NarrativePanel state={state} onMemorySaved={onMemorySaved} />
+          <NarrativePanel
+            state={state}
+            onMemorySaved={onMemorySaved}
+            onInvestigate={investigate}
+            onAudienceModeChange={setAudienceMode}
+          />
         </aside>
       </main>
     </div>

@@ -235,6 +235,60 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, onAudience
                 )}
               </div>
 
+              {/* Threat Score detail card */}
+              {state.threatScore && (
+                <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Threat Score</span>
+                    <span className={cn("text-lg font-bold font-mono", SEVERITY_SCORE_COLORS[state.threatScore.severity])}>
+                      {state.threatScore.score}
+                    </span>
+                  </div>
+                  {/* Score bar */}
+                  <div className="w-full h-1.5 rounded-full bg-surface-raised overflow-hidden mb-2">
+                    <div
+                      className={cn("h-full rounded-full transition-all duration-1000", {
+                        "bg-threat-critical": state.threatScore.severity === "critical",
+                        "bg-threat-high": state.threatScore.severity === "high",
+                        "bg-threat-medium": state.threatScore.severity === "medium",
+                        "bg-success": state.threatScore.severity === "low",
+                        "bg-muted-foreground": state.threatScore.severity === "info",
+                      })}
+                      style={{ width: `${state.threatScore.score}%` }}
+                    />
+                  </div>
+                  {/* Factors */}
+                  <div className="space-y-1">
+                    {state.threatScore.factors.slice(0, 4).map((f, i) => (
+                      <p key={i} className="text-[10px] font-mono text-muted-foreground/70 flex items-center gap-1.5">
+                        <span className="w-1 h-1 rounded-full bg-primary/40" />
+                        {f}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Blast Radius breakdown */}
+              {state.blastRadius && state.blastRadius.total > 0 && (
+                <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <Crosshair className="h-3 w-3 text-threat-high" />
+                      Blast Radius
+                    </span>
+                    <span className="text-sm font-bold font-mono text-threat-high">{state.blastRadius.total} entities</span>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Object.entries(state.blastRadius.by_type).map(([type, count]) => (
+                      <span key={type} className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-surface-raised border border-border/40 text-muted-foreground">
+                        {type}: {count}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {/* Narrative text with markdown rendering */}
               <div className="relative">
                 <div className="absolute left-0 top-0 bottom-0 w-px bg-primary/15" />
@@ -278,6 +332,37 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate, onAudience
         )}
 
       </div>
+
+      {/* ── Investigate Next suggestions ────────────────────── */}
+      {state.status === "complete" && state.suggestions && state.suggestions.length > 0 && (
+        <div className="px-4 pb-3 border-t border-border/50">
+          <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider pt-3 pb-2 flex items-center gap-1.5">
+            <ArrowRight className="h-3 w-3 text-primary" />
+            Investigate Next
+          </p>
+          <div className="space-y-1">
+            {state.suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => onInvestigate?.(s.entity, s.type as EntityType)}
+                className="w-full text-left px-3 py-2 rounded-md text-xs font-mono group bg-surface-raised/30 hover:bg-primary/8 hover:text-primary border border-transparent hover:border-primary/15 transition-all duration-200"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-foreground/80 group-hover:text-primary transition-colors truncate">
+                    {s.entity}
+                  </span>
+                  <span className="text-[9px] text-muted-foreground/50 ml-2 flex-shrink-0">
+                    {s.connections} links
+                  </span>
+                </div>
+                <span className="text-muted-foreground/40 text-[10px] block mt-0.5">
+                  {s.reason}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Memory save — shown when complete with paths, hidden if already memorized ── */}
       {state.status === "complete" && state.pathsFound > 0 && (
