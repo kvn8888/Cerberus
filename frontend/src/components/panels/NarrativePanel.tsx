@@ -29,7 +29,7 @@ import {
 import type { InvestigationState, EntityType } from "../../types/api";
 import { confirmEntity, fetchReport } from "../../lib/api";
 import { cn } from "../../lib/utils";
-import { mergeIOCs, iocsToCsv, type IocRow } from "../../lib/iocExtract";
+import { mergeIOCs, iocsToCsv } from "../../lib/iocExtract";
 import { ThreatReportPdf } from "../report/ThreatReportPdf";
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -256,6 +256,57 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
                   </span>
                 )}
               </div>
+
+              {/* Extracted IOCs — copy / CSV for firewalls & SIEM */}
+              {state.status === "complete" && extractedIocs.length > 0 && (
+                <div className="p-3 rounded-lg bg-surface-raised/40 border border-border/50">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                      <Table2 className="h-3 w-3 text-primary" />
+                      Extracted IOCs ({extractedIocs.length})
+                    </p>
+                    <div className="flex gap-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const lines = extractedIocs.map((r) => r.value);
+                          void navigator.clipboard.writeText(lines.join("\n"));
+                        }}
+                        className="px-2 py-0.5 rounded text-[9px] font-mono border border-border/60 hover:bg-primary/10 hover:border-primary/30 transition-colors flex items-center gap-1"
+                      >
+                        <Copy className="h-2.5 w-2.5" /> Copy all
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const blob = new Blob([iocsToCsv(extractedIocs)], { type: "text/csv" });
+                          const url = URL.createObjectURL(blob);
+                          const a = document.createElement("a");
+                          a.href = url;
+                          a.download = `cerberus-iocs-${state.entity}-${Date.now()}.csv`;
+                          a.click();
+                          URL.revokeObjectURL(url);
+                        }}
+                        className="px-2 py-0.5 rounded text-[9px] font-mono border border-border/60 hover:bg-primary/10 hover:border-primary/30 transition-colors"
+                      >
+                        CSV
+                      </button>
+                    </div>
+                  </div>
+                  <div className="max-h-36 overflow-y-auto space-y-1">
+                    {extractedIocs.map((row, i) => (
+                      <div
+                        key={`${row.type}-${row.value}-${i}`}
+                        className="flex items-center justify-between gap-2 text-[10px] font-mono px-2 py-1 rounded bg-surface/50 border border-border/30"
+                      >
+                        <span className="text-muted-foreground/70 uppercase w-14 flex-shrink-0">{row.type}</span>
+                        <span className="text-foreground truncate flex-1">{row.value}</span>
+                        <span className="text-muted-foreground/40 w-16 text-right flex-shrink-0">{row.source}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {viewMode === "executive" ? (
                 /* ── EXECUTIVE VIEW — clean summary for leadership ── */
