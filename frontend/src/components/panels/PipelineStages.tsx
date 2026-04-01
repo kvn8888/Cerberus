@@ -105,7 +105,7 @@ export function PipelineStages({
   const showRouteInfo = Boolean(routeInfo) && currentIdx >= routeIdx;
 
   return (
-    <div className="px-6 py-3 border-b border-border bg-surface/50 backdrop-blur-sm relative overflow-hidden">
+    <div className="px-6 py-3 border-b border-border bg-surface/50 backdrop-blur-sm relative overflow-x-auto overflow-y-hidden">
       {/* Subtle ambient glow behind active area */}
       {isRunning && (
         <div
@@ -116,7 +116,7 @@ export function PipelineStages({
         />
       )}
 
-      <div className="flex items-center justify-between max-w-5xl mx-auto relative z-10">
+      <div className="flex items-center justify-between min-w-max relative z-10">
         {STAGES.map((stage, idx) => {
           const Icon = stage.icon;
           const isComplete = idx < currentIdx;

@@ -39,17 +39,7 @@ export function MitreHeatmapPanel({ state }: { state: InvestigationState }) {
 
   return (
     <div className="relative h-full w-full overflow-hidden grid-bg flex flex-col">
-      <div className="absolute top-3 left-3 z-20 flex items-center gap-2 px-3 py-2 rounded-lg border border-border/60 bg-surface/90">
-        <Grid3x3 className="h-4 w-4 text-primary" />
-        <div>
-          <p className="text-xs font-semibold text-foreground uppercase tracking-wider">MITRE ATT&CK</p>
-          <p className="text-[10px] font-mono text-muted-foreground">
-            {hasData ? `${total} technique${total === 1 ? "" : "s"} mapped to tactics` : "Run an investigation with Technique nodes"}
-          </p>
-        </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-4 pt-20">
+      <div className="flex-1 overflow-y-auto p-4 pt-14">
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 max-w-5xl mx-auto">
           {MITRE_TACTICS_ORDER.map((tactic) => {
             const c = counts.get(tactic) ?? 0;
