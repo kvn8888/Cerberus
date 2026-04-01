@@ -18,6 +18,10 @@ from routes.ingest import router as ingest_router
 from routes.threatmap import router as threatmap_router
 from routes.juspay import router as juspay_router
 from routes.intelligence import router as intelligence_router
+from routes.auth_routes import router as auth_router
+from routes.apikeys import router as apikeys_router
+from routes.stix import router as stix_router
+from routes.diff import router as diff_router
 
 
 @asynccontextmanager
@@ -67,6 +71,10 @@ app.include_router(ingest_router)
 app.include_router(threatmap_router)
 app.include_router(juspay_router)
 app.include_router(intelligence_router)
+app.include_router(stix_router)
+app.include_router(diff_router)
+app.include_router(auth_router)
+app.include_router(apikeys_router)
 
 
 @app.get("/health")

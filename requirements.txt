@@ -17,6 +17,9 @@ rocketride==1.0.6
 # GMI Cloud image generation (OpenAI-compatible)
 openai
 
+# Auth (JWT)
+PyJWT==2.11.0
+
 # Data import scripts
 requests==2.31.0
 stix2==3.0.1
