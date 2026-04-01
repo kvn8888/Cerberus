@@ -34,6 +34,7 @@ import enrich
 from models import EntityType, QueryRequest
 
 router = APIRouter(prefix="/api/query")
+_CACHE_CHECK_TIMEOUT_SECONDS = 5.0
 
 
 def _route_info(entity_type: str) -> dict[str, object]:
@@ -89,7 +90,7 @@ async def query(req: QueryRequest):
         raise HTTPException(status_code=400, detail="entity must not be empty")
 
     # ── 1. Cache check ────────────────────────────────────────────────────────
-    cached = await asyncio.to_thread(db.cache_check, entity, entity_type)
+    cached = await _cache_check_with_timeout(entity, entity_type)
     if cached:
         # Return cached path without calling LLM.
         # Narrative is stored on the ThreatActor node after first confirm.
@@ -207,7 +208,7 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
         # Cache check
         yield f"data: {json.dumps({'stage': 'route'})}\n\n"
         yield f"data: {json.dumps({'route_info': _route_info(entity_type)})}\n\n"
-        cached = await asyncio.to_thread(db.cache_check, entity, entity_type)
+        cached = await _cache_check_with_timeout(entity, entity_type)
         if cached:
             narrative = _extract_cached_narrative(cached) or (
                 f"[CACHED] Confirmed threat path for {entity}. LLM skipped."
@@ -373,6 +374,17 @@ def _extract_cached_narrative(cached: list[dict]) -> str | None:
         if isinstance(narrative, str) and narrative:
             return narrative
     return None
+
+
+async def _cache_check_with_timeout(entity: str, entity_type: str) -> list[dict] | None:
+    """Treat a slow cache lookup as a cache miss so the stream can keep moving."""
+    try:
+        return await asyncio.wait_for(
+            asyncio.to_thread(db.cache_check, entity, entity_type),
+            timeout=_CACHE_CHECK_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        return None
 
 
 def _chunk_string(s: str, size: int):

@@ -56,13 +56,16 @@ export async function queryEntity(
  *   // ... read chunks
  */
 export async function queryEntityStream(
-  req: QueryRequest
+  req: QueryRequest,
+  options?: { signal?: AbortSignal }
 ): Promise<Response> {
   const params = new URLSearchParams({
     entity: req.entity,
     type: req.type,
   });
-  const res = await fetch(`${API_BASE}/api/query/stream?${params}`);
+  const res = await fetch(`${API_BASE}/api/query/stream?${params}`, {
+    signal: options?.signal,
+  });
   if (!res.ok) {
     throw new Error(`Stream failed: ${res.status} ${res.statusText}`);
   }
@@ -92,13 +95,16 @@ export async function confirmEntity(
  * force-directed visualization in GraphPanel.
  */
 export async function fetchGraph(
-  req: QueryRequest
+  req: QueryRequest,
+  options?: { signal?: AbortSignal }
 ): Promise<GraphResponse> {
   const params = new URLSearchParams({
     entity: req.entity,
     type: req.type,
   });
-  const res = await fetch(`${API_BASE}/api/query/graph?${params}`);
+  const res = await fetch(`${API_BASE}/api/query/graph?${params}`, {
+    signal: options?.signal,
+  });
   if (!res.ok) {
     throw new Error(`Graph fetch failed: ${res.status} ${res.statusText}`);
   }
@@ -250,4 +256,3 @@ export async function fetchSuggestions(
   if (!res.ok) throw new Error(`Suggestions failed: ${res.status}`);
   return res.json();
 }
-

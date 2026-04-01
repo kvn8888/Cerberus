@@ -238,13 +238,13 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!query.trim() || isRunning) return;
+    if (!query.trim()) return;
     onInvestigate(detected.extracted, detected.type);
   };
 
   const handleExample = (ex: (typeof EXAMPLES)[0]) => {
     setQuery(ex.entity);
-    if (!isRunning) onInvestigate(ex.entity, ex.type);
+    onInvestigate(ex.entity, ex.type);
   };
 
 
@@ -301,11 +301,11 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
 
             <button
               type="submit"
-              disabled={!query.trim() || isRunning}
+              disabled={!query.trim()}
               className={cn(
                 "w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
                 "transition-all duration-300 relative overflow-hidden",
-                !query.trim() || isRunning
+                !query.trim()
                   ? "bg-muted text-muted-foreground cursor-not-allowed"
                   : "bg-primary text-primary-foreground hover:shadow-glow-lg active:scale-[0.97] hover:tracking-wider"
               )}
@@ -313,7 +313,7 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
               {isRunning ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/60 border-t-transparent animate-spin" />
-                  <span className="animate-pulse">Investigating...</span>
+                  <span className="animate-pulse">Restart Investigation</span>
                 </span>
               ) : (
                 "INVESTIGATE"
@@ -332,14 +332,12 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
                   <button
                     key={ex.entity}
                     onClick={() => handleExample(ex)}
-                    disabled={isRunning}
                     className={cn(
                       "w-full text-left px-3 py-2 rounded-md text-xs font-mono group",
                       "bg-surface-raised/30 text-muted-foreground",
                       "hover:bg-primary/8 hover:text-primary",
                       "border border-transparent hover:border-primary/15",
-                      "transition-all duration-300",
-                      "disabled:opacity-40 disabled:cursor-not-allowed"
+                      "transition-all duration-300"
                     )}
                     style={{ animationDelay: `${i * 0.05}s` }}
                   >
@@ -379,16 +377,14 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
                     key={`${h.entity}-${h.timestamp}`}
                     onClick={() => {
                       setQuery(h.entity);
-                      if (!isRunning) onInvestigate(h.entity, h.entityType);
+                      onInvestigate(h.entity, h.entityType);
                     }}
-                    disabled={isRunning}
                 className={cn(
                       "w-full text-left px-3 py-2 rounded-md text-xs font-mono group",
                       "bg-surface-raised/20 text-muted-foreground",
                       "hover:bg-primary/8 hover:text-primary",
                       "border border-transparent hover:border-primary/15",
-                      "transition-all duration-200",
-                      "disabled:opacity-40 disabled:cursor-not-allowed"
+                      "transition-all duration-200"
                     )}
                   >
                     <div className="flex items-center justify-between">
@@ -459,16 +455,14 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
                     key={sig.juspay_id}
                     onClick={() => {
                       setQuery(sig.ip_address);
-                      if (!isRunning) onInvestigate(sig.ip_address, "ip");
+                      onInvestigate(sig.ip_address, "ip");
                     }}
-                    disabled={isRunning}
                     className={cn(
                       "w-full text-left px-3 py-2 rounded-md text-xs font-mono group",
                       "bg-threat-high/5 text-muted-foreground",
                       "hover:bg-threat-high/10 hover:text-threat-high",
                       "border border-transparent hover:border-threat-high/20",
-                      "transition-all duration-300",
-                      "disabled:opacity-40 disabled:cursor-not-allowed"
+                      "transition-all duration-300"
                     )}
                   >
                     <div className="flex items-center justify-between">

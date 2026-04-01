@@ -13,7 +13,7 @@
  *   {"text": string}   — narrative chunk, may arrive many times
  *   "[DONE]"           — terminal string (not JSON)
  */
-import { useState, useCallback, useRef } from "react";
+import { startTransition, useCallback, useRef, useState } from "react";
 import type {
   EntityType,
   PipelineStage,
@@ -49,6 +49,15 @@ export function useInvestigation() {
   /* Ref to allow cancellation if user starts a new query mid-stream */
   const abortRef = useRef<AbortController | null>(null);
 
+  const updateState = useCallback(
+    (updater: (prev: InvestigationState) => InvestigationState) => {
+      startTransition(() => {
+        setState(updater);
+      });
+    },
+    []
+  );
+
   /**
    * Record a completed investigation in the session history.
    * Called inside finalize once the state transitions to "complete".
@@ -71,10 +80,14 @@ export function useInvestigation() {
    * Called on both normal [DONE] and early-exit paths.
    */
   const finalize = useCallback(
-    async (entity: string, entityType: EntityType) => {
+    async (entity: string, entityType: EntityType, signal?: AbortSignal) => {
       try {
-        const graph = await fetchGraph({ entity, type: entityType });
-        setState((prev) => {
+        const graph = await fetchGraph(
+          { entity, type: entityType },
+          { signal }
+        );
+        if (signal?.aborted) return;
+        updateState((prev) => {
           const next = {
             ...prev,
             status: "complete" as const,
@@ -85,7 +98,8 @@ export function useInvestigation() {
           return next;
         });
       } catch {
-        setState((prev) => {
+        if (signal?.aborted) return;
+        updateState((prev) => {
           const next = {
             ...prev,
             status: "complete" as const,
@@ -96,7 +110,7 @@ export function useInvestigation() {
         });
       }
     },
-    [pushHistory]
+    [pushHistory, updateState]
   );
 
   /**
@@ -130,7 +144,10 @@ export function useInvestigation() {
       }));
 
       try {
-        const res = await queryEntityStream({ entity, type: entityType });
+        const res = await queryEntityStream(
+          { entity, type: entityType },
+          { signal: controller.signal }
+        );
 
         if (!res.body) {
           throw new Error("No response body — SSE not supported");
@@ -161,7 +178,7 @@ export function useInvestigation() {
 
             /* Terminal marker — fetch graph then done */
             if (payload === "[DONE]") {
-              await finalize(entity, entityType);
+              await finalize(entity, entityType, controller.signal);
               return;
             }
 
@@ -171,42 +188,42 @@ export function useInvestigation() {
 
               if ("stage" in chunk) {
                 /* Real pipeline stage transition from backend */
-                setState((prev) => ({
+                updateState((prev) => ({
                   ...prev,
                   currentStage: chunk.stage as PipelineStage,
                 }));
               } else if ("route_info" in chunk) {
                 /* Route selection details from backend reasoning */
-                setState((prev) => ({
+                updateState((prev) => ({
                   ...prev,
                   routeInfo: chunk.route_info,
                 }));
               } else if ("paths_found" in chunk) {
                 /* Metadata: path count + cache status */
-                setState((prev) => ({
+                updateState((prev) => ({
                   ...prev,
                   pathsFound: chunk.paths_found,
                   fromCache: chunk.from_cache ?? false,
                 }));
               } else if ("threat_score" in chunk) {
-                setState((prev) => ({
+                updateState((prev) => ({
                   ...prev,
                   threatScore: chunk.threat_score,
                 }));
               } else if ("blast_radius" in chunk) {
-                setState((prev) => ({
+                updateState((prev) => ({
                   ...prev,
                   blastRadius: chunk.blast_radius,
                 }));
               } else if ("suggestions" in chunk) {
-                setState((prev) => ({
+                updateState((prev) => ({
                   ...prev,
                   suggestions: chunk.suggestions,
                 }));
               } else if ("text" in chunk) {
                 /* Narrative text fragment — append to accumulated narrative */
                 accumulated += chunk.text;
-                setState((prev) => ({
+                updateState((prev) => ({
                   ...prev,
                   narrative: accumulated,
                 }));
@@ -218,7 +235,7 @@ export function useInvestigation() {
         }
 
         /* Stream ended without [DONE] — still finalize */
-        await finalize(entity, entityType);
+        await finalize(entity, entityType, controller.signal);
       } catch (err) {
         if (controller.signal.aborted) return;
         setState((prev) => ({
@@ -229,7 +246,7 @@ export function useInvestigation() {
         }));
       }
     },
-    [finalize]
+    [finalize, updateState]
   );
 
   /** Reset everything back to idle */

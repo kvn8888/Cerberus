@@ -128,7 +128,14 @@ def _entity_label(entity_type: str) -> str:
 
 # ── Cache check ───────────────────────────────────────────────────────────────
 
-_CACHE_CHECK_TMPL = """
+_CACHE_CHECK_START_TMPL = """
+MATCH (start:{label} {{{key}: $value}})
+WHERE start:ConfirmedThreat OR start.cached_narrative IS NOT NULL
+RETURN start.cached_narrative AS narrative
+LIMIT 1
+"""
+
+_CACHE_CHECK_PATH_TMPL = """
 MATCH path = shortestPath(
   (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
 )
@@ -141,9 +148,18 @@ def cache_check(entity: str, entity_type: str) -> list[dict] | None:
     entity, entity_type = normalize_entity(entity, entity_type)
     label = _entity_label(entity_type)
     key   = _entity_key(entity_type)
-    cypher = _CACHE_CHECK_TMPL.format(label=label, key=key)
     with _get_driver().session() as s:
-        result = s.run(cypher, value=entity)
+        start_result = s.run(
+            _CACHE_CHECK_START_TMPL.format(label=label, key=key),
+            value=entity,
+        )
+        if start_result.single() is None:
+            return None
+
+        result = s.run(
+            _CACHE_CHECK_PATH_TMPL.format(label=label, key=key),
+            value=entity,
+        )
         records = [r.data() for r in result]
         return records if records else None
 

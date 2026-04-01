@@ -9,7 +9,7 @@
  * The PipelineStages bar sits between the header and main content,
  * showing the agent's progress through each investigation stage.
  */
-import { useCallback, useState } from "react";
+import { startTransition, useCallback, useState } from "react";
 import { Header } from "./components/layout/Header";
 import { ViewNav, type CenterView } from "./components/layout/ViewNav";
 import { QueryPanel } from "./components/panels/QueryPanel";
@@ -35,6 +35,12 @@ function App() {
     setMemoryRefreshKey((k) => k + 1);
   }, []);
 
+  const handleViewChange = useCallback((view: CenterView) => {
+    startTransition(() => {
+      setCenterView(view);
+    });
+  }, []);
+
   return (
     <div className="flex flex-col h-screen overflow-hidden">
       <Header />
@@ -57,7 +63,7 @@ function App() {
         <section className="flex-1 relative">
           <ViewNav
             activeView={centerView}
-            onViewChange={setCenterView}
+            onViewChange={handleViewChange}
             memoryCount={memoryCount}
           />
 

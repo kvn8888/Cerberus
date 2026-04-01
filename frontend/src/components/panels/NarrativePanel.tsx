@@ -7,7 +7,7 @@
  *
  * Implements US-4 (streaming narrative) and US-7 (analyst confirmation).
  */
-import { useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { pdf } from "@react-pdf/renderer";
 import {
@@ -72,13 +72,14 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
   const [confirmed, setConfirmed] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [viewMode, setViewMode] = useState<"technical" | "executive">("technical");
+  const deferredNarrative = useDeferredValue(state.narrative);
   useEffect(() => {
     setConfirmed(false);
   }, [state.entity]);
 
   const extractedIocs = useMemo(
-    () => mergeIOCs(state.graphData, state.narrative || ""),
-    [state.graphData, state.narrative]
+    () => mergeIOCs(state.graphData, deferredNarrative || ""),
+    [state.graphData, deferredNarrative]
   );
 
   const canExport = useMemo(
@@ -233,7 +234,7 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
         )}
 
         {(state.status === "running" || state.status === "complete") &&
-          state.narrative && (
+          deferredNarrative && (
             <div className="space-y-4 animate-fade-in">
               {/* Entity header card */}
               <div className="flex items-center gap-2.5 p-3 rounded-lg bg-surface-raised/50 border border-border/50">
@@ -334,7 +335,7 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
                       Key Finding
                     </p>
                     <p className="text-sm text-foreground/90 leading-relaxed">
-                      {buildExecutiveSummary(state.narrative)}
+                      {buildExecutiveSummary(deferredNarrative)}
                     </p>
                   </div>
 
@@ -436,7 +437,7 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
                         "prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs",
                       )}
                     >
-                      <ReactMarkdown>{state.narrative}</ReactMarkdown>
+                      <ReactMarkdown>{deferredNarrative}</ReactMarkdown>
                       {state.status === "running" && (
                         <span className="inline-flex items-center gap-1 text-primary">
                           <span className="w-1.5 h-4 bg-primary animate-pulse" />
