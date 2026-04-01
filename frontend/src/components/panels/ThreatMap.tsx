@@ -419,7 +419,7 @@ export function ThreatMap({ state }: ThreatMapProps) {
                 id: actorId,
                 name: actor,
                 type: "apt",
-                coordinates: [(pt.lon ?? 0) + 5, (pt.lat ?? 0) + 3],
+                coordinates: [(pt.lon ?? 0) + 1.5, (pt.lat ?? 0) + 1],
                 severity: "critical",
                 region: pt.geo || "Unknown",
                 active: true,
@@ -439,6 +439,9 @@ export function ThreatMap({ state }: ThreatMapProps) {
         }
         setLiveNodes(newNodes);
         setLiveConnections(newConns);
+        if (newNodes.length > 0) {
+          zoomToFitNodes([...THREAT_NODES, ...newNodes]);
+        }
       })
       .catch((err) => console.error("Geo map fetch failed:", err));
 
@@ -665,6 +668,43 @@ export function ThreatMap({ state }: ThreatMapProps) {
         onSelect={(id) => setSelectedNode(id)}
         onClose={() => setSelectedNode(null)}
       />
+
+      {/* Zoom controls */}
+      <div className="absolute top-3 right-[220px] z-20 flex items-center gap-1">
+        <button
+          type="button"
+          onClick={() => setViewBox((vb) => {
+            const cx = vb.x + vb.w / 2;
+            const cy = vb.y + vb.h / 2;
+            const nw = vb.w * 0.75;
+            const nh = vb.h * 0.75;
+            return { x: cx - nw / 2, y: cy - nh / 2, w: nw, h: nh };
+          })}
+          className="px-2 py-1 rounded-md text-[10px] font-mono bg-surface/80 backdrop-blur-md border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewBox((vb) => {
+            const cx = vb.x + vb.w / 2;
+            const cy = vb.y + vb.h / 2;
+            const nw = Math.min(vb.w * 1.33, MAP_W * 2);
+            const nh = Math.min(vb.h * 1.33, MAP_H * 2);
+            return { x: cx - nw / 2, y: cy - nh / 2, w: nw, h: nh };
+          })}
+          className="px-2 py-1 rounded-md text-[10px] font-mono bg-surface/80 backdrop-blur-md border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          −
+        </button>
+        <button
+          type="button"
+          onClick={() => setViewBox({ x: 0, y: 0, w: MAP_W, h: MAP_H })}
+          className="px-2 py-1 rounded-md text-[9px] font-mono bg-surface/80 backdrop-blur-md border border-border/50 text-muted-foreground hover:text-foreground transition-colors"
+        >
+          Reset
+        </button>
+      </div>
 
       {/* Live feed indicator */}
       <div className="absolute bottom-3 right-3 z-20 flex items-center gap-2 px-2.5 py-1.5 rounded-md bg-surface/80 backdrop-blur-md border border-border/50">
