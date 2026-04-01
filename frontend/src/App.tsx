@@ -23,7 +23,7 @@ import { TimelinePanel } from "./components/panels/TimelinePanel";
 import { useInvestigation } from "./hooks/useInvestigation";
 
 function App() {
-  const { state, investigate, setAudienceMode } = useInvestigation();
+  const { state, investigate, setAudienceMode, history } = useInvestigation();
   const [centerView, setCenterView] = useState<CenterView>("geomap");
 
   /* Bumped by NarrativePanel after a successful "Save to Memory" so
@@ -70,6 +70,11 @@ function App() {
               onCountChange={setMemoryCount}
             />
           )}
+
+          <TimelinePanel
+            investigationHistory={history}
+            onReplay={(item) => investigate(item.entity, item.entityType)}
+          />
         </section>
 
         <aside className="w-96 flex-shrink-0 border-l border-border bg-surface/40 backdrop-blur-sm overflow-hidden">
