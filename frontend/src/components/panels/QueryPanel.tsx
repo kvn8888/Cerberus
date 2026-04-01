@@ -166,10 +166,16 @@ interface FraudSignal {
   ip_address: string;
 }
 
+interface ActorLink {
+  actor: string;
+  signal_count: number;
+}
+
 export function QueryPanel({ onInvestigate, isRunning, investigationState }: QueryPanelProps) {
   const [query, setQuery] = useState("");
   const [fraudSignals, setFraudSignals] = useState<FraudSignal[]>([]);
   const [fraudStats, setFraudStats] = useState<{ signals: number; total_amount: number } | null>(null);
+  const [actorLinks, setActorLinks] = useState<ActorLink[]>([]);
 
   /* ── Investigation History (localStorage) ──────────────── */
   const HISTORY_KEY = "cerberus-investigation-history";
@@ -222,6 +228,7 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
         if (!data) return;
         setFraudStats({ signals: data.signals ?? 0, total_amount: data.total_amount ?? 0 });
         setFraudSignals(data.recent_signals ?? []);
+        setActorLinks(data.actor_links ?? []);
       })
       .catch(() => {});
   }, []);
@@ -411,23 +418,38 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
             </div>
           )}
 
-          {/* ── Live Fraud Signals (from Juspay / Neo4j) ───────── */}
+          {/* ── Cross-Domain Alerts (Juspay fraud ↔ cyber threats) ── */}
           {fraudSignals.length > 0 && (
             <div className="pt-2 pb-4">
-              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-2.5 flex items-center gap-1.5">
+              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-1 flex items-center gap-1.5">
                 <AlertTriangle className="h-3 w-3 text-threat-high" />
-                Live Fraud Signals
-                {fraudStats && (
-                  <span className="ml-auto text-threat-high font-bold">
-                    {fraudStats.signals} active
-                  </span>
-                )}
+                Cross-Domain Alerts
               </p>
+              <p className="text-[9px] font-mono text-muted-foreground/50 mb-2.5">
+                IPs shared between cyber attacks & financial fraud
+              </p>
+
+              {/* Actor badges — the "why this matters" at a glance */}
+              {actorLinks.length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
+                  {actorLinks.map((a) => (
+                    <span
+                      key={a.actor}
+                      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[9px] font-mono bg-threat-high/8 text-threat-high/80 border border-threat-high/15"
+                    >
+                      <UserX className="h-2 w-2" />
+                      {a.actor}
+                      <span className="text-threat-high/50">·{a.signal_count}</span>
+                    </span>
+                  ))}
+                </div>
+              )}
+
               {fraudStats && (
                 <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-md bg-threat-high/5 border border-threat-high/15">
                   <DollarSign className="h-3 w-3 text-threat-high" />
                   <span className="text-[10px] font-mono text-threat-high">
-                    ${fraudStats.total_amount.toLocaleString()} flagged
+                    {fraudStats.signals} fraud signals · ${fraudStats.total_amount.toLocaleString()} total
                   </span>
                 </div>
               )}
@@ -450,8 +472,9 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
                     )}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-foreground/80 group-hover:text-threat-high transition-colors">
-                        {sig.juspay_id}
+                      <span className="text-foreground/80 group-hover:text-threat-high transition-colors flex items-center gap-1.5">
+                        <Server className="h-2.5 w-2.5 text-threat-high/60" />
+                        {sig.ip_address}
                       </span>
                       <span className="text-threat-high/70 text-[10px]">
                         ${sig.amount.toLocaleString()}
@@ -459,7 +482,7 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
                     </div>
                     <div className="flex items-center justify-between mt-0.5">
                       <span className="text-muted-foreground/40 text-[10px]">
-                        {sig.type.replace(/_/g, " ")} · {sig.ip_address}
+                        Also seen in {sig.type.replace(/_/g, " ")} fraud
                       </span>
                       <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-all duration-200" />
                     </div>
