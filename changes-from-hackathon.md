@@ -86,8 +86,8 @@ These were removed to reduce demo confusion, dead UI, or duplicate flows:
 |------|--------|
 | **Live Feed tab** | Center-panel tab removed; fraud signals are surfaced in the left sidebar instead. |
 | **3D Graph tab** | Tab removed from `ViewNav` (2D Threat Graph + Geomap + Memory remain). `Graph3DPanel.tsx` may still exist in the tree but is not routed. |
-| **QueryPanel NLP block** | The collapsible “Or describe what you're looking for” natural-language area was removed; the main search bar + entity detection handles input. |
-| **Multi-entity comparison** | Removed from `NarrativePanel` and `compareEntities` from the frontend API client (backend `/api/demo/compare` may still exist). |
+| **QueryPanel NLP block** | The collapsible NLP area was replaced with a toggle button (MessageSquare icon) that switches between direct entity search and natural language mode. |
+| **Multi-entity comparison** | Restored as dedicated `ComparePanel` (5th center tab) using `POST /api/diff/compare`. |
 | **Generate Threat Map (AI)** | Button and `generateThreatMap` client call removed from `NarrativePanel`. |
 | **Unused API helpers** | Removed from `api.ts` where applicable: e.g. `fetchLiveFeed`, `ingestFeedEvent`, `parseNaturalLanguage`, `compareEntities`, `generateThreatMap` (exact set may vary by commit). |
 | **“Live Fraud Signals” as raw txn IDs** | Replaced with **Cross-Domain Alerts** copy: actor badges, IP-first rows, subtitle explaining shared infrastructure between cyber and fraud. |
@@ -108,6 +108,52 @@ These were removed to reduce demo confusion, dead UI, or duplicate flows:
 | **Backend (additive)** | Examples: `routes/stix.py` (`GET /api/stix/bundle`), `routes/diff.py` (`POST /api/diff/compare`), `routes/enrichment.py` (`GET /api/enrich/*` — VT/HIBP/summary with simulated fallback), `auth.py` + `routes/auth_routes.py` (`POST /api/auth/login`), `routes/apikeys.py` (`/api/keys/*`), `main.py` memory routes (`/api/memory`, `/api/memory/geo`, `/api/memory/expand`). |
 | **Session timeline** | `TimelinePanel` at bottom of center column; `useInvestigation` history for replay. |
 | **Investigation history** | `QueryPanel` localStorage recent list (may overlap with timeline; both support quick re-run). |
+
+---
+
+## Phase 2 — Feature Sprint
+
+### New Features
+
+| Feature | Details |
+|---------|---------|
+| **NLP Query Toggle** | `QueryPanel` MessageSquare icon toggles NLP mode → calls `/api/demo/natural` → auto-extracts entity + type |
+| **STIX Memory Export** | `MemoryPanel` Download button batches STIX bundles for all confirmed nodes → deduplicates by STIX ID → browser download |
+| **Entity Comparison** | New `ComparePanel.tsx` (5th center tab) → two entity inputs → `POST /api/diff/compare` → overlap score bar + shared/exclusive node lists |
+| **Collaborative Annotations** | `GraphPanel` Notes section in node sidebar → `backend/routes/annotations.py` → `:Annotation` nodes with `:ANNOTATES` relationships |
+| **Watchlist Alerts** | `Header.tsx` Bell icon with 30s polling → `backend/routes/watchlist.py` → `:Watchlist` nodes tracking new connections since last check |
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/components/panels/ComparePanel.tsx` | Entity comparison panel (lazy-loaded) |
+| `backend/routes/annotations.py` | Annotation CRUD (`GET/POST/DELETE /api/annotations`) |
+| `backend/routes/watchlist.py` | Watchlist CRUD + change detection (`GET/POST/DELETE /api/watchlist`, `GET /api/watchlist/check`) |
+
+### Modified Files
+
+| File | Change |
+|------|--------|
+| `frontend/src/components/panels/QueryPanel.tsx` | NLP toggle (nlpMode state, MessageSquare icon, async handleSubmit) |
+| `frontend/src/components/panels/MemoryPanel.tsx` | STIX export button (Download icon, batched fetch + dedup + download) |
+| `frontend/src/components/panels/GraphPanel.tsx` | Annotations section + Watch Entity button in node sidebar |
+| `frontend/src/components/layout/Header.tsx` | Watchlist bell icon, 30s auto-check, alert dropdown with bounce animation |
+| `frontend/src/components/layout/ViewNav.tsx` | 5th tab: Compare (GitCompareArrows icon) |
+| `frontend/src/App.tsx` | ComparePanel lazy import + render conditional |
+| `frontend/src/lib/api.ts` | 9 new functions: parseNaturalLanguage, compareEntities, listAnnotations, createAnnotation, deleteAnnotation, getWatchlist, addToWatchlist, removeFromWatchlist, checkWatchlist |
+| `backend/main.py` | Registered annotations_router and watchlist_router |
+| `backend/neo4j_client.py` | Added `run_query()` helper for generic Cypher execution |
+
+### Performance Sprint (same session)
+
+| Fix | Impact |
+|-----|--------|
+| Viewport meta tag | Mobile Lighthouse 45 → 94 |
+| React.lazy + Suspense for 4 heavy panels | Reduced initial bundle |
+| Vite manualChunks (react, graph, pdf, stix) | Better caching |
+| Async Google Fonts | Unblocked render |
+| Dynamic PDF import | Smaller initial load |
 
 ---
 
