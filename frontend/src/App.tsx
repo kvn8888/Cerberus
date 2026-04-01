@@ -26,6 +26,7 @@ const GraphPanel = lazy(() => import("./components/panels/GraphPanel").then(m =>
 const ThreatMap = lazy(() => import("./components/panels/ThreatMap").then(m => ({ default: m.ThreatMap })));
 const MitreHeatmapPanel = lazy(() => import("./components/panels/MitreHeatmapPanel").then(m => ({ default: m.MitreHeatmapPanel })));
 const MemoryPanel = lazy(() => import("./components/panels/MemoryPanel").then(m => ({ default: m.MemoryPanel })));
+const ComparePanel = lazy(() => import("./components/panels/ComparePanel").then(m => ({ default: m.ComparePanel })));
 
 function App() {
   const { state, investigate } = useInvestigation();
@@ -85,6 +86,7 @@ function App() {
                 onCountChange={setMemoryCount}
               />
             )}
+            {centerView === "compare" && <ComparePanel />}
           </Suspense>
 
         </section>

@@ -295,3 +295,35 @@ export async function parseNaturalLanguage(
   if (!res.ok) throw new Error(`NLP parse failed: ${res.status}`);
   return res.json();
 }
+
+/** Compare two entity graphs — returns shared/exclusive nodes, links, overlap score. */
+export async function compareEntities(
+  entityA: string,
+  typeA: string,
+  entityB: string,
+  typeB: string
+): Promise<{
+  shared_nodes: Record<string, unknown>[];
+  only_a: Record<string, unknown>[];
+  only_b: Record<string, unknown>[];
+  overlap_score: number;
+  summary: {
+    total_unique_nodes: number;
+    shared_count: number;
+    only_a_count: number;
+    only_b_count: number;
+  };
+}> {
+  const res = await fetch(`${API_BASE}/api/diff/compare`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      entity_a: entityA,
+      type_a: typeA,
+      entity_b: entityB,
+      type_b: typeB,
+    }),
+  });
+  if (!res.ok) throw new Error(`Comparison failed: ${res.status}`);
+  return res.json();
+}
