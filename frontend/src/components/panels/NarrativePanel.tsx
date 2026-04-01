@@ -24,6 +24,8 @@ import {
   Users,
   Copy,
   Table2,
+  PanelRightClose,
+  PanelRightOpen,
 } from "lucide-react";
 import type { InvestigationState, EntityType } from "../../types/api";
 import { confirmEntity, fetchReport } from "../../lib/api";
@@ -52,6 +54,8 @@ interface NarrativePanelProps {
   state: InvestigationState;
   onMemorySaved?: () => void;
   onInvestigate?: (entity: string, type: EntityType) => void;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 /**
@@ -68,7 +72,7 @@ function buildExecutiveSummary(narrative: string): string {
   return meaningful.slice(0, 2).join(" ");
 }
 
-export function NarrativePanel({ state, onMemorySaved, onInvestigate }: NarrativePanelProps) {
+export function NarrativePanel({ state, onMemorySaved, onInvestigate, collapsed, onToggleCollapse }: NarrativePanelProps) {
   const [confirmed, setConfirmed] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [viewMode, setViewMode] = useState<"technical" | "executive">("technical");
@@ -147,41 +151,56 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
       <div className="px-4 py-3 border-b border-border flex items-center justify-between">
         <h2 className="text-sm font-semibold text-foreground uppercase tracking-wider flex items-center gap-2">
           <FileText className="h-4 w-4 text-primary" />
-          Threat Narrative
+          {!collapsed && "Threat Narrative"}
         </h2>
 
-        {/* Metadata badges — only shown when we have results */}
-        {state.status === "complete" && (
-          <div className="flex items-center gap-2">
-            {state.fromCache && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-success/10 text-success border border-success/20">
-                <Brain className="h-3 w-3" />
-                FROM MEMORY
+        <div className="flex items-center gap-2">
+          {/* Metadata badges — only shown when we have results and panel is open */}
+          {!collapsed && state.status === "complete" && (
+            <>
+              {state.fromCache && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-success/10 text-success border border-success/20">
+                  <Brain className="h-3 w-3" />
+                  FROM MEMORY
+                </span>
+              )}
+              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-accent text-accent-foreground border border-primary/20">
+                <Database className="h-3 w-3" />
+                {state.pathsFound} PATHS
               </span>
-            )}
-            <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-accent text-accent-foreground border border-primary/20">
-              <Database className="h-3 w-3" />
-              {state.pathsFound} PATHS
-            </span>
-            {state.threatScore && (
-              <span className={cn(
-                "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono border",
-                SEVERITY_COLORS[state.threatScore.severity]
-              )}>
-                <Target className="h-3 w-3" />
-                {state.threatScore.score}/100
-              </span>
-            )}
-            {state.blastRadius && (
-              <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-threat-high/10 text-threat-high border border-threat-high/20">
-                <Crosshair className="h-3 w-3" />
-                {state.blastRadius.total} AFFECTED
-              </span>
-            )}
-          </div>
-        )}
+              {state.threatScore && (
+                <span className={cn(
+                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono border",
+                  SEVERITY_COLORS[state.threatScore.severity]
+                )}>
+                  <Target className="h-3 w-3" />
+                  {state.threatScore.score}/100
+                </span>
+              )}
+              {state.blastRadius && (
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-threat-high/10 text-threat-high border border-threat-high/20">
+                  <Crosshair className="h-3 w-3" />
+                  {state.blastRadius.total} AFFECTED
+                </span>
+              )}
+            </>
+          )}
+
+          {/* Collapse / expand toggle */}
+          {onToggleCollapse && (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-raised transition-colors"
+              title={collapsed ? "Expand narrative panel" : "Collapse narrative panel"}
+            >
+              {collapsed ? <PanelRightOpen className="h-4 w-4" /> : <PanelRightClose className="h-4 w-4" />}
+            </button>
+          )}
+        </div>
       </div>
 
+      {collapsed ? null : <>
       <div className="px-4 pt-3 flex flex-col gap-2">
         <button
           type="button"
@@ -579,6 +598,7 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
           )}
         </div>
       )}
+      </>}
     </div>
   );
 }

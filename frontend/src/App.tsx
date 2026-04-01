@@ -17,6 +17,7 @@ import { PipelineStages } from "./components/panels/PipelineStages";
 import { NarrativePanel } from "./components/panels/NarrativePanel";
 import { TimelinePanel } from "./components/panels/TimelinePanel";
 import { useInvestigation } from "./hooks/useInvestigation";
+import { cn } from "./lib/utils";
 
 /* Lazy-load heavy visualization panels — only the active tab's chunk loads.
    GraphPanel, ThreatMap, MitreHeatmap, and MemoryPanel each pull in large
@@ -35,6 +36,7 @@ function App() {
      the MemoryPanel re-fetches from the backend automatically. */
   const [memoryRefreshKey, setMemoryRefreshKey] = useState(0);
   const [memoryCount, setMemoryCount] = useState(0);
+  const [narrativeCollapsed, setNarrativeCollapsed] = useState(false);
 
   const onMemorySaved = useCallback(() => {
     setMemoryRefreshKey((k) => k + 1);
@@ -92,11 +94,16 @@ function App() {
           />
         </section>
 
-        <aside className="w-96 flex-shrink-0 border-l border-border bg-surface/40 backdrop-blur-sm overflow-hidden">
+        <aside className={cn(
+          "flex-shrink-0 border-l border-border bg-surface/40 backdrop-blur-sm overflow-hidden transition-all duration-300",
+          narrativeCollapsed ? "w-12" : "w-96"
+        )}>
           <NarrativePanel
             state={state}
             onMemorySaved={onMemorySaved}
             onInvestigate={investigate}
+            collapsed={narrativeCollapsed}
+            onToggleCollapse={() => setNarrativeCollapsed((c) => !c)}
           />
         </aside>
       </main>

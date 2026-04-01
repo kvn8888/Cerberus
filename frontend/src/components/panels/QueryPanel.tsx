@@ -304,7 +304,7 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
               disabled={!query.trim()}
               className={cn(
                 "w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
-                "transition-all duration-300 relative overflow-hidden",
+                "transition-all duration-300 relative",
                 !query.trim()
                   ? "bg-muted text-muted-foreground cursor-not-allowed"
                   : "bg-primary text-primary-foreground hover:shadow-glow-lg active:scale-[0.97] hover:tracking-wider"
