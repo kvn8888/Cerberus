@@ -5,7 +5,6 @@ Demo-focused APIs that make the judging flow stronger without changing the
 core investigation model:
   - natural-language entity extraction
   - lightweight multi-entity comparison
-  - synthetic live feed events with optional ingestion
   - geographic IP map points
   - report payload generation for frontend PDF export
 """

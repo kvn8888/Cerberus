@@ -19,6 +19,8 @@ For current external facts, API changes, or platform documentation, prefer web s
 
 When you discover durable repo facts, workflow changes, or gotchas, update `CLAUDE.md`, `.claude/skills/`, and relevant `docs/` retrospectives in the same session.
 
+**What shipped vs removed:** Keep [README.md](README.md), [changes-from-hackathon.md](changes-from-hackathon.md), and [.claude/skills/cerberus-project/SKILL.md](.claude/skills/cerberus-project/SKILL.md) aligned whenever you change UI tabs, API routes, or demo flows. The changelog file is the detailed add/remove ledger.
+
 If a code or config change would leave any of those files inconsistent or contradictory, update them in the same change set instead of leaving stale guidance behind.
 
 ## Retrospectives
