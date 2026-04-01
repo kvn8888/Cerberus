@@ -18,6 +18,7 @@ import type {
   EntityType,
   PipelineStage,
   InvestigationState,
+  InvestigationHistoryItem,
 } from "../types/api";
 import { queryEntityStream, fetchGraph } from "../lib/api";
 
@@ -44,8 +45,26 @@ const IDLE_STATE: InvestigationState = {
  */
 export function useInvestigation() {
   const [state, setState] = useState<InvestigationState>(IDLE_STATE);
+  const [history, setHistory] = useState<InvestigationHistoryItem[]>([]);
   /* Ref to allow cancellation if user starts a new query mid-stream */
   const abortRef = useRef<AbortController | null>(null);
+
+  /**
+   * Record a completed investigation in the session history.
+   * Called inside finalize once the state transitions to "complete".
+   */
+  const pushHistory = useCallback((prev: InvestigationState) => {
+    if (!prev.entity) return;
+    const item: InvestigationHistoryItem = {
+      entity: prev.entity,
+      entityType: prev.entityType,
+      timestamp: Date.now(),
+      pathsFound: prev.pathsFound,
+      threatScore: prev.threatScore?.score,
+      severity: prev.threatScore?.severity,
+    };
+    setHistory((h) => [...h, item]);
+  }, []);
 
   /**
    * Finish the investigation: fetch graph data then mark complete.
@@ -55,22 +74,29 @@ export function useInvestigation() {
     async (entity: string, entityType: EntityType) => {
       try {
         const graph = await fetchGraph({ entity, type: entityType });
-        setState((prev) => ({
-          ...prev,
-          status: "complete",
-          currentStage: "complete",
-          graphData: graph.nodes.length > 0 ? graph : undefined,
-        }));
+        setState((prev) => {
+          const next = {
+            ...prev,
+            status: "complete" as const,
+            currentStage: "complete" as const,
+            graphData: graph.nodes.length > 0 ? graph : undefined,
+          };
+          pushHistory(next);
+          return next;
+        });
       } catch {
-        /* Graph fetch failed — still mark complete, GraphPanel falls back to demo */
-        setState((prev) => ({
-          ...prev,
-          status: "complete",
-          currentStage: "complete",
-        }));
+        setState((prev) => {
+          const next = {
+            ...prev,
+            status: "complete" as const,
+            currentStage: "complete" as const,
+          };
+          pushHistory(next);
+          return next;
+        });
       }
     },
-    []
+    [pushHistory]
   );
 
   /**
@@ -217,5 +243,5 @@ export function useInvestigation() {
     setState((prev) => ({ ...prev, audienceMode: mode }));
   }, []);
 
-  return { state, investigate, reset, setAudienceMode };
+  return { state, investigate, reset, setAudienceMode, history };
 }

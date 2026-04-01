@@ -4,10 +4,10 @@
  * Lets the user switch between "Threat Graph", "Geomap", and "Memory"
  * views. Renders as a floating pill bar overlaying the center panel.
  */
-import { Network, Globe2, Brain } from "lucide-react";
+import { Network, Globe2, Brain, Box } from "lucide-react";
 import { cn } from "../../lib/utils";
 
-export type CenterView = "graph" | "geomap" | "memory";
+export type CenterView = "graph" | "graph3d" | "geomap" | "memory";
 
 interface ViewNavProps {
   activeView: CenterView;
@@ -17,6 +17,7 @@ interface ViewNavProps {
 
 const TABS: { id: CenterView; label: string; icon: typeof Network }[] = [
   { id: "graph", label: "Threat Graph", icon: Network },
+  { id: "graph3d", label: "3D Graph", icon: Box },
   { id: "geomap", label: "Geomap", icon: Globe2 },
   { id: "memory", label: "Memory", icon: Brain },
 ];
