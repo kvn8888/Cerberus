@@ -75,3 +75,42 @@
 | `frontend/src/components/panels/NarrativePanel.tsx` | Added threat score card, blast radius breakdown, audience toggle, "Investigate Next" suggestions |
 | `frontend/src/components/panels/QueryPanel.tsx` | Added investigation history with localStorage |
 | `frontend/src/App.tsx` | Wired `setAudienceMode`, `investigationState`, and `onInvestigate` props |
+
+---
+
+## Later updates — what was removed
+
+These were removed to reduce demo confusion, dead UI, or duplicate flows:
+
+| Item | Notes |
+|------|--------|
+| **Live Feed tab** | Center-panel tab removed; fraud signals are surfaced in the left sidebar instead. |
+| **3D Graph tab** | Tab removed from `ViewNav` (2D Threat Graph + Geomap + Memory remain). `Graph3DPanel.tsx` may still exist in the tree but is not routed. |
+| **QueryPanel NLP block** | The collapsible “Or describe what you're looking for” natural-language area was removed; the main search bar + entity detection handles input. |
+| **Multi-entity comparison** | Removed from `NarrativePanel` and `compareEntities` from the frontend API client (backend `/api/demo/compare` may still exist). |
+| **Generate Threat Map (AI)** | Button and `generateThreatMap` client call removed from `NarrativePanel`. |
+| **Unused API helpers** | Removed from `api.ts` where applicable: e.g. `fetchLiveFeed`, `ingestFeedEvent`, `parseNaturalLanguage`, `compareEntities`, `generateThreatMap` (exact set may vary by commit). |
+| **“Live Fraud Signals” as raw txn IDs** | Replaced with **Cross-Domain Alerts** copy: actor badges, IP-first rows, subtitle explaining shared infrastructure between cyber and fraud. |
+
+---
+
+## Later updates — what was added
+
+| Area | What |
+|------|------|
+| **Memory tab** | Visualizes `ConfirmedThreat` subgraph from Neo4j; force-graph with expand; badge count in nav. |
+| **Cross-domain fraud block** | `QueryPanel`: loads `/api/juspay/signals`, shows actor links + IP-centric rows with context. |
+| **MITRE tab** | `MitreHeatmapPanel`: tactic heatmap from `Technique` nodes in the current investigation graph (`mitreTactics.ts`). |
+| **IOC extraction** | `NarrativePanel` + `lib/iocExtract.ts`: IPs, CVEs, domains, packages from graph + narrative; Copy all + CSV. |
+| **Attack path stepper** | `GraphPanel` + `lib/attackPath.ts`: BFS order from investigation root; Prev/Next; cyan highlight on active node. |
+| **Technical / Executive** | `NarrativePanel`: Executive shows risk summary + key finding + recommended action; Technical shows full markdown narrative. |
+| **Geomap** | Tighter actor offsets, auto zoom-to-fit, +/- / Reset zoom (see recent ThreatMap commits). |
+| **Backend (additive)** | Examples: `routes/stix.py` (STIX bundle), `routes/diff.py` (graph compare), `routes/enrichment.py` (VirusTotal/HIBP-style enrichment with simulated fallback), `auth.py` + `routes/auth_routes.py` + `routes/apikeys.py` (JWT demo users + API keys). |
+| **Session timeline** | `TimelinePanel` at bottom of center column; `useInvestigation` history for replay. |
+| **Investigation history** | `QueryPanel` localStorage recent list (may overlap with timeline; both support quick re-run). |
+
+---
+
+## How to keep docs in sync
+
+When you change UX or API surface again, update this file plus [README.md](README.md) and [.claude/skills/cerberus-project/SKILL.md](.claude/skills/cerberus-project/SKILL.md) so judges and future sessions see one story.
