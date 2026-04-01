@@ -203,6 +203,7 @@ export interface GeoPoint {
   lat: number;
   lon: number;
   actors: string[];
+  actor_only?: boolean;
 }
 
 export interface MapResponse {

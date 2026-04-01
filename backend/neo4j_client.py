@@ -900,24 +900,14 @@ def get_memory_geo() -> list[dict[str, Any]]:
 # and /api/suggestions endpoints with advanced graph analytics.
 
 # -- Threat Score --
-# Computes a 0-100 risk score by examining graph connectivity around an entity.
-# Each factor (connection to ThreatActor, CVE, FraudSignal, etc.) adds points.
-_THREAT_SCORE_FACTORS = """
-MATCH (start:{label} {{{key}: $value}})
-OPTIONAL MATCH (start)-[*1..4]-(ta:ThreatActor)
-OPTIONAL MATCH (start)-[*1..4]-(cve:CVE)
-OPTIONAL MATCH (start)-[*1..4]-(fs:FraudSignal)
-OPTIONAL MATCH (start)-[*1..4]-(ip:IP)
-OPTIONAL MATCH path = (start)-[*1..4]-(any)
-RETURN start,
-       collect(DISTINCT ta.name) AS actors,
-       collect(DISTINCT cve.id) AS cves,
-       collect(DISTINCT fs.juspay_id) AS fraud_signals,
-       collect(DISTINCT ip.address) AS ips,
-       collect(DISTINCT labels(any)[0]) AS label_types,
-       labels(start) AS start_labels
-LIMIT 1
-"""
+# Separate fast queries for each scoring factor — avoids cartesian explosion
+# from multiple variable-length OPTIONAL MATCH clauses in one query.
+_THREAT_SCORE_EXISTS = "MATCH (start:{label} {{{key}: $value}}) RETURN start, labels(start) AS start_labels LIMIT 1"
+_THREAT_SCORE_ACTORS = "MATCH (start:{label} {{{key}: $value}})-[*1..3]-(ta:ThreatActor) RETURN collect(DISTINCT ta.name)[0..5] AS actors LIMIT 1"
+_THREAT_SCORE_CVES   = "MATCH (start:{label} {{{key}: $value}})-[*1..3]-(cve:CVE) RETURN collect(DISTINCT cve.id)[0..5] AS cves LIMIT 1"
+_THREAT_SCORE_FRAUD  = "MATCH (start:{label} {{{key}: $value}})-[*1..3]-(fs:FraudSignal) RETURN count(DISTINCT fs) AS cnt LIMIT 1"
+_THREAT_SCORE_IPS    = "MATCH (start:{label} {{{key}: $value}})-[*1..2]-(ip:IP) RETURN count(DISTINCT ip) AS cnt LIMIT 1"
+_THREAT_SCORE_TYPES  = "MATCH (start:{label} {{{key}: $value}})-[*1..3]-(any) RETURN collect(DISTINCT labels(any)[0])[0..10] AS label_types LIMIT 1"
 
 
 def threat_score(entity: str, entity_type: str) -> dict[str, Any]:
@@ -930,62 +920,61 @@ def threat_score(entity: str, entity_type: str) -> dict[str, Any]:
     entity, entity_type = normalize_entity(entity, entity_type)
     label = _entity_label(entity_type)
     key = _entity_key(entity_type)
-    cypher = _THREAT_SCORE_FACTORS.format(label=label, key=key)
-
     score = 0
     factors: list[str] = []
 
     with _get_driver().session() as s:
-        result = s.run(cypher, value=entity)
-        record = result.single()
-
-        if not record or record["start"] is None:
+        # Check entity exists
+        rec = s.run(_THREAT_SCORE_EXISTS.format(label=label, key=key), value=entity).single()
+        if not rec:
             return {"score": 0, "factors": ["Entity not found in graph"], "severity": "info"}
-
-        # Base: entity exists
         score += 10
         factors.append("Entity exists in graph")
 
-        # Connected to ThreatActor(s)
-        actors = [a for a in record["actors"] if a]
+        start_labels = rec["start_labels"]
+        if "ConfirmedThreat" in start_labels:
+            score += 10
+            factors.append("Entity is a ConfirmedThreat")
+
+        # ThreatActors
+        rec2 = s.run(_THREAT_SCORE_ACTORS.format(label=label, key=key), value=entity).single()
+        actors = [a for a in (rec2["actors"] if rec2 else []) if a]
         if actors:
             score += 15
             factors.append(f"Connected to ThreatActor {actors[0]}")
             if len(actors) > 1:
                 score += 10
-                factors.append(f"Multiple threat actors connected ({len(actors)} total)")
+                factors.append(f"Multiple threat actors ({len(actors)} total)")
 
-        # Connected to CVE(s)
-        cves = [c for c in record["cves"] if c]
+        # CVEs
+        rec3 = s.run(_THREAT_SCORE_CVES.format(label=label, key=key), value=entity).single()
+        cves = [c for c in (rec3["cves"] if rec3 else []) if c]
         if cves:
             score += 15
             factors.append(f"Connected to CVE {cves[0]}")
 
-        # Connected to FraudSignal(s)
-        fraud = [f for f in record["fraud_signals"] if f]
-        if fraud:
+        # FraudSignals
+        rec4 = s.run(_THREAT_SCORE_FRAUD.format(label=label, key=key), value=entity).single()
+        fraud_cnt = rec4["cnt"] if rec4 else 0
+        if fraud_cnt:
             score += 10
-            factors.append(f"Connected to FraudSignal ({len(fraud)} signal(s))")
+            factors.append(f"Connected to {fraud_cnt} FraudSignal(s)")
 
-        # Connected to IP(s) — treat as potentially malicious infrastructure
-        ips = [i for i in record["ips"] if i]
-        if ips:
+        # IPs
+        rec5 = s.run(_THREAT_SCORE_IPS.format(label=label, key=key), value=entity).single()
+        ip_cnt = rec5["cnt"] if rec5 else 0
+        if ip_cnt:
             score += 10
-            factors.append(f"Connected to malicious IP ({len(ips)} address(es))")
+            factors.append(f"Connected to {ip_cnt} malicious IP(s)")
 
-        # Cross-domain hops: count distinct label types in reachable paths
-        label_types = [lt for lt in record["label_types"] if lt]
+        # Cross-domain label types
+        rec6 = s.run(_THREAT_SCORE_TYPES.format(label=label, key=key), value=entity).single()
+        label_types = [lt for lt in (rec6["label_types"] if rec6 else []) if lt]
         distinct_types = set(label_types)
-        cross_domain_count = min(len(distinct_types), 3)  # max 30 points
+        cross_domain_count = min(len(distinct_types), 3)
         if cross_domain_count > 0:
             score += cross_domain_count * 10
             factors.append(f"Cross-domain reach: {len(distinct_types)} entity type(s)")
-
-        # ConfirmedThreat check
-        start_labels = record["start_labels"]
-        if "ConfirmedThreat" in start_labels:
-            score += 10
-            factors.append("Entity is a ConfirmedThreat")
 
     # Cap at 100
     score = min(score, 100)

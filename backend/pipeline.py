@@ -90,13 +90,14 @@ async def is_available() -> bool:
     """
     Check if the RocketRide server is reachable and the SDK is installed.
     Returns False (never raises) so callers can fall through to direct LLM.
+    Times out after 3 seconds so slow/missing RocketRide doesn't block queries.
     """
     client = _get_client()
     if client is None:
         return False
     try:
-        await client.connect()
-        await client.ping()
+        await asyncio.wait_for(client.connect(), timeout=3.0)
+        await asyncio.wait_for(client.ping(), timeout=3.0)
         return True
     except Exception as exc:
         logger.debug("RocketRide not available: %s", exc)
@@ -240,7 +241,7 @@ async def _stream_via_sdk(
     from rocketride.schema import Question  # type: ignore
 
     client = _get_client()
-    await client.connect()
+    await asyncio.wait_for(client.connect(), timeout=3.0)
     token = await _load_pipeline(client)
 
     # Signal pipeline stages to the frontend

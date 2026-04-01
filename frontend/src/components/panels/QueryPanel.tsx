@@ -374,7 +374,7 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
                 </button>
               </div>
               <div className="space-y-1">
-                {history.map((h, i) => (
+                {history.map((h) => (
               <button
                     key={`${h.entity}-${h.timestamp}`}
                     onClick={() => {
