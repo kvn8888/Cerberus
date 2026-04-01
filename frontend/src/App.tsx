@@ -15,7 +15,6 @@ import { ViewNav, type CenterView } from "./components/layout/ViewNav";
 import { QueryPanel } from "./components/panels/QueryPanel";
 import { PipelineStages } from "./components/panels/PipelineStages";
 import { GraphPanel } from "./components/panels/GraphPanel";
-import { Graph3DPanel } from "./components/panels/Graph3DPanel";
 import { ThreatMap } from "./components/panels/ThreatMap";
 import { MemoryPanel } from "./components/panels/MemoryPanel";
 import { NarrativePanel } from "./components/panels/NarrativePanel";
@@ -62,7 +61,6 @@ function App() {
           />
 
           {centerView === "graph" && <GraphPanel state={state} />}
-          {centerView === "graph3d" && <Graph3DPanel state={state} />}
           {centerView === "geomap" && <ThreatMap state={state} />}
           {centerView === "memory" && (
             <MemoryPanel
