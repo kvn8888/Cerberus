@@ -203,6 +203,14 @@ ANALYZE, with a cloud-download icon. Only lights up when enrichment is triggered
 
 - **US-15 (backend retained, UI removed):** Multi-entity comparison still exists at `POST /api/demo/compare`, but the split-screen comparison UI was removed from the frontend. Prefer cross-domain narrative + graph + MITRE heatmap for demos.
 
+### Phase 2 Features
+
+- **US-16: Natural language query** — As a security analyst, I can type a natural language question like "show me all packages connected to APT41" and Cerberus extracts entities via NER and auto-investigates — so I don't need to know exact entity names or types.
+- **US-17: STIX export from memory** — As a security analyst, I can click "Export All" on the Memory tab to download a single STIX 2.1 JSON bundle containing all confirmed threat patterns — for sharing with MISP, OpenCTI, or other TAXII-compatible platforms.
+- **US-18: Entity comparison** — As a security analyst, I can compare two entities side-by-side to see their graph overlap score and shared connections — linking seemingly unrelated incidents through common infrastructure.
+- **US-19: Collaborative annotations** — As a security analyst, I can add notes to any node in the investigation graph. These annotations persist in Neo4j and appear when any analyst investigates that entity later — building institutional knowledge beyond cached patterns.
+- **US-20: Watchlist alerts** — As a security analyst, I can "watch" entities of interest. When new connections appear (from enrichment or other analysts' investigations), the system surfaces notifications — making Cerberus a continuous monitoring platform.
+
 ## Critical Gotchas
 
 - **APOC availability:** Test `RETURN apoc.version()` hour 1. If missing, `get-schema` won't work — use `read-cypher` with manual schema queries.
@@ -394,9 +402,9 @@ Pipeline stages rendered in UI: `input → ner → classify → route → traver
 | Panel | Features |
 |-------|---------|
 | `QueryPanel` | Entity input with auto-detected type badge, cross-domain fraud alerts (`/api/juspay/signals`), investigation history (localStorage, last 10), quick-start buttons (NLP block and live feed tab removed) |
-| `NarrativePanel` | Streaming text, Technical/Executive toggle, threat score card + blast radius breakdown, IOC extraction (copy-all / CSV), "Investigate Next" suggestions, confirm, PDF (comparison + threat map buttons removed) |
-| `GraphPanel` | Force-directed graph (react-force-graph-2d), attack-path stepper (BFS-ordered prev/next with cyan highlight), relationship type filter checkboxes, node search + gold highlight, legends, GraphMinimap (3D tab removed from nav) |
-| `ThreatMap` | Geomap tab: zoom controls (+/−/Reset), actor offsets, auto zoom-to-fit |
+| `NarrativePanel` | Streaming text, Technical/Executive toggle, threat score card + blast radius breakdown, IOC extraction (copy-all / CSV), external enrichment intel (VT/HIBP), "Investigate Next" suggestions, confirm, PDF export + STIX 2.1 bundle export |
+| `GraphPanel` | Force-directed graph (react-force-graph-2d), attack-path stepper (DFS-ordered prev/next with cyan highlight, node label + auto-center), relationship type filter checkboxes, node search + gold highlight, legends, GraphMinimap |
+| `ThreatMap` | Geomap tab: scroll-wheel zoom, drag pan, actor offsets, auto zoom-to-fit |
 | `MitreHeatmapPanel` | MITRE ATT&CK tactic heatmap — counts Technique nodes from investigation graph, 14-tactic grid with intensity coloring |
 | `MemoryPanel` | Confirmed-threat subgraph + click-to-expand |
 | `TimelinePanel` | Horizontal timeline with severity-colored dots, hover tooltip, click-to-replay |
@@ -407,14 +415,14 @@ Pipeline stages rendered in UI: `input → ner → classify → route → traver
 | File | Purpose |
 |------|---------|
 | `src/lib/api.ts` | Typed API client (query, graph, geo, memory, intelligence, health) |
-| `src/lib/attackPath.ts` | BFS attack-path ordering from investigation root |
+| `src/lib/attackPath.ts` | DFS attack-path ordering from investigation root (continuous chain traversal) |
 | `src/lib/iocExtract.ts` | IOC extraction (IP, CVE, domain, package, hash) from graph nodes + narrative text |
 | `src/lib/mitreTactics.ts` | MITRE tactic order, T####→tactic lookup, technique ID extractor |
 | `src/types/api.ts` | TypeScript types: EntityType, InvestigationState, ThreatScore, BlastRadius, Suggestion, InvestigationHistoryItem, StreamChunk, GraphNode, GraphLink |
 
 ### API Client (api.ts)
 
-Typed functions include: `queryEntity()`, `queryEntityStream()`, `confirmEntity()`, `fetchGraph()`, `fetchSchema()`, `fetchGeoMap()`, `fetchReport()`, `fetchMemory()`, `expandMemoryNode()`, `fetchThreatScore()`, `fetchBlastRadius()`, `fetchShortestPath()`, `fetchSuggestions()`, plus health helpers. Removed from typical UI flows: live feed, NLP parse, compare, `generateThreatMap`.
+Typed functions include: `queryEntity()`, `queryEntityStream()`, `confirmEntity()`, `fetchGraph()`, `fetchSchema()`, `fetchGeoMap()`, `fetchReport()`, `fetchMemory()`, `expandMemoryNode()`, `fetchThreatScore()`, `fetchBlastRadius()`, `fetchShortestPath()`, `fetchSuggestions()`, `fetchStixBundle()`, `fetchEnrichmentSummary()`, plus health helpers.
 
 ### ViewNav Tabs
 
