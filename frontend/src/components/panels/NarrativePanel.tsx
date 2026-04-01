@@ -339,9 +339,17 @@ export function NarrativePanel({ state, onMemorySaved, onInvestigate }: Narrativ
                       <FileText className="h-3 w-3 text-primary" />
                       Key Finding
                     </p>
-                    <p className="text-sm text-foreground/90 leading-relaxed">
-                      {buildExecutiveSummary(deferredNarrative)}
-                    </p>
+                    <div className={cn(
+                      "text-sm leading-relaxed text-foreground/90",
+                      "prose prose-invert prose-sm max-w-none",
+                      "prose-headings:text-primary prose-headings:font-mono prose-headings:text-sm prose-headings:mt-3 prose-headings:mb-1",
+                      "prose-strong:text-primary prose-strong:font-semibold",
+                      "prose-p:mb-2 prose-p:leading-relaxed",
+                      "prose-ul:my-1 prose-li:my-0.5 prose-li:marker:text-primary/40",
+                      "prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs",
+                    )}>
+                      <ReactMarkdown>{buildExecutiveSummary(deferredNarrative)}</ReactMarkdown>
+                    </div>
                   </div>
 
                   {/* Impact numbers */}
