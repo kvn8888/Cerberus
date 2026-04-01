@@ -242,6 +242,27 @@ export function ThreatMap({ state }: ThreatMapProps) {
   const isPanning = useRef(false);
   const panStart = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
 
+  /** Auto-zoom to fit all active nodes with padding when data changes */
+  const zoomToFitNodes = useCallback((nodes: ThreatNode[]) => {
+    if (nodes.length === 0) return;
+    const projected = nodes.map((n) => project(n.coordinates[0], n.coordinates[1]));
+    const xs = projected.map((p) => p[0]);
+    const ys = projected.map((p) => p[1]);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const pad = 80;
+    const w = Math.max(maxX - minX + pad * 2, 200);
+    const h = Math.max(maxY - minY + pad * 2, 100);
+    const aspect = MAP_W / MAP_H;
+    const fitW = Math.max(w, h * aspect);
+    const fitH = fitW / aspect;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    setViewBox({ x: cx - fitW / 2, y: cy - fitH / 2, w: fitW, h: fitH });
+  }, []);
+
   const handleWheel = useCallback((e: React.WheelEvent<SVGSVGElement>) => {
     e.preventDefault();
     const svg = svgRef.current;
@@ -313,7 +334,7 @@ export function ThreatMap({ state }: ThreatMapProps) {
                 id: actorId,
                 name: actor,
                 type: "apt",
-                coordinates: [(pt.lon ?? 0) + 5, (pt.lat ?? 0) + 3],
+                coordinates: [(pt.lon ?? 0) + 1.5, (pt.lat ?? 0) + 1],
                 severity: "critical",
                 region: pt.geo || "Unknown",
                 active: true,
