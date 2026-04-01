@@ -368,3 +368,61 @@ export async function deleteAnnotation(id: string): Promise<void> {
   });
   if (!res.ok) throw new Error(`Delete annotation failed: ${res.status}`);
 }
+
+/* ── Watchlist CRUD ────────────────────────────────────────────────── */
+
+export interface WatchedEntity {
+  entity: string;
+  entity_type: string;
+  added_at: number;
+  last_checked: number;
+}
+
+export interface WatchlistAlert {
+  entity: string;
+  entity_type: string;
+  new_connections: number;
+  neighbor_types: string[];
+  since: number;
+}
+
+/** List all watched entities. */
+export async function getWatchlist(): Promise<WatchedEntity[]> {
+  const res = await fetch(`${API_BASE}/api/watchlist`);
+  if (!res.ok) throw new Error(`Watchlist fetch failed: ${res.status}`);
+  return res.json();
+}
+
+/** Add an entity to the watchlist. */
+export async function addToWatchlist(
+  entity: string,
+  entityType: string
+): Promise<WatchedEntity> {
+  const res = await fetch(`${API_BASE}/api/watchlist`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ entity, entity_type: entityType }),
+  });
+  if (!res.ok) throw new Error(`Watchlist add failed: ${res.status}`);
+  return res.json();
+}
+
+/** Remove an entity from the watchlist. */
+export async function removeFromWatchlist(entity: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/api/watchlist/${encodeURIComponent(entity)}`,
+    { method: "DELETE" }
+  );
+  if (!res.ok) throw new Error(`Watchlist remove failed: ${res.status}`);
+}
+
+/** Check all watched entities for new connections. */
+export async function checkWatchlist(): Promise<{
+  checked_at: number;
+  watched_count: number;
+  alerts: WatchlistAlert[];
+}> {
+  const res = await fetch(`${API_BASE}/api/watchlist/check`);
+  if (!res.ok) throw new Error(`Watchlist check failed: ${res.status}`);
+  return res.json();
+}

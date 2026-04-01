@@ -6,8 +6,8 @@
  * status with a pulsing indicator dot.
  */
 import { useEffect, useState } from "react";
-import { Shield, Wifi, WifiOff, Activity, Cpu, GitCommit } from "lucide-react";
-import { healthCheck, rocketrideHealthCheck } from "../../lib/api";
+import { Shield, Wifi, WifiOff, Activity, Cpu, GitCommit, Bell } from "lucide-react";
+import { healthCheck, rocketrideHealthCheck, checkWatchlist } from "../../lib/api";
 import { cn } from "../../lib/utils";
 
 export function Header() {
@@ -15,6 +15,10 @@ export function Header() {
   const [online, setOnline] = useState(false);
   /* Track whether RocketRide pipeline service is reachable */
   const [rocketrideOnline, setRocketrideOnline] = useState(false);
+  /* Watchlist alert count — checked periodically */
+  const [alertCount, setAlertCount] = useState(0);
+  const [showAlerts, setShowAlerts] = useState(false);
+  const [alertDetails, setAlertDetails] = useState<{ entity: string; new_connections: number }[]>([]);
 
   useEffect(() => {
     const check = () => {
@@ -23,6 +27,24 @@ export function Header() {
     };
     check();
     const id = setInterval(check, 10_000);
+    return () => clearInterval(id);
+  }, []);
+
+  /* Periodically check watchlist for new connections */
+  useEffect(() => {
+    const checkAlerts = () => {
+      checkWatchlist()
+        .then((result) => {
+          setAlertCount(result.alerts.length);
+          setAlertDetails(result.alerts.map((a) => ({
+            entity: a.entity,
+            new_connections: a.new_connections,
+          })));
+        })
+        .catch(() => {});
+    };
+    checkAlerts();
+    const id = setInterval(checkAlerts, 30_000);
     return () => clearInterval(id);
   }, []);
 
@@ -81,6 +103,38 @@ export function Header() {
 
         {/* ── Status indicators ─────────────────────────────── */}
         <div className="flex items-center gap-2">
+          {/* Watchlist alert bell */}
+          <div className="relative">
+            <button
+              onClick={() => setShowAlerts(!showAlerts)}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-xs font-mono transition-all",
+                alertCount > 0
+                  ? "bg-yellow-500/10 text-yellow-400 border border-yellow-500/25"
+                  : "bg-surface-raised/50 text-muted-foreground/50 border border-border/30"
+              )}
+            >
+              <Bell className={cn("h-3.5 w-3.5", alertCount > 0 && "animate-bounce")} />
+              {alertCount > 0 && (
+                <span className="text-[10px] font-bold">{alertCount}</span>
+              )}
+            </button>
+            {/* Alert dropdown */}
+            {showAlerts && alertDetails.length > 0 && (
+              <div className="absolute right-0 top-full mt-1 w-64 rounded-lg border border-border/60 bg-surface/95 backdrop-blur-md shadow-lg z-50 p-2 space-y-1">
+                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest px-2 py-1">
+                  Watchlist Alerts
+                </p>
+                {alertDetails.map((a) => (
+                  <div key={a.entity} className="flex items-center justify-between px-2 py-1.5 rounded bg-surface-raised/30 text-[10px] font-mono">
+                    <span className="text-foreground truncate max-w-[140px]">{a.entity}</span>
+                    <span className="text-yellow-400 font-bold">+{a.new_connections} new</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Backend status */}
           <div
             className={cn(

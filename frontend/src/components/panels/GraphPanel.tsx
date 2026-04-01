@@ -12,12 +12,15 @@
  */
 import { useMemo, useRef, useCallback, useEffect, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
-import { X, Search, Filter, ChevronLeft, ChevronRight, Route, MessageSquare, Send, Trash2 } from "lucide-react";
+import { X, Search, Filter, ChevronLeft, ChevronRight, Route, MessageSquare, Send, Trash2, Eye } from "lucide-react";
 import type { InvestigationState, EntityType, GraphNode } from "../../types/api";
 import { cn } from "../../lib/utils";
 import { GraphMinimap } from "./GraphMinimap";
 import { buildAttackPathOrder } from "../../lib/attackPath";
-import { listAnnotations, createAnnotation, deleteAnnotation, type Annotation } from "../../lib/api";
+import {
+  listAnnotations, createAnnotation, deleteAnnotation, type Annotation,
+  addToWatchlist,
+} from "../../lib/api";
 
 interface GraphPanelProps {
   state: InvestigationState;
@@ -186,6 +189,29 @@ export function GraphPanel({ state }: GraphPanelProps) {
       console.error("Delete annotation failed:", err);
     }
   }, []);
+
+  /* ── Watchlist — quick-watch a node ────────────────── */
+  const [watchBusy, setWatchBusy] = useState(false);
+  const [watchSuccess, setWatchSuccess] = useState<string | null>(null);
+
+  const handleWatch = useCallback(async () => {
+    if (!selectedNode) return;
+    setWatchBusy(true);
+    try {
+      const typeMap: Record<string, string> = {
+        Package: "package", CVE: "cve", IP: "ip",
+        Domain: "domain", ThreatActor: "threatactor", FraudSignal: "fraudsignal",
+      };
+      const eType = typeMap[selectedNode.type] || "package";
+      await addToWatchlist(selectedNode.label || selectedNode.id, eType);
+      setWatchSuccess(selectedNode.label || selectedNode.id);
+      setTimeout(() => setWatchSuccess(null), 2000);
+    } catch (err) {
+      console.error("Watch failed:", err);
+    } finally {
+      setWatchBusy(false);
+    }
+  }, [selectedNode]);
 
   /* ResizeObserver keeps the canvas size in sync with the container */
   useEffect(() => {
@@ -558,6 +584,21 @@ export function GraphPanel({ state }: GraphPanelProps) {
               <X className="h-3.5 w-3.5" />
             </button>
           </div>
+
+          {/* Watch button — adds this entity to the watchlist */}
+          <button
+            onClick={handleWatch}
+            disabled={watchBusy}
+            className={cn(
+              "w-full mb-2 py-1 rounded text-[10px] font-mono flex items-center justify-center gap-1.5 transition-all",
+              watchSuccess
+                ? "bg-success/15 text-success border border-success/30"
+                : "bg-surface-raised/50 text-muted-foreground border border-border/30 hover:border-primary/30 hover:text-primary"
+            )}
+          >
+            <Eye className="h-3 w-3" />
+            {watchSuccess ? "Watching!" : watchBusy ? "Adding..." : "Watch Entity"}
+          </button>
 
           {/* Node label / identifier */}
           <p className="text-sm font-mono text-foreground break-all mb-3 leading-relaxed">
