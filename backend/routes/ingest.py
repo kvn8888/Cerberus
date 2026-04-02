@@ -4,7 +4,10 @@ routes/ingest.py
 Webhook-based threat intelligence ingestion via RocketRide.
 
 The cerberus-ingest pipeline handles everything behind the scenes:
-  webhook → parse → ocr (images) → prompt → llm_anthropic (haiku) → response
+  webhook → parse → ocr (images) → prompt → llm_anthropic (haiku) → extract_data → response
+
+The extract_data component produces structured tabular output with columns:
+  type, value, threat_domain, confidence, context
 
 Supports:
   - POST /api/ingest/file   — upload a file (PDF, image, doc) for entity extraction
@@ -36,6 +39,36 @@ _PIPELINE_PATH = str(Path(__file__).parent.parent.parent / "pipelines" / "cerber
 # Cached pipeline token
 _ingest_token: str | None = None
 _ingest_client = None
+
+
+def _parse_extraction_response(response: dict) -> list[dict[str, Any]]:
+    """
+    Parse the RocketRide pipeline response into a list of entity dicts.
+
+    Handles two formats:
+    1. Structured tabular output from extract_data — already a list of row dicts
+       in 'entities' or 'answers' key
+    2. Legacy raw text (JSON string) from the LLM — needs JSON parsing with
+       markdown fence stripping
+    """
+    # Try 'entities' first (our laneName), then 'answers'
+    data = response.get("entities", response.get("answers", []))
+
+    # If data is already a list of dicts (structured extract_data output), return it
+    if isinstance(data, list) and data and isinstance(data[0], dict):
+        return data
+
+    # Otherwise treat as raw text from LLM and parse JSON
+    raw = data[0] if isinstance(data, list) and data else str(data) if data else "[]"
+    try:
+        clean = raw.strip()
+        if clean.startswith("```"):
+            clean = "\n".join(clean.split("\n")[1:])
+        if clean.endswith("```"):
+            clean = "\n".join(clean.split("\n")[:-1])
+        return json.loads(clean.strip())
+    except (json.JSONDecodeError, AttributeError):
+        return []
 
 
 def _get_client():
@@ -109,24 +142,14 @@ async def ingest_text(req: TextIngestRequest):
         )
 
         response = await client.chat(token=token, question=question)
-        answers = response.get("answers", [])
-        raw = answers[0] if answers else "[]"
+
+        # extract_data returns structured tabular data in 'entities' key
+        # (via response_answers laneName="entities"); fall back to 'answers'
+        entities = _parse_extraction_response(response)
 
     except Exception as exc:
         logger.error("RocketRide ingest failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Ingest pipeline error: {exc}")
-
-    # Parse the extracted entities
-    try:
-        # Strip markdown code fences if present
-        clean = raw.strip()
-        if clean.startswith("```"):
-            clean = "\n".join(clean.split("\n")[1:])
-        if clean.endswith("```"):
-            clean = "\n".join(clean.split("\n")[:-1])
-        entities = json.loads(clean.strip())
-    except json.JSONDecodeError:
-        entities = []
 
     # Optionally write extracted entities to the graph
     written = 0
@@ -162,30 +185,17 @@ async def ingest_file(
         await client.connect()
         token = await _get_ingest_token(client)
 
-        # Send file through RocketRide's webhook pipeline (parse + OCR)
+        # Send file through RocketRide's webhook pipeline (parse + OCR + extract_data)
         result = await client.send_files(
             token=token,
             files=[{"name": file.filename, "content": content, "mime_type": file.content_type}],
         )
 
-        raw = ""
-        answers = result.get("entities", result.get("answers", []))
-        if answers:
-            raw = answers[0] if isinstance(answers, list) else str(answers)
+        entities = _parse_extraction_response(result)
 
     except Exception as exc:
         logger.error("RocketRide file ingest failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Ingest pipeline error: {exc}")
-
-    try:
-        clean = raw.strip()
-        if clean.startswith("```"):
-            clean = "\n".join(clean.split("\n")[1:])
-        if clean.endswith("```"):
-            clean = "\n".join(clean.split("\n")[:-1])
-        entities = json.loads(clean.strip())
-    except json.JSONDecodeError:
-        entities = []
 
     written = 0
     if write_to_graph and entities:

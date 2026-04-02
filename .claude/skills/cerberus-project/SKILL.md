@@ -119,7 +119,7 @@ tool calls and uses keyed memory to stay token-efficient across investigation st
 |------|---------|-------|-----------|
 | `cerberus-threat-agent.pipe` | **Primary** — Agent with MCP Client queries Neo4j directly | chat → agent_rocketride → mcp_client + llm_anthropic + memory_internal → response_answers | Default when RocketRide + neo4j-mcp are reachable |
 | `cerberus-query.pipe` | **Fallback** — Simple prompt + LLM (no MCP) | chat → prompt → llm_anthropic → response_answers | Agent pipeline fails to load |
-| `cerberus-ingest.pipe` | NER entity extraction from free-text | chat → prompt → llm_anthropic (Haiku) → response_answers | `/api/demo/natural` endpoint |
+| `cerberus-ingest.pipe` | NER entity extraction from free-text | chat → prompt → llm_anthropic (Haiku) → extract_data → response_answers | `/api/demo/natural` endpoint |
 | Direct Anthropic (llm.py) | **Last resort** — no RocketRide at all | Backend calls Anthropic SDK directly | RocketRide unavailable |
 
 ### RocketRide Env Vars
@@ -364,7 +364,7 @@ Pipeline definitions live in `pipelines/` as `.pipe` files (JSON format for the 
 | File | Purpose | Nodes |
 |------|---------|-------|
 | `cerberus-threat-agent.pipe` | **Primary** — Agent with MCP Client for autonomous Neo4j exploration | chat → agent_rocketride → mcp_client (neo4j-mcp) + llm_anthropic (Sonnet 4.6) + memory_internal → response_answers |
-| `cerberus-ingest.pipe` | NER entity extraction from free-text | chat → prompt (extract+classify) → llm_anthropic (Haiku 4.5) → response_answers |
+| `cerberus-ingest.pipe` | NER entity extraction from free-text | chat → prompt (extract+classify) → llm_anthropic (Haiku 4.5) → extract_data (structured) → response_answers |
 | `cerberus-query.pipe` | **Fallback** — Simple prompt+LLM narrative (no MCP) | chat → prompt (threat analyst) → llm_anthropic (Sonnet 4.6) → response_answers |
 
 Note: `cerberus-juspay` pipeline (stretch goal) not yet ported to `.pipe` format.
