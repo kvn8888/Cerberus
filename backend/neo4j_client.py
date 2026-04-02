@@ -456,7 +456,10 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
                 }
             )
 
-    # Extract nodes and links from Neo4j Path objects
+    # Extract nodes and links from Neo4j Path objects.
+    # ThreatActor entities can't use shortestPath(ThreatActor -> ThreatActor)
+    # because Neo4j raises an error when start == end node. Use a direct
+    # expansion query instead.
     _GRAPH_PATH_QUERY = """
     MATCH path = shortestPath(
       (start:{label} {{{key}: $value}})-[*..6]-(ta:ThreatActor)
@@ -465,9 +468,49 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
     LIMIT 10
     """.format(label=label, key=key)
 
+    _THREATACTOR_DIRECT_QUERY = """
+    MATCH (ta:ThreatActor {name: $value})
+    OPTIONAL MATCH (ta)-[:OPERATES]->(ip:IP)
+    OPTIONAL MATCH (ta)-[:EXPLOITS]->(cve:CVE)
+    OPTIONAL MATCH (ta)-[:TARGETS]->(domain:Domain)
+    OPTIONAL MATCH (ta)-[:ASSOCIATED_WITH]->(pkg:Package)
+    RETURN ta.name AS actor,
+           collect(DISTINCT ip.address) AS ips,
+           collect(DISTINCT cve.id) AS cves,
+           collect(DISTINCT domain.name) AS domains,
+           collect(DISTINCT pkg.name) AS packages
+    """
+
     with _get_driver().session() as s:
-        # Main path traversal
-        result = s.run(_GRAPH_PATH_QUERY, value=entity)
+        # For ThreatActor entities, use a direct expansion instead of
+        # shortestPath which fails when start and end labels are the same.
+        if etype == "threatactor":
+            _add_node(entity, "ThreatActor", 8)
+            ta_result = s.run(_THREATACTOR_DIRECT_QUERY, value=entity)
+            for r in ta_result:
+                for ip_addr in (r.get("ips") or []):
+                    if ip_addr:
+                        _add_node(ip_addr, "IP", 5)
+                        _add_link(entity, ip_addr, "OPERATES",
+                                  confidence=_relationship_confidence({"type": "OPERATES"}))
+                for cve_id in (r.get("cves") or []):
+                    if cve_id:
+                        _add_node(cve_id, "CVE", 5)
+                        _add_link(entity, cve_id, "EXPLOITS",
+                                  confidence=_relationship_confidence({"type": "EXPLOITS"}))
+                for domain in (r.get("domains") or []):
+                    if domain:
+                        _add_node(domain, "Domain", 5)
+                        _add_link(entity, domain, "TARGETS",
+                                  confidence=_relationship_confidence({"type": "TARGETS"}))
+                for pkg in (r.get("packages") or []):
+                    if pkg:
+                        _add_node(pkg, "Package", 6)
+                        _add_link(entity, pkg, "ASSOCIATED_WITH",
+                                  confidence=_relationship_confidence({"type": "ASSOCIATED_WITH"}))
+            result = []
+        else:
+            result = s.run(_GRAPH_PATH_QUERY, value=entity)
         for record in result:
             path = record["path"]
             for node in path.nodes:
