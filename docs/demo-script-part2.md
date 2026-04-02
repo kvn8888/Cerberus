@@ -36,9 +36,11 @@ running ua-parser-js should upgrade to 0.7.30, 0.8.1, or 1.0.1 immediately.
 **Action:** Ensure "Write to Graph" toggle is ON → Click **Extract Entities**
 
 **You (while processing):**
-> "I just pasted a raw government security advisory. The system is reading through it
-> and pulling out every important piece — package names, IP addresses, domains,
-> vulnerability IDs, threat groups — and scoring each one by confidence."
+> "I just pasted a raw government security advisory. Under the hood, this is running
+> through a RocketRide AI pipeline — the same orchestration layer that powers our
+> investigation agent. It reads the text, identifies every entity — package names,
+> IP addresses, domains, vulnerability IDs, threat groups — and scores each one
+> by confidence."
 
 **You (when results appear):**
 > "Eight entities extracted in under three seconds. Each one is categorized, scored,
@@ -62,7 +64,7 @@ running ua-parser-js should upgrade to 0.7.30, 0.8.1, or 1.0.1 immediately.
 
 **You:**
 > "APT41 — the group behind the ua-parser-js attack — is right here. You can see
-> their infrastructure spanning multiple countries. This isn't a static picture —
+> their infrastructure spanning multiple countries. This isn't a static image —
 > it updates as new data enters the graph."
 
 ---
@@ -93,7 +95,8 @@ running ua-parser-js should upgrade to 0.7.30, 0.8.1, or 1.0.1 immediately.
 **You:**
 > "Every confirmed pattern gets stored in the agent's memory as a knowledge graph.
 > These nodes are expandable — click the plus sign, and hidden relationships appear.
-> The system doesn't just answer questions — it builds institutional knowledge over time."
+> The RocketRide agent doesn't just answer questions — it builds institutional
+> knowledge over time. Each investigation wave feeds back into the graph."
 
 **Action:** Expand a node to reveal hidden connections.
 
@@ -108,8 +111,9 @@ running ua-parser-js should upgrade to 0.7.30, 0.8.1, or 1.0.1 immediately.
 
 **You:**
 > "To recap: we started with a raw threat report pasted from Slack. In under thirty seconds,
-> Cerberus extracted the key entities, mapped the attack geographically, compared it against
-> a prior investigation to find shared infrastructure, and stored the pattern for future use.
+> Cerberus — powered by RocketRide's pipeline orchestration — extracted the key entities,
+> mapped the attack geographically, compared it against a prior investigation to find
+> shared infrastructure, and stored the pattern for future use.
 >
 > Four hours of manual work compressed into thirty seconds — and every investigation
 > makes the next one faster."
