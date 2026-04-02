@@ -57,14 +57,15 @@ export function ComparePanel() {
     const v = value.trim().toLowerCase();
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) return "ip";
     if (/^cve-\d{4}-\d+$/i.test(v)) return "cve";
-    if (/^(apt|fin|ta|unc|lazarus|cozy|fancy|equation)/i.test(v))
-      return "threatactor";
+    // Domain check must come before threat actor so "apt41.com" isn't misclassified
     if (
       /\.(com|net|org|io|dev|xyz|ru|cn|tk)$/.test(v) &&
       !v.includes("/") &&
       !v.includes("@")
     )
       return "domain";
+    if (/^(apt|fin|ta|unc|lazarus|cozy|fancy|equation)/i.test(v))
+      return "threatactor";
     if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(v)) return "fraudsignal";
     return "package";
   }, []);
