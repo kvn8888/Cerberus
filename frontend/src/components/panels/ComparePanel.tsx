@@ -57,8 +57,14 @@ export function ComparePanel() {
     const v = value.trim().toLowerCase();
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) return "ip";
     if (/^cve-\d{4}-\d+$/i.test(v)) return "cve";
-    if (/^(apt|fin|ta|unc|lazarus|cozy|fancy|equation)/i.test(v)) return "threatactor";
-    if (/\.(com|net|org|io|dev|xyz|ru|cn|tk)$/.test(v) && !v.includes("/") && !v.includes("@")) return "domain";
+    if (/^(apt|fin|ta|unc|lazarus|cozy|fancy|equation)/i.test(v))
+      return "threatactor";
+    if (
+      /\.(com|net|org|io|dev|xyz|ru|cn|tk)$/.test(v) &&
+      !v.includes("/") &&
+      !v.includes("@")
+    )
+      return "domain";
     if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(v)) return "fraudsignal";
     return "package";
   }, []);
@@ -82,7 +88,7 @@ export function ComparePanel() {
         entityA.trim(),
         sharedType,
         entityB.trim(),
-        sharedType
+        sharedType,
       );
       setResult(data as CompareResult);
     } catch (err: any) {
@@ -95,11 +101,13 @@ export function ComparePanel() {
   /** Render a list of nodes (shared, only_a, or only_b) */
   const renderNodeList = (
     nodes: { id?: string; label?: string; type?: string }[],
-    emptyMsg: string
+    emptyMsg: string,
   ) => {
     if (nodes.length === 0) {
       return (
-        <p className="text-[10px] text-muted-foreground/50 italic">{emptyMsg}</p>
+        <p className="text-[10px] text-muted-foreground/50 italic">
+          {emptyMsg}
+        </p>
       );
     }
     return (
@@ -123,14 +131,13 @@ export function ComparePanel() {
   };
 
   /** Color the overlap score bar — green=high overlap, yellow=some, red=none */
-  const scoreColor =
-    !result
-      ? "bg-muted"
-      : result.overlap_score > 0.3
-        ? "bg-success"
-        : result.overlap_score > 0.05
-          ? "bg-yellow-500"
-          : "bg-threat-high";
+  const scoreColor = !result
+    ? "bg-muted"
+    : result.overlap_score > 0.3
+      ? "bg-success"
+      : result.overlap_score > 0.05
+        ? "bg-yellow-500"
+        : "bg-threat-high";
 
   return (
     <div className="flex flex-col h-full">
@@ -177,7 +184,7 @@ export function ComparePanel() {
               "w-full px-3 py-2 rounded-md text-xs font-mono",
               "bg-surface-raised border border-border",
               "text-foreground placeholder:text-muted-foreground/40",
-              "focus:outline-none focus:border-primary/50"
+              "focus:outline-none focus:border-primary/50",
             )}
           />
         </div>
@@ -196,7 +203,7 @@ export function ComparePanel() {
               "w-full px-3 py-2 rounded-md text-xs font-mono",
               "bg-surface-raised border border-border",
               "text-foreground placeholder:text-muted-foreground/40",
-              "focus:outline-none focus:border-primary/50"
+              "focus:outline-none focus:border-primary/50",
             )}
           />
         </div>
@@ -209,7 +216,7 @@ export function ComparePanel() {
             "w-full py-2 rounded-lg text-xs font-bold tracking-wide transition-all",
             !entityA.trim() || !entityB.trim() || loading
               ? "bg-muted text-muted-foreground cursor-not-allowed"
-              : "bg-primary text-primary-foreground hover:shadow-glow-lg active:scale-[0.97]"
+              : "bg-primary text-primary-foreground hover:shadow-glow-lg active:scale-[0.97]",
           )}
         >
           {loading ? (
@@ -249,8 +256,13 @@ export function ComparePanel() {
               </div>
               <div className="w-full h-2 rounded-full bg-surface-raised overflow-hidden">
                 <div
-                  className={cn("h-full rounded-full transition-all duration-700", scoreColor)}
-                  style={{ width: `${Math.max(result.overlap_score * 100, 2)}%` }}
+                  className={cn(
+                    "h-full rounded-full transition-all duration-700",
+                    scoreColor,
+                  )}
+                  style={{
+                    width: `${Math.max(result.overlap_score * 100, 2)}%`,
+                  }}
                 />
               </div>
             </div>
@@ -261,7 +273,9 @@ export function ComparePanel() {
                 <p className="text-lg font-bold text-primary">
                   {result.summary.shared_count}
                 </p>
-                <p className="text-[9px] font-mono text-muted-foreground">Shared</p>
+                <p className="text-[9px] font-mono text-muted-foreground">
+                  Shared
+                </p>
               </div>
               <div className="text-center p-2 rounded-md bg-surface-raised/40 border border-border/30">
                 <p className="text-lg font-bold text-blue-400">
@@ -293,7 +307,8 @@ export function ComparePanel() {
             {/* Only A */}
             <div>
               <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-1.5">
-                Exclusive to <span className="text-blue-400">{entityA || "A"}</span>
+                Exclusive to{" "}
+                <span className="text-blue-400">{entityA || "A"}</span>
               </p>
               {renderNodeList(result.only_a, "No exclusive nodes")}
             </div>
@@ -301,7 +316,8 @@ export function ComparePanel() {
             {/* Only B */}
             <div>
               <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-1.5">
-                Exclusive to <span className="text-purple-400">{entityB || "B"}</span>
+                Exclusive to{" "}
+                <span className="text-purple-400">{entityB || "B"}</span>
               </p>
               {renderNodeList(result.only_b, "No exclusive nodes")}
             </div>
@@ -313,9 +329,9 @@ export function ComparePanel() {
           <div className="flex flex-col items-center justify-center h-full text-center">
             <GitCompareArrows className="h-12 w-12 text-muted-foreground/15 mb-3" />
             <p className="text-xs text-muted-foreground/40 max-w-[220px] leading-relaxed">
-              Enter two entities above to compare their threat graphs.
-              Shared infrastructure reveals hidden connections between
-              seemingly unrelated threats.
+              Enter two entities above to compare their threat graphs. Shared
+              infrastructure reveals hidden connections between seemingly
+              unrelated threats.
             </p>
           </div>
         )}

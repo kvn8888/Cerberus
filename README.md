@@ -211,19 +211,19 @@ If RocketRide is unavailable entirely, `backend/pipeline.py` detects the connect
 
 ## Tech Stack
 
-| Component | Technology |
-|-----------|-----------|
-| Graph Database | Neo4j Aura (free tier) |
-| MCP Bridge | neo4j-mcp v1.5.0, HTTP mode |
-| Backend | FastAPI + uvicorn |
-| AI Orchestration | RocketRide AI (agent_rocketride, memory_internal, mcp_client, tool_http_request, tool_python, extract_data, ocr) |
-| LLM | Anthropic Claude Sonnet 4.6 |
-| Frontend | React 18 + Vite + Tailwind CSS + shadcn/ui |
-| Graph Visualization | react-force-graph-2d (d3-force layout) |
-| Streaming | SSE via sse-starlette and EventSource |
-| HTTP Client | httpx (async) |
-| Auth | PyJWT (HS256, demo users, role-based) |
-| STIX Export | stix2 Python library |
+| Component           | Technology                                                                                                       |
+| ------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Graph Database      | Neo4j Aura (free tier)                                                                                           |
+| MCP Bridge          | neo4j-mcp v1.5.0, HTTP mode                                                                                      |
+| Backend             | FastAPI + uvicorn                                                                                                |
+| AI Orchestration    | RocketRide AI (agent_rocketride, memory_internal, mcp_client, tool_http_request, tool_python, extract_data, ocr) |
+| LLM                 | Anthropic Claude Sonnet 4.6                                                                                      |
+| Frontend            | React 18 + Vite + Tailwind CSS + shadcn/ui                                                                       |
+| Graph Visualization | react-force-graph-2d (d3-force layout)                                                                           |
+| Streaming           | SSE via sse-starlette and EventSource                                                                            |
+| HTTP Client         | httpx (async)                                                                                                    |
+| Auth                | PyJWT (HS256, demo users, role-based)                                                                            |
+| STIX Export         | stix2 Python library                                                                                             |
 
 ---
 
@@ -272,19 +272,19 @@ Type `ua-parser-js` in the search box and press Enter. This package was hijacked
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `NEO4J_URI` | Yes | Neo4j Aura connection URI in the format `neo4j+s://...` |
-| `NEO4J_USERNAME` | Yes | Neo4j username, typically `neo4j` |
-| `NEO4J_PASSWORD` | Yes | Neo4j password |
-| `ANTHROPIC_API_KEY` | Yes | Anthropic API key for Claude |
-| `NEO4J_MCP_URL` | No | neo4j-mcp server URL, default `http://127.0.0.1:8787` |
-| `ROCKETRIDE_URI` | No | RocketRide engine URL, default `http://localhost:5565` |
-| `ROCKETRIDE_APIKEY` | No | RocketRide auth key |
-| `ROCKETRIDE_ANTHROPIC_KEY` | No | Anthropic key interpolated into pipeline LLM nodes |
-| `NEO4J_MCP_ENDPOINT` | No | MCP endpoint passed to RocketRide's mcp_client node |
-| `ROCKETRIDE_NEO4J_BASIC_AUTH` | No | Base64-encoded `user:pass` for neo4j-mcp Basic Auth |
-| `VITE_API_URL` | No | Backend URL baked into the frontend at build time, default `http://localhost:8000` |
+| Variable                      | Required | Description                                                                        |
+| ----------------------------- | -------- | ---------------------------------------------------------------------------------- |
+| `NEO4J_URI`                   | Yes      | Neo4j Aura connection URI in the format `neo4j+s://...`                            |
+| `NEO4J_USERNAME`              | Yes      | Neo4j username, typically `neo4j`                                                  |
+| `NEO4J_PASSWORD`              | Yes      | Neo4j password                                                                     |
+| `ANTHROPIC_API_KEY`           | Yes      | Anthropic API key for Claude                                                       |
+| `NEO4J_MCP_URL`               | No       | neo4j-mcp server URL, default `http://127.0.0.1:8787`                              |
+| `ROCKETRIDE_URI`              | No       | RocketRide engine URL, default `http://localhost:5565`                             |
+| `ROCKETRIDE_APIKEY`           | No       | RocketRide auth key                                                                |
+| `ROCKETRIDE_ANTHROPIC_KEY`    | No       | Anthropic key interpolated into pipeline LLM nodes                                 |
+| `NEO4J_MCP_ENDPOINT`          | No       | MCP endpoint passed to RocketRide's mcp_client node                                |
+| `ROCKETRIDE_NEO4J_BASIC_AUTH` | No       | Base64-encoded `user:pass` for neo4j-mcp Basic Auth                                |
+| `VITE_API_URL`                | No       | Backend URL baked into the frontend at build time, default `http://localhost:8000` |
 
 ---
 
@@ -329,9 +329,9 @@ Frontend at http://localhost:5173.
 
 The project includes a `render.yaml` blueprint that deploys as a single unified web service on Render.
 
-| Service | Type | Description |
-|---------|------|-------------|
-| `cerberus` | Web Service | Unified frontend and backend container |
+| Service     | Type            | Description                             |
+| ----------- | --------------- | --------------------------------------- |
+| `cerberus`  | Web Service     | Unified frontend and backend container  |
 | `neo4j-mcp` | Private Service | MCP bridge to Neo4j Aura, internal only |
 
 Connect the repo in the Render dashboard, create a Blueprint instance from `render.yaml`, fill in the environment variable values, and deploy. The unified container runs nginx serving the React build alongside uvicorn running FastAPI on the same port. No CORS configuration is needed because everything is same-origin.
@@ -342,16 +342,16 @@ Connect the repo in the Render dashboard, create a Blueprint instance from `rend
 
 ### Node Labels
 
-| Label | Key Property | Source |
-|-------|-------------|--------|
-| `Package` | `name` (UNIQUE) | npm registry |
-| `CVE` | `id` (UNIQUE) | NVD, MITRE |
-| `IP` | `address` (UNIQUE) | Threat intel feeds |
-| `Domain` | `name` (UNIQUE) | DNS, WHOIS |
-| `ThreatActor` | `name` (UNIQUE) | MITRE ATT&CK |
-| `Technique` | `mitre_id` (UNIQUE) | MITRE ATT&CK STIX |
-| `Account` | `(username, registry)` UNIQUE | npm, GitHub |
-| `FraudSignal` | `juspay_id` (UNIQUE) | Juspay API |
+| Label         | Key Property                  | Source             |
+| ------------- | ----------------------------- | ------------------ |
+| `Package`     | `name` (UNIQUE)               | npm registry       |
+| `CVE`         | `id` (UNIQUE)                 | NVD, MITRE         |
+| `IP`          | `address` (UNIQUE)            | Threat intel feeds |
+| `Domain`      | `name` (UNIQUE)               | DNS, WHOIS         |
+| `ThreatActor` | `name` (UNIQUE)               | MITRE ATT&CK       |
+| `Technique`   | `mitre_id` (UNIQUE)           | MITRE ATT&CK STIX  |
+| `Account`     | `(username, registry)` UNIQUE | npm, GitHub        |
+| `FraudSignal` | `juspay_id` (UNIQUE)          | Juspay API         |
 
 ### Relationships
 
@@ -377,76 +377,76 @@ Account to IP links are synthetic. No public data source maps npm publisher acco
 
 ### Core Investigation
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Health check |
-| `GET` | `/api/schema` | Live graph schema with labels, relationships, and counts |
-| `POST` | `/api/query` | Full investigation, non-streaming |
-| `GET` | `/api/query/stream` | SSE streaming investigation |
-| `GET` | `/api/query/graph` | Graph nodes and links for visualization |
-| `POST` | `/api/confirm` | Analyst confirms a threat pattern and writes it back to Neo4j |
+| Method | Path                | Description                                                   |
+| ------ | ------------------- | ------------------------------------------------------------- |
+| `GET`  | `/health`           | Health check                                                  |
+| `GET`  | `/api/schema`       | Live graph schema with labels, relationships, and counts      |
+| `POST` | `/api/query`        | Full investigation, non-streaming                             |
+| `GET`  | `/api/query/stream` | SSE streaming investigation                                   |
+| `GET`  | `/api/query/graph`  | Graph nodes and links for visualization                       |
+| `POST` | `/api/confirm`      | Analyst confirms a threat pattern and writes it back to Neo4j |
 
 ### Intelligence
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/threat-score` | Graph-based risk score with contributing factors |
-| `GET` | `/api/blast-radius` | Count of reachable entities within four hops, broken down by type |
-| `GET` | `/api/shortest-path` | Shortest path between two entities, up to eight hops |
-| `GET` | `/api/suggestions` | Top five unconfirmed entities to investigate next |
+| Method | Path                 | Description                                                       |
+| ------ | -------------------- | ----------------------------------------------------------------- |
+| `GET`  | `/api/threat-score`  | Graph-based risk score with contributing factors                  |
+| `GET`  | `/api/blast-radius`  | Count of reachable entities within four hops, broken down by type |
+| `GET`  | `/api/shortest-path` | Shortest path between two entities, up to eight hops              |
+| `GET`  | `/api/suggestions`   | Top five unconfirmed entities to investigate next                 |
 
 ### Memory
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/memory` | Confirmed-threat subgraph for the Memory tab |
-| `GET` | `/api/memory/geo` | Geo coordinates for memorized entities |
-| `GET` | `/api/memory/expand` | Expand a node's neighbors in the memory graph |
+| Method | Path                 | Description                                   |
+| ------ | -------------------- | --------------------------------------------- |
+| `GET`  | `/api/memory`        | Confirmed-threat subgraph for the Memory tab  |
+| `GET`  | `/api/memory/geo`    | Geo coordinates for memorized entities        |
+| `GET`  | `/api/memory/expand` | Expand a node's neighbors in the memory graph |
 
 ### Export
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/stix/bundle` | STIX 2.1 bundle with TLP marking definitions |
-| `GET` | `/api/stix/indicator-count` | Indicator counts by type |
-| `GET` | `/api/demo/report` | Full investigation report for PDF generation |
+| Method | Path                        | Description                                  |
+| ------ | --------------------------- | -------------------------------------------- |
+| `GET`  | `/api/stix/bundle`          | STIX 2.1 bundle with TLP marking definitions |
+| `GET`  | `/api/stix/indicator-count` | Indicator counts by type                     |
+| `GET`  | `/api/demo/report`          | Full investigation report for PDF generation |
 
 ### Enrichment and Diff
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/enrich/virustotal` | VirusTotal-style reputation, simulated if no key is configured |
-| `GET` | `/api/enrich/hibp` | Breach lookup for email addresses |
-| `GET` | `/api/enrich/summary` | Unified enrichment summary across sources |
-| `POST` | `/api/diff/compare` | Structural graph diff between two entities |
+| Method | Path                     | Description                                                    |
+| ------ | ------------------------ | -------------------------------------------------------------- |
+| `GET`  | `/api/enrich/virustotal` | VirusTotal-style reputation, simulated if no key is configured |
+| `GET`  | `/api/enrich/hibp`       | Breach lookup for email addresses                              |
+| `GET`  | `/api/enrich/summary`    | Unified enrichment summary across sources                      |
+| `POST` | `/api/diff/compare`      | Structural graph diff between two entities                     |
 
 ### Annotations and Watchlist
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/api/annotations` | List annotations on an entity |
-| `POST` | `/api/annotations` | Create an annotation on a node |
-| `DELETE` | `/api/annotations/{id}` | Delete an annotation |
-| `GET` | `/api/watchlist` | List watchlist entries |
-| `POST` | `/api/watchlist` | Add an entity to the watchlist |
-| `DELETE` | `/api/watchlist/{id}` | Remove from watchlist |
-| `GET` | `/api/watchlist/check` | Check for new connections since the last watchlist check |
+| Method   | Path                    | Description                                              |
+| -------- | ----------------------- | -------------------------------------------------------- |
+| `GET`    | `/api/annotations`      | List annotations on an entity                            |
+| `POST`   | `/api/annotations`      | Create an annotation on a node                           |
+| `DELETE` | `/api/annotations/{id}` | Delete an annotation                                     |
+| `GET`    | `/api/watchlist`        | List watchlist entries                                   |
+| `POST`   | `/api/watchlist`        | Add an entity to the watchlist                           |
+| `DELETE` | `/api/watchlist/{id}`   | Remove from watchlist                                    |
+| `GET`    | `/api/watchlist/check`  | Check for new connections since the last watchlist check |
 
 ### Auth and API Keys
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/auth/login` | Demo JWT login |
-| `GET` | `/api/auth/me` | Current user from token |
+| Method | Path               | Description                   |
+| ------ | ------------------ | ----------------------------- |
+| `POST` | `/api/auth/login`  | Demo JWT login                |
+| `GET`  | `/api/auth/me`     | Current user from token       |
 | `POST` | `/api/keys/create` | Create an API key, role-gated |
-| `GET` | `/api/keys` | List API keys |
+| `GET`  | `/api/keys`        | List API keys                 |
 
 ### Juspay
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `POST` | `/api/juspay/ingest` | Ingest normalized fraud signals |
-| `GET` | `/api/juspay/signals` | Fraud signal summary for the cross-domain alerts block |
+| Method | Path                  | Description                                            |
+| ------ | --------------------- | ------------------------------------------------------ |
+| `POST` | `/api/juspay/ingest`  | Ingest normalized fraud signals                        |
+| `GET`  | `/api/juspay/signals` | Fraud signal summary for the cross-domain alerts block |
 
 ### Query Flow
 
@@ -490,20 +490,20 @@ A nine-stage pipeline bar runs across the top of the page and lights up each sta
 
 ### Key Files
 
-| File | Purpose |
-|------|---------|
-| `src/App.tsx` | Root layout, state flow, panel composition |
-| `src/hooks/useInvestigation.ts` | SSE stream state machine, cancel, history |
-| `src/lib/api.ts` | Typed API client for all endpoints |
-| `src/lib/iocExtract.ts` | IOC parsing from narrative and graph data |
-| `src/lib/attackPath.ts` | BFS attack path ordering and stepper navigation |
-| `src/lib/mitreTactics.ts` | MITRE tactic metadata for the heatmap |
-| `src/types/api.ts` | TypeScript interfaces for all API contracts |
-| `src/components/panels/QueryPanel.tsx` | Entity input, NLP mode, cross-domain block, history |
-| `src/components/panels/GraphPanel.tsx` | 2D graph, attack path stepper, filter, search, annotations |
-| `src/components/panels/NarrativePanel.tsx` | Streaming narrative, IOCs, score, modes, exports |
-| `src/components/panels/PipelineStages.tsx` | Nine-stage pipeline visualization with stop button |
-| `src/components/layout/Header.tsx` | Brand, commit hash, status indicators, watchlist bell |
+| File                                       | Purpose                                                    |
+| ------------------------------------------ | ---------------------------------------------------------- |
+| `src/App.tsx`                              | Root layout, state flow, panel composition                 |
+| `src/hooks/useInvestigation.ts`            | SSE stream state machine, cancel, history                  |
+| `src/lib/api.ts`                           | Typed API client for all endpoints                         |
+| `src/lib/iocExtract.ts`                    | IOC parsing from narrative and graph data                  |
+| `src/lib/attackPath.ts`                    | BFS attack path ordering and stepper navigation            |
+| `src/lib/mitreTactics.ts`                  | MITRE tactic metadata for the heatmap                      |
+| `src/types/api.ts`                         | TypeScript interfaces for all API contracts                |
+| `src/components/panels/QueryPanel.tsx`     | Entity input, NLP mode, cross-domain block, history        |
+| `src/components/panels/GraphPanel.tsx`     | 2D graph, attack path stepper, filter, search, annotations |
+| `src/components/panels/NarrativePanel.tsx` | Streaming narrative, IOCs, score, modes, exports           |
+| `src/components/panels/PipelineStages.tsx` | Nine-stage pipeline visualization with stop button         |
+| `src/components/layout/Header.tsx`         | Brand, commit hash, status indicators, watchlist bell      |
 
 ---
 
@@ -533,9 +533,9 @@ The primary demo entity is `ua-parser-js`. This package was hijacked in October 
 python -m pytest tests/ -v
 ```
 
-| File | Coverage |
-|------|----------|
-| `tests/test_api_routes.py` | API routes with mocked Neo4j and LLM dependencies |
+| File                         | Coverage                                                    |
+| ---------------------------- | ----------------------------------------------------------- |
+| `tests/test_api_routes.py`   | API routes with mocked Neo4j and LLM dependencies           |
 | `tests/test_neo4j_client.py` | Entity routing, Cypher templates, traversal, cache, confirm |
 
 97 tests passing.
