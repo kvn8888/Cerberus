@@ -98,13 +98,15 @@ Primary demo target. Hijacked Oct 2021 — versions 0.7.29, 0.8.0, 1.0.0 contain
 The main pipeline uses RocketRide's **native wave-planning agent** (`agent_rocketride`)
 with an **MCP Client** node that connects directly to our neo4j-mcp server. The agent
 autonomously explores the Neo4j threat graph using MCP tools (get-schema, read-cypher),
-stores findings in **keyed memory** across investigation waves, and generates threat
-narratives using Claude Sonnet 4.6.
+stores findings in **keyed memory** across investigation waves, enriches entities with
+**live HTTP requests** to external threat intel APIs (MITRE CVE, AbuseIPDB, VirusTotal),
+and generates threat narratives using Claude Sonnet 4.6.
 
 ```
 chat → agent_rocketride → [invoke] → mcp_client (neo4j-mcp @ NEO4J_MCP_ENDPOINT)
                          → [invoke] → llm_anthropic (Claude Sonnet 4.6)
                          → [invoke] → memory_internal
+                         → [invoke] → tool_http_request (MITRE/AbuseIPDB/VT)
          ↓
     response_answers
 ```
@@ -117,7 +119,7 @@ tool calls and uses keyed memory to stay token-efficient across investigation st
 
 | File | Purpose | Nodes | When Used |
 |------|---------|-------|-----------|
-| `cerberus-threat-agent.pipe` | **Primary** — Agent with MCP Client queries Neo4j directly | chat → agent_rocketride → mcp_client + llm_anthropic + memory_internal → response_answers | Default when RocketRide + neo4j-mcp are reachable |
+| `cerberus-threat-agent.pipe` | **Primary** — Agent with MCP Client queries Neo4j directly | chat → agent_rocketride → mcp_client + llm_anthropic + memory_internal + tool_http_request → response_answers | Default when RocketRide + neo4j-mcp are reachable |
 | `cerberus-query.pipe` | **Fallback** — Simple prompt + LLM (no MCP) | chat → prompt → llm_anthropic → response_answers | Agent pipeline fails to load |
 | `cerberus-ingest.pipe` | NER entity extraction from free-text | chat → prompt → llm_anthropic (Haiku) → extract_data → response_answers | `/api/demo/natural` endpoint |
 | Direct Anthropic (llm.py) | **Last resort** — no RocketRide at all | Backend calls Anthropic SDK directly | RocketRide unavailable |
@@ -363,7 +365,7 @@ Pipeline definitions live in `pipelines/` as `.pipe` files (JSON format for the 
 
 | File | Purpose | Nodes |
 |------|---------|-------|
-| `cerberus-threat-agent.pipe` | **Primary** — Agent with MCP Client for autonomous Neo4j exploration | chat → agent_rocketride → mcp_client (neo4j-mcp) + llm_anthropic (Sonnet 4.6) + memory_internal → response_answers |
+| `cerberus-threat-agent.pipe` | **Primary** — Agent with MCP Client for autonomous Neo4j exploration | chat → agent_rocketride → mcp_client (neo4j-mcp) + llm_anthropic (Sonnet 4.6) + memory_internal + tool_http_request → response_answers |
 | `cerberus-ingest.pipe` | NER entity extraction from free-text | chat → prompt (extract+classify) → llm_anthropic (Haiku 4.5) → extract_data (structured) → response_answers |
 | `cerberus-query.pipe` | **Fallback** — Simple prompt+LLM narrative (no MCP) | chat → prompt (threat analyst) → llm_anthropic (Sonnet 4.6) → response_answers |
 

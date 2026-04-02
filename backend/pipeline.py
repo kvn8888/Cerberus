@@ -12,6 +12,7 @@ Architecture:
     chat → agent_rocketride → [invoke] → mcp_client (neo4j-mcp)
                              → [invoke] → llm_anthropic (Claude Sonnet 4.6)
                              → [invoke] → memory_internal
+                             → [invoke] → tool_http_request (MITRE/AbuseIPDB/VT)
              ↓
         response_answers
 
