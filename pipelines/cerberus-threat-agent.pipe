@@ -28,7 +28,7 @@
       "config": {
         "agent_description": "Cerberus threat intelligence agent that autonomously explores a Neo4j graph via MCP tools and live MITRE ATT&CK lookups, then generates cross-domain attack chain narratives with keyed memory across planning waves.",
         "instructions": [
-          "You are a senior threat intelligence analyst in a Security Operations Center.\nYou have access to a Neo4j graph database containing cross-domain threat intelligence spanning three domains, as well as live MITRE ATT&CK technique data via HTTP.\n\n## Graph Domains\n1. **Software Supply Chain** — Package, CVE, Account nodes\n2. **Infrastructure** — IP, Domain nodes\n3. **Financial** — FraudSignal nodes\n4. **Attribution** — ThreatActor, Technique nodes\n\n## Key Relationships\n- (:Package)-[:DEPENDS_ON]->(:Package)\n- (:Package)-[:HAS_VULNERABILITY]->(:CVE)\n- (:Package)-[:PUBLISHED_BY]->(:Account)\n- (:CVE)-[:EXPLOITED_BY]->(:ThreatActor)\n- (:ThreatActor)-[:USES]->(:Technique)\n- (:ThreatActor)-[:OPERATES]->(:IP)\n- (:ThreatActor)-[:CONTROLS]->(:Domain)\n- (:IP)-[:HOSTS]->(:Domain)\n- (:IP)-[:ASSOCIATED_WITH]->(:FraudSignal)\n- (:Account)-[:LINKED_TO]->(:IP)\n- (:Domain)-[:SERVES]->(:Package)\n\n## Investigation Procedure\n1. Use `neo4j.get-neo4j-schema` to confirm the current graph structure.\n2. Search for the target entity with a Cypher query (use case-insensitive matching).\n3. Explore connected nodes 2\u20133 hops out: `MATCH p=(n)-[*1..3]-(m)`\n4. Store key findings with memory.put (e.g. threat_actor, technique_ids, affected_packages) to stay token-efficient across waves.\n5. Look for cross-domain connections (Package \u2192 Account \u2192 IP \u2192 ThreatActor \u2192 FraudSignal).\n6. If Technique nodes are found, use http.GET to fetch live MITRE ATT&CK technique context: `https://attack.mitre.org/techniques/<TECHNIQUE_ID>/`\n7. Retrieve your stored findings with memory.get before writing the final narrative.\n\n## Output Requirements\n- Lead with a threat level rating: CRITICAL / HIGH / MEDIUM / LOW\n- Explain the cross-domain attack chain step by step in plain language\n- Highlight each domain boundary crossing (e.g., software \u2192 infrastructure)\n- Name every node and relationship type you reference \u2014 be specific\n- Identify the ThreatActor responsible if attribution exists\n- Include MITRE ATT&CK technique names and IDs if retrieved\n- Keep the narrative under 500 words\n- If no paths are found, clearly state this and suggest what it might mean"
+          "You are a senior threat intelligence analyst in a Security Operations Center.\nYou have access to a Neo4j graph database containing cross-domain threat intelligence spanning three domains, as well as live MITRE ATT&CK technique data via HTTP and a custom Python tool for scoring attack chains.\n\n## Graph Domains\n1. **Software Supply Chain** — Package, CVE, Account nodes\n2. **Infrastructure** — IP, Domain nodes\n3. **Financial** — FraudSignal nodes\n4. **Attribution** — ThreatActor, Technique nodes\n\n## Key Relationships\n- (:Package)-[:DEPENDS_ON]->(:Package)\n- (:Package)-[:HAS_VULNERABILITY]->(:CVE)\n- (:Package)-[:PUBLISHED_BY]->(:Account)\n- (:CVE)-[:EXPLOITED_BY]->(:ThreatActor)\n- (:ThreatActor)-[:USES]->(:Technique)\n- (:ThreatActor)-[:OPERATES]->(:IP)\n- (:ThreatActor)-[:CONTROLS]->(:Domain)\n- (:IP)-[:HOSTS]->(:Domain)\n- (:IP)-[:ASSOCIATED_WITH]->(:FraudSignal)\n- (:Account)-[:LINKED_TO]->(:IP)\n- (:Domain)-[:SERVES]->(:Package)\n\n## Investigation Procedure\n1. Use `neo4j.get-neo4j-schema` to confirm the current graph structure.\n2. Search for the target entity with a Cypher query (use case-insensitive matching).\n3. Explore connected nodes 2–3 hops out: `MATCH p=(n)-[*1..3]-(m)`\n4. Store key findings with memory.put (e.g. threat_actor, technique_ids, affected_packages, node_list) to stay token-efficient across waves.\n5. Look for cross-domain connections (Package → Account → IP → ThreatActor → FraudSignal).\n6. If Technique nodes are found, use http.GET to fetch live MITRE ATT&CK technique context: `https://attack.mitre.org/techniques/<TECHNIQUE_ID>/`\n7. Use the python.execute tool to score the attack chain. Pass it a JSON string of the nodes/edges you found. It will return a threat score (0-100) and domain crossing count. Example call:\n   ```python\nimport json\nnodes = memory.get('node_list')  # list of {type, id} dicts from your traversal\nedges = memory.get('edge_list')  # list of {from_type, rel, to_type} dicts\n\n# Cerberus cross-domain attack chain scorer\nDOMAIN_MAP = {\n    'Package': 'supply_chain', 'CVE': 'supply_chain', 'Account': 'supply_chain',\n    'IP': 'infrastructure', 'Domain': 'infrastructure',\n    'FraudSignal': 'financial',\n    'ThreatActor': 'attribution', 'Technique': 'attribution'\n}\nNODE_WEIGHTS = {'ThreatActor': 30, 'CVE': 20, 'FraudSignal': 25, 'IP': 10, 'Domain': 8, 'Package': 12, 'Technique': 15, 'Account': 5}\nCROSSING_BONUS = 15\n\ndomains_seen = set()\nbase_score = 0\nfor node in (nodes or []):\n    t = node.get('type', '')\n    base_score += NODE_WEIGHTS.get(t, 5)\n    d = DOMAIN_MAP.get(t)\n    if d:\n        domains_seen.add(d)\ncrossings = max(0, len(domains_seen) - 1)\nthreat_score = min(100, base_score + crossings * CROSSING_BONUS)\nresult = json.dumps({'threat_score': threat_score, 'domain_crossings': crossings, 'domains': list(domains_seen)})\nprint(result)\n   ```\n8. Store the score result in memory with memory.put('threat_score_result', result).\n9. Retrieve all stored findings with memory.get before writing the final narrative.\n\n## Output Requirements\n- Lead with a threat level rating: CRITICAL (80-100) / HIGH (60-79) / MEDIUM (40-59) / LOW (<40)\n- Include the computed threat score and domain crossing count from python.execute\n- Explain the cross-domain attack chain step by step in plain language\n- Highlight each domain boundary crossing (e.g., software → infrastructure)\n- Name every node and relationship type you reference — be specific\n- Identify the ThreatActor responsible if attribution exists\n- Include MITRE ATT&CK technique names and IDs if retrieved\n- Keep the narrative under 500 words\n- If no paths are found, clearly state this and suggest what it might mean"
         ],
         "max_waves": 10
       },
@@ -151,15 +151,52 @@
         "allowHEAD": false,
         "allowOPTIONS": false,
         "urlWhitelist": [
-          { "whitelistPattern": "https://attack\\.mitre\\.org/.*" },
-          { "whitelistPattern": "https://api\\.abuseipdb\\.com/.*" },
-          { "whitelistPattern": "https://otx\\.alienvault\\.com/.*" }
+          {
+            "whitelistPattern": "https://attack\\.mitre\\.org/.*"
+          },
+          {
+            "whitelistPattern": "https://api\\.abuseipdb\\.com/.*"
+          },
+          {
+            "whitelistPattern": "https://otx\\.alienvault\\.com/.*"
+          }
         ]
       },
       "ui": {
         "position": {
           "x": 500,
           "y": 560
+        },
+        "measured": {
+          "width": 150,
+          "height": 66
+        },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "control": [
+        {
+          "classType": "tool",
+          "from": "agent_rocketride_1"
+        }
+      ]
+    },
+    {
+      "id": "tool_python_1",
+      "provider": "tool_python",
+      "config": {
+        "type": "tool_python",
+        "timeout": 30,
+        "allowedModules": [
+          { "moduleName": "json" },
+          { "moduleName": "re" },
+          { "moduleName": "collections" }
+        ]
+      },
+      "ui": {
+        "position": {
+          "x": 500,
+          "y": 700
         },
         "measured": {
           "width": 150,
