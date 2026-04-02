@@ -80,11 +80,31 @@
         "profile": "default",
         "default": {
           "fields": [
-            { "column": "type",         "type": "text",  "defval": "" },
-            { "column": "value",        "type": "text",  "defval": "" },
-            { "column": "threat_domain","type": "text",  "defval": "" },
-            { "column": "confidence",   "type": "text",  "defval": "medium" },
-            { "column": "context",      "type": "text",  "defval": "" }
+            {
+              "column": "type",
+              "type": "text",
+              "defval": ""
+            },
+            {
+              "column": "value",
+              "type": "text",
+              "defval": ""
+            },
+            {
+              "column": "threat_domain",
+              "type": "text",
+              "defval": ""
+            },
+            {
+              "column": "confidence",
+              "type": "text",
+              "defval": "medium"
+            },
+            {
+              "column": "context",
+              "type": "text",
+              "defval": ""
+            }
           ]
         }
       },
