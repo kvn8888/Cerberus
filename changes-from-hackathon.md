@@ -157,6 +157,38 @@ These were removed to reduce demo confusion, dead UI, or duplicate flows:
 
 ---
 
+## Phase 3 — RocketRide Deep Integration
+
+### Motivation
+
+The original pipelines used `agent_crewai` (a CrewAI wrapper) which lacked memory, parallel tool execution, and native RocketRide features. The ingest pipeline required fragile JSON parsing of LLM text output.
+
+### Changes
+
+| Feature | Details |
+|---------|---------|
+| **agent_rocketride** | Replaced `agent_crewai` with RocketRide's native wave-planning agent in `cerberus-threat-agent.pipe`. Adds keyed memory (`memory_internal`) for cross-investigation context. Agent parallelizes tool calls in waves instead of sequential execution. |
+| **extract_data** | Added structured extraction to `cerberus-ingest.pipe`. Defines 5 typed columns (type, value, threat_domain, confidence, context). Returns tabular data instead of raw JSON text. Backed by its own LLM invoke (Haiku 4.5). |
+| **tool_http_request** | Added HTTP request tool to threat agent for live enrichment. URL whitelist restricted to MITRE CVE API, AbuseIPDB, VirusTotal. GET-only. Agent can fetch CVE severity, IP reputation mid-investigation. |
+
+### Pipeline Changes
+
+| Pipeline | Before | After |
+|----------|--------|-------|
+| `cerberus-threat-agent.pipe` | 5 nodes (chat → agent_crewai → llm + mcp → response) | 7 nodes (chat → agent_rocketride → llm + memory_internal + mcp + tool_http_request → response) |
+| `cerberus-ingest.pipe` | 6 nodes (webhook → parse → ocr → prompt → llm → response) | 8 nodes (webhook → parse → ocr → prompt → llm → extract_data → llm2 → response) |
+
+### Modified Files
+
+| File | Change |
+|------|--------|
+| `pipelines/cerberus-threat-agent.pipe` | Replaced agent_crewai → agent_rocketride, added memory_internal + tool_http_request nodes |
+| `pipelines/cerberus-ingest.pipe` | Added extract_data_1 + llm_anthropic_2 nodes for structured extraction |
+| `backend/pipeline.py` | Updated docstring to reflect new architecture |
+| `backend/routes/ingest.py` | New `_parse_extraction_response()` handles structured + legacy formats |
+
+---
+
 ## How to keep docs in sync
 
 When you change UX or API surface again, update this file plus [README.md](README.md) and [.claude/skills/cerberus-project/SKILL.md](.claude/skills/cerberus-project/SKILL.md) so judges and future sessions see one story.
