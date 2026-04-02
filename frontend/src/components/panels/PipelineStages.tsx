@@ -133,94 +133,108 @@ export function PipelineStages({
           </button>
         )}
         <div className="flex items-center">
-        {STAGES.map((stage, idx) => {
-          const Icon = stage.icon;
-          const isComplete = idx < currentIdx;
-          const isActive = idx === currentIdx && isRunning;
-          const isPending = idx > currentIdx;
+          {STAGES.map((stage, idx) => {
+            const Icon = stage.icon;
+            const isComplete = idx < currentIdx;
+            const isActive = idx === currentIdx && isRunning;
+            const isPending = idx > currentIdx;
 
-          return (
-            <div key={stage.id} className="flex items-center">
-              {/* ── Stage node ─────────────────────────────── */}
-              <div className="flex flex-col items-center gap-1 relative">
-                {/* Outer glow ring for active stage */}
-                {isActive && (
-                  <div className="absolute -inset-2 rounded-full bg-primary/10 blur-md animate-pulse-slow" />
-                )}
-                <div
-                  className={cn(
-                    "flex items-center justify-center w-8 h-8 rounded-full relative z-10",
-                    "transition-all duration-500",
-                    isComplete &&
-                      "bg-primary/20 border border-primary/50 text-primary",
-                    isActive &&
-                      "bg-primary/30 border-2 border-primary text-primary shadow-glow animate-glow-pulse scale-110",
-                    isPending &&
-                      "bg-surface-raised border border-border text-muted-foreground/40",
-                    !isRunning &&
-                      currentStage === "input" &&
-                      "bg-surface-raised border border-border text-muted-foreground/40"
+            return (
+              <div key={stage.id} className="flex items-center">
+                {/* ── Stage node ─────────────────────────────── */}
+                <div className="flex flex-col items-center gap-1 relative">
+                  {/* Outer glow ring for active stage */}
+                  {isActive && (
+                    <div className="absolute -inset-2 rounded-full bg-primary/10 blur-md animate-pulse-slow" />
                   )}
-                >
-                  <Icon className={cn(
-                    "h-3.5 w-3.5 transition-transform duration-300",
-                    isActive && "scale-110",
-                    isComplete && "scale-100"
-                  )} />
-                  {/* Checkmark overlay for completed stages */}
-                  {isComplete && (
-                    <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-primary flex items-center justify-center">
-                      <svg className="w-1.5 h-1.5 text-primary-foreground" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="3">
-                        <path d="M2 6l3 3 5-5" />
-                      </svg>
-                    </div>
-                  )}
-                </div>
-                <span
-                  className={cn(
-                    "text-[8px] font-mono uppercase tracking-wider transition-all duration-300",
-                    isComplete && "text-primary/80",
-                    isActive && "text-primary font-bold",
-                    isPending && "text-muted-foreground/30",
-                    !isRunning &&
-                      currentStage === "input" &&
-                      "text-muted-foreground/30"
-                  )}
-                >
-                  {stage.label}
-                </span>
-              </div>
-
-              {/* ── Connector line with fill animation ─────── */}
-              {idx < STAGES.length - 1 && (
-                <div className="w-8 mx-0.5 relative h-0.5">
-                  {/* Background track */}
-                  <div className="absolute inset-0 bg-border/50 rounded-full" />
-                  {/* Filled portion */}
                   <div
                     className={cn(
-                      "absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out",
-                      idx < currentIdx ? "bg-primary/50 w-full" : "bg-transparent w-0"
+                      "flex items-center justify-center w-8 h-8 rounded-full relative z-10",
+                      "transition-all duration-500",
+                      isComplete &&
+                        "bg-primary/20 border border-primary/50 text-primary",
+                      isActive &&
+                        "bg-primary/30 border-2 border-primary text-primary shadow-glow animate-glow-pulse scale-110",
+                      isPending &&
+                        "bg-surface-raised border border-border text-muted-foreground/40",
+                      !isRunning &&
+                        currentStage === "input" &&
+                        "bg-surface-raised border border-border text-muted-foreground/40",
                     )}
-                  />
-                  {/* Moving particle on active connector */}
-                  {idx === currentIdx - 1 && isRunning && (
-                    <div className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary shadow-glow animate-shimmer" />
-                  )}
+                  >
+                    <Icon
+                      className={cn(
+                        "h-3.5 w-3.5 transition-transform duration-300",
+                        isActive && "scale-110",
+                        isComplete && "scale-100",
+                      )}
+                    />
+                    {/* Checkmark overlay for completed stages */}
+                    {isComplete && (
+                      <div className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-primary flex items-center justify-center">
+                        <svg
+                          className="w-1.5 h-1.5 text-primary-foreground"
+                          viewBox="0 0 12 12"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                        >
+                          <path d="M2 6l3 3 5-5" />
+                        </svg>
+                      </div>
+                    )}
+                  </div>
+                  <span
+                    className={cn(
+                      "text-[8px] font-mono uppercase tracking-wider transition-all duration-300",
+                      isComplete && "text-primary/80",
+                      isActive && "text-primary font-bold",
+                      isPending && "text-muted-foreground/30",
+                      !isRunning &&
+                        currentStage === "input" &&
+                        "text-muted-foreground/30",
+                    )}
+                  >
+                    {stage.label}
+                  </span>
                 </div>
-              )}
-            </div>
-          );
-        })}
+
+                {/* ── Connector line with fill animation ─────── */}
+                {idx < STAGES.length - 1 && (
+                  <div className="w-8 mx-0.5 relative h-0.5">
+                    {/* Background track */}
+                    <div className="absolute inset-0 bg-border/50 rounded-full" />
+                    {/* Filled portion */}
+                    <div
+                      className={cn(
+                        "absolute inset-y-0 left-0 rounded-full transition-all duration-700 ease-out",
+                        idx < currentIdx
+                          ? "bg-primary/50 w-full"
+                          : "bg-transparent w-0",
+                      )}
+                    />
+                    {/* Moving particle on active connector */}
+                    {idx === currentIdx - 1 && isRunning && (
+                      <div className="absolute top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-primary shadow-glow animate-shimmer" />
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </div>
 
       {showRouteInfo && routeInfo && (
         <div className="max-w-5xl mx-auto mt-3 relative z-10">
           <div className="rounded-md border border-primary/25 bg-primary/5 px-3 py-2 flex items-center gap-3 text-[10px] font-mono">
-            <span className="uppercase tracking-[0.16em] text-primary/85">Route</span>
+            <span className="uppercase tracking-[0.16em] text-primary/85">
+              Route
+            </span>
             <span className="text-foreground/90">{routeInfo.strategy}</span>
-            <span className="text-muted-foreground/60">{routeInfo.path.join(" -> ")}</span>
+            <span className="text-muted-foreground/60">
+              {routeInfo.path.join(" -> ")}
+            </span>
             <span className="text-muted-foreground/75">{routeInfo.reason}</span>
           </div>
         </div>

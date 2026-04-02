@@ -729,13 +729,17 @@ export function NarrativePanel({
                             type="button"
                             onClick={() => {
                               const lines = displayedIocs.map((r) => r.value);
-                              void navigator.clipboard.writeText(lines.join("\n"));
+                              void navigator.clipboard.writeText(
+                                lines.join("\n"),
+                              );
                               flashCopied("ioc-copy");
                             }}
                             className="px-2 py-0.5 rounded text-[9px] font-mono border border-border/60 hover:bg-primary/10 hover:border-primary/30 transition-colors flex items-center gap-1"
                           >
                             <Copy className="h-2.5 w-2.5" />
-                            {copiedAction === "ioc-copy" ? "Copied!" : "Copy all"}
+                            {copiedAction === "ioc-copy"
+                              ? "Copied!"
+                              : "Copy all"}
                           </button>
                           <button
                             type="button"
@@ -761,9 +765,13 @@ export function NarrativePanel({
                       <div className="space-y-1">
                         {displayedIocs.map((row, i) => {
                           const investigableType =
-                            row.type === "ip" ? "ip" :
-                            row.type === "domain" ? "domain" :
-                            row.type === "package" ? "package" : null;
+                            row.type === "ip"
+                              ? "ip"
+                              : row.type === "domain"
+                                ? "domain"
+                                : row.type === "package"
+                                  ? "package"
+                                  : null;
                           /* Use the raw (non-defanged) value for investigation */
                           const rawValue = extractedIocs[i]?.value ?? row.value;
                           return (
@@ -780,7 +788,12 @@ export function NarrativePanel({
                               {investigableType ? (
                                 <button
                                   type="button"
-                                  onClick={() => onInvestigate?.(rawValue, investigableType as EntityType)}
+                                  onClick={() =>
+                                    onInvestigate?.(
+                                      rawValue,
+                                      investigableType as EntityType,
+                                    )
+                                  }
                                   className="text-[9px] font-mono text-primary/50 hover:text-primary transition-colors flex-shrink-0 w-16 text-right"
                                   title={`Investigate ${rawValue}`}
                                 >
@@ -996,9 +1009,7 @@ export function NarrativePanel({
                             "prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs",
                           )}
                         >
-                          <ReactMarkdown>
-                            {executiveSummary}
-                          </ReactMarkdown>
+                          <ReactMarkdown>{executiveSummary}</ReactMarkdown>
                         </div>
                       </div>
 

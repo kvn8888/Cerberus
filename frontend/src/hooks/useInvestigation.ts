@@ -57,7 +57,7 @@ export function useInvestigation() {
         setState(updater);
       });
     },
-    []
+    [],
   );
 
   /**
@@ -86,7 +86,7 @@ export function useInvestigation() {
       try {
         const graph = await fetchGraph(
           { entity, type: entityType },
-          { signal }
+          { signal },
         );
         if (signal?.aborted) return;
         updateState((prev) => {
@@ -112,7 +112,7 @@ export function useInvestigation() {
         });
       }
     },
-    [pushHistory, updateState]
+    [pushHistory, updateState],
   );
 
   /**
@@ -156,7 +156,7 @@ export function useInvestigation() {
       try {
         const res = await queryEntityStream(
           { entity, type: entityType },
-          { signal: controller.signal }
+          { signal: controller.signal },
         );
 
         if (!res.body) {
@@ -251,12 +251,11 @@ export function useInvestigation() {
         setState((prev) => ({
           ...prev,
           status: "error",
-          error:
-            err instanceof Error ? err.message : "Unknown error occurred",
+          error: err instanceof Error ? err.message : "Unknown error occurred",
         }));
       }
     },
-    [finalize, updateState]
+    [finalize, updateState],
   );
 
   /** Reset everything back to idle */
@@ -283,8 +282,20 @@ export function useInvestigation() {
   /** Cancel an in-flight investigation and return to idle */
   const cancel = useCallback(() => {
     abortRef.current?.abort();
-    setState((prev) => ({ ...IDLE_STATE, tlp: prev.tlp, audienceMode: prev.audienceMode }));
+    setState((prev) => ({
+      ...IDLE_STATE,
+      tlp: prev.tlp,
+      audienceMode: prev.audienceMode,
+    }));
   }, []);
 
-  return { state, investigate, cancel, reset, setAudienceMode, setTlp, history };
+  return {
+    state,
+    investigate,
+    cancel,
+    reset,
+    setAudienceMode,
+    setTlp,
+    history,
+  };
 }
