@@ -150,11 +150,13 @@ function buildInvestigationMarkdown(args: {
 }
 
 /**
- * Extract a longer executive summary from the full narrative.
- * Pulls all meaningful prose paragraphs (skips markdown headings,
- * tables, code blocks) so executives get the full picture.
+ * Build a plain-English executive summary from the technical narrative.
+ * Strips graph jargon, relationship terms, and technical identifiers so
+ * non-technical readers can understand the risk without security expertise.
  */
 function buildExecutiveSummary(narrative: string): string {
+  if (!narrative) return "";
+
   const lines = narrative
     .split("\n")
     .map((l) => l.trim())
@@ -164,11 +166,54 @@ function buildExecutiveSummary(narrative: string): string {
         !l.startsWith("#") &&
         !l.startsWith("---") &&
         !l.startsWith("|") &&
-        !l.startsWith("```"),
+        !l.startsWith("```") &&
+        !l.startsWith("*") &&
+        l.length > 40,
     );
-  const meaningful = lines.filter((l) => l.length > 30);
-  if (meaningful.length === 0) return lines.slice(0, 4).join(" ");
-  return meaningful.slice(0, 10).join("\n\n");
+
+  if (lines.length === 0) return "";
+
+  // Replace graph/technical jargon with plain language
+  const plain = lines
+    .slice(0, 8)
+    .map((line) =>
+      line
+        // Graph relationship terms
+        .replace(/\bHAS_VULNERABILITY\b/g, "contains a vulnerability")
+        .replace(/\bEXPLOITED_BY\b/g, "is being exploited by")
+        .replace(/\bOPERATES\b/g, "controls")
+        .replace(/\bUSES\b/g, "uses")
+        .replace(/\bCONTROLS\b/g, "controls")
+        .replace(/\bHOSTS\b/g, "hosts")
+        .replace(/\bLINKED_TO\b/g, "is linked to")
+        .replace(/\bASSOCIATED_WITH\b/g, "is associated with")
+        .replace(/\bDEPENDS_ON\b/g, "depends on")
+        .replace(/\bPUBLISHED_BY\b/g, "was published by")
+        // Node type labels
+        .replace(/\b(the )?Package node\b/gi, "the software package")
+        .replace(/\bPackage node\b/gi, "software package")
+        .replace(/\bThreatActor\b/g, "hacking group")
+        .replace(/\bThreatActors\b/g, "hacking groups")
+        .replace(/\bthreat actor\b/gi, "hacking group")
+        .replace(/\bthreat actors\b/gi, "hacking groups")
+        .replace(/\bCVE-\d{4}-\d+/g, (m) => `security vulnerability ${m}`)
+        .replace(/\bT\d{4}(?:\.\d{3})?\b/g, (m) => `attack technique ${m}`)
+        // Technical phrases
+        .replace(/\bcross-domain boundary crossing\b/gi, "the attack spread across multiple systems")
+        .replace(/\bsoftware supply.chain domain\b/gi, "software supply chain")
+        .replace(/\binfrastructure\/operational security\b/gi, "network infrastructure")
+        .replace(/\battribution confidence\b/gi, "confidence level")
+        .replace(/\bTTP[s]?\b/g, "attack methods")
+        .replace(/\bIOC[s]?\b/g, "threat indicators")
+        .replace(/\blast resort\b/gi, "fallback")
+        // Markdown bold/italic cleanup
+        .replace(/\*\*(.+?)\*\*/g, "$1")
+        .replace(/\*(.+?)\*/g, "$1")
+        .replace(/`(.+?)`/g, "$1")
+    )
+    .join("\n\n");
+
+  return plain;
 }
 
 export function NarrativePanel({
@@ -984,10 +1029,10 @@ export function NarrativePanel({
                           </div>
                           <p className="text-[11px] leading-relaxed opacity-80 text-center">
                             {state.threatScore.score >= 70
-                              ? "This is a critical-level threat. The score reflects confirmed connections to known malicious infrastructure, active attack campaigns, or exploitation of serious vulnerabilities. This requires immediate attention from your security team."
+                              ? "This software package is connected to known criminal hacking groups and dangerous infrastructure. Your team needs to act on this now."
                               : state.threatScore.score >= 40
-                                ? "This is a moderate-level threat. The score indicates some suspicious activity or connections to known threat indicators, but not yet confirmed active exploitation. This should be monitored closely."
-                                : "This is a low-level threat. The score reflects minimal connections to known malicious activity. Standard security monitoring should continue, but no immediate action is necessary."}
+                                ? "This software package has some suspicious connections worth watching. It has not been confirmed as actively dangerous yet, but it should be monitored."
+                                : "This software package has minimal connections to known threats. No immediate action is needed, but routine monitoring should continue."}
                           </p>
                         </div>
                       )}
@@ -998,18 +1043,12 @@ export function NarrativePanel({
                           <FileText className="h-3 w-3 text-primary" />
                           What We Found
                         </p>
-                        <div
-                          className={cn(
-                            "text-sm leading-[1.9] text-foreground/90",
-                            "prose prose-invert prose-sm max-w-none",
-                            "prose-headings:text-primary prose-headings:font-mono prose-headings:text-sm prose-headings:mt-3 prose-headings:mb-1",
-                            "prose-strong:text-primary prose-strong:font-semibold",
-                            "prose-p:mb-3 prose-p:leading-[1.9]",
-                            "prose-ul:my-1 prose-li:my-0.5 prose-li:marker:text-primary/40",
-                            "prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs",
-                          )}
-                        >
-                          <ReactMarkdown>{executiveSummary}</ReactMarkdown>
+                        <div className="space-y-2">
+                          {executiveSummary.split("\n\n").filter(Boolean).map((para, i) => (
+                            <p key={i} className="text-[12px] leading-relaxed text-foreground/80">
+                              {para}
+                            </p>
+                          ))}
                         </div>
                       </div>
 
