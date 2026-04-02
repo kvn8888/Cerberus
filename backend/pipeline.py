@@ -2,30 +2,40 @@
 pipeline.py — RocketRide AI pipeline integration with direct-LLM fallback.
 
 Architecture:
-  The cerberus-threat-agent pipeline runs a RocketRide native wave-planning
-  agent inside RocketRide that autonomously explores the Neo4j threat graph
-  via an MCP Client node connected to our neo4j-mcp server.  The agent uses
-  Claude Sonnet 4.6 for reasoning, keyed memory for cross-investigation
-  context, and generates the threat narrative.
+  The cerberus-threat-agent pipeline runs RocketRide's native wave-planning
+  agent (agent_rocketride) which autonomously explores the Neo4j threat graph
+  via MCP Client tools, uses keyed memory (memory_internal) to stay
+  token-efficient across planning waves, fetches live MITRE ATT&CK technique
+  data via tool_http_request, and generates cross-domain threat narratives.
 
   Pipeline shape (cerberus-threat-agent.pipe):
-    chat → agent_rocketride → [invoke] → mcp_client (neo4j-mcp)
-                             → [invoke] → llm_anthropic (Claude Sonnet 4.6)
-                             → [invoke] → memory_internal
-                             → [invoke] → tool_http_request (MITRE/AbuseIPDB/VT)
+    chat → agent_rocketride → [invoke/llm]    → llm_anthropic (Claude Sonnet 4.6)
+                             → [invoke/memory] → memory_internal (keyed store)
+                             → [invoke/tool]   → mcp_client (neo4j-mcp)
+                             → [invoke/tool]   → tool_http_request (MITRE/AbuseIPDB)
              ↓
         response_answers
 
   Fallback pipeline (cerberus-query.pipe):
     chat → prompt → llm_anthropic (Claude Sonnet 4.6) → response_answers
 
+  Ingest pipeline (cerberus-ingest.pipe):
+    webhook → parse → [text] → extract_data → [invoke/llm] → llm_anthropic (Haiku)
+                   → [image] → ocr → [text] → extract_data
+    extract_data outputs typed tabular rows: type, value, threat_domain, confidence, context
+
 Flow:
   1. Backend sends the entity name + type to RocketRide via SDK chat()
-  2. RocketRide's wave-planning agent queries Neo4j via MCP tools (get-neo4j-schema,
-     read-neo4j-cypher) — it explores the graph autonomously in parallel waves
-  3. Agent stores key findings in keyed memory across investigation waves
-  4. Agent generates a cross-domain threat intelligence narrative
-  5. Answer is returned to the backend and streamed to the frontend as SSE
+  2. agent_rocketride plans each investigation as a wave of parallel tool calls
+  3. Agent calls neo4j MCP tools (get-neo4j-schema, read-neo4j-cypher) to explore
+     the threat graph autonomously
+  4. Agent persists key findings in memory_internal across waves (threat_actor,
+     technique_ids, affected_packages) to avoid re-querying
+  5. Agent calls tool_http_request to fetch live MITRE ATT&CK technique detail
+     from attack.mitre.org for any Technique nodes found in the graph
+  6. Agent synthesizes a cross-domain threat intelligence narrative with full
+     attack chain and MITRE technique context
+  7. Answer is returned to the backend and streamed to the frontend as SSE
 
   The backend still runs db.traverse() in parallel for the GraphPanel
   visualization — the agent's graph exploration is independent.
@@ -268,11 +278,14 @@ async def _stream_via_sdk(
     question = Question()
 
     if _active_pipeline == "agent":
-        # Agent pipeline: send just the entity name — the CrewAI agent
-        # will use MCP tools to query Neo4j and explore the graph itself.
+        # Agent pipeline (agent_rocketride + memory_internal + mcp_client + tool_http_request):
+        # Send just the entity name — the wave-planning agent will autonomously explore
+        # Neo4j via MCP tools, store findings in keyed memory across waves, fetch live
+        # MITRE ATT&CK technique detail via HTTP, and synthesize the narrative.
         question.addQuestion(
             f"Investigate the threat entity '{entity}' (type: {entity_type}). "
-            f"Use your Neo4j MCP tools to explore the graph and generate "
+            f"Use your Neo4j MCP tools to explore the graph, store key findings in memory, "
+            f"look up any MITRE ATT&CK techniques found via HTTP, and generate "
             f"a cross-domain threat intelligence narrative."
         )
     else:
