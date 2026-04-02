@@ -6,7 +6,7 @@
  * and exclusive nodes for each entity. Uses the POST /api/diff/compare
  * endpoint which does set-level graph diffing.
  */
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import {
   GitCompareArrows,
   Search,
@@ -42,16 +42,34 @@ interface CompareResult {
 }
 
 export function ComparePanel() {
-  /* ── Input state for two entities ─────────────────────── */
+  /* ── Input state — single shared type for both entities ── */
   const [entityA, setEntityA] = useState("");
-  const [typeA, setTypeA] = useState("package");
   const [entityB, setEntityB] = useState("");
-  const [typeB, setTypeB] = useState("package");
+  const [sharedType, setSharedType] = useState("package");
 
   /* ── Result state ──────────────────────────────────────── */
   const [result, setResult] = useState<CompareResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  /** Auto-detect entity type from the input value */
+  const detectType = useCallback((value: string): string => {
+    const v = value.trim().toLowerCase();
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) return "ip";
+    if (/^cve-\d{4}-\d+$/i.test(v)) return "cve";
+    if (/^(apt|fin|ta|unc|lazarus|cozy|fancy|equation)/i.test(v)) return "threatactor";
+    if (/\.(com|net|org|io|dev|xyz|ru|cn|tk)$/.test(v) && !v.includes("/") && !v.includes("@")) return "domain";
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}/i.test(v)) return "fraudsignal";
+    return "package";
+  }, []);
+
+  /** When Entity A changes, auto-detect and update the shared type */
+  const handleEntityAChange = (value: string) => {
+    setEntityA(value);
+    if (value.trim().length > 2) {
+      setSharedType(detectType(value));
+    }
+  };
 
   /** Run the comparison against the backend diff endpoint */
   const handleCompare = async () => {
@@ -62,9 +80,9 @@ export function ComparePanel() {
     try {
       const data = await compareEntities(
         entityA.trim(),
-        typeA,
+        sharedType,
         entityB.trim(),
-        typeB
+        sharedType
       );
       setResult(data as CompareResult);
     } catch (err: any) {
@@ -127,36 +145,41 @@ export function ComparePanel() {
 
       {/* ── Inputs ───────────────────────────────────────── */}
       <div className="p-4 space-y-3 border-b border-border/50">
+        {/* Shared type selector */}
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em]">
+            Type
+          </span>
+          <select
+            value={sharedType}
+            onChange={(e) => setSharedType(e.target.value)}
+            className="px-2 py-1 rounded-md text-[10px] font-mono bg-surface-raised border border-primary/40 text-primary focus:outline-none"
+          >
+            {ENTITY_TYPES.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+        </div>
+
         {/* Entity A */}
         <div>
           <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-1 block">
             Entity A
           </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={entityA}
-              onChange={(e) => setEntityA(e.target.value)}
-              placeholder="e.g. ua-parser-js"
-              className={cn(
-                "flex-1 px-3 py-2 rounded-md text-xs font-mono",
-                "bg-surface-raised border border-border",
-                "text-foreground placeholder:text-muted-foreground/40",
-                "focus:outline-none focus:border-primary/50"
-              )}
-            />
-            <select
-              value={typeA}
-              onChange={(e) => setTypeA(e.target.value)}
-              className="px-2 py-2 rounded-md text-[10px] font-mono bg-surface-raised border border-border text-foreground"
-            >
-              {ENTITY_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <input
+            type="text"
+            value={entityA}
+            onChange={(e) => handleEntityAChange(e.target.value)}
+            placeholder="e.g. ua-parser-js"
+            className={cn(
+              "w-full px-3 py-2 rounded-md text-xs font-mono",
+              "bg-surface-raised border border-border",
+              "text-foreground placeholder:text-muted-foreground/40",
+              "focus:outline-none focus:border-primary/50"
+            )}
+          />
         </div>
 
         {/* Entity B */}
@@ -164,31 +187,18 @@ export function ComparePanel() {
           <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-1 block">
             Entity B
           </label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              value={entityB}
-              onChange={(e) => setEntityB(e.target.value)}
-              placeholder="e.g. event-stream"
-              className={cn(
-                "flex-1 px-3 py-2 rounded-md text-xs font-mono",
-                "bg-surface-raised border border-border",
-                "text-foreground placeholder:text-muted-foreground/40",
-                "focus:outline-none focus:border-primary/50"
-              )}
-            />
-            <select
-              value={typeB}
-              onChange={(e) => setTypeB(e.target.value)}
-              className="px-2 py-2 rounded-md text-[10px] font-mono bg-surface-raised border border-border text-foreground"
-            >
-              {ENTITY_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </div>
+          <input
+            type="text"
+            value={entityB}
+            onChange={(e) => setEntityB(e.target.value)}
+            placeholder="e.g. event-stream"
+            className={cn(
+              "w-full px-3 py-2 rounded-md text-xs font-mono",
+              "bg-surface-raised border border-border",
+              "text-foreground placeholder:text-muted-foreground/40",
+              "focus:outline-none focus:border-primary/50"
+            )}
+          />
         </div>
 
         {/* Compare button */}
