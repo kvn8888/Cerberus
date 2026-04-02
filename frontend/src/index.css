@@ -219,4 +219,41 @@
     opacity: 0;
     animation: glowPulse 2s ease-in-out infinite;
   }
+
+  /* Dedicated scrollbar treatment for persistent sidebars. */
+  .sidebar-scroll {
+    scrollbar-gutter: stable;
+  }
+
+  .sidebar-scroll::-webkit-scrollbar {
+    width: 9px;
+  }
+
+  .sidebar-scroll::-webkit-scrollbar-track {
+    background: linear-gradient(
+      180deg,
+      hsl(var(--surface) / 0.96) 0%,
+      hsl(var(--surface-raised) / 0.88) 100%
+    );
+    border-left: 1px solid hsl(var(--border) / 0.55);
+  }
+
+  .sidebar-scroll::-webkit-scrollbar-thumb {
+    background: linear-gradient(
+      180deg,
+      hsl(var(--primary) / 0.32) 0%,
+      hsl(var(--primary-glow) / 0.18) 100%
+    );
+    border-radius: 999px;
+    border: 1px solid hsl(var(--primary) / 0.14);
+    box-shadow: 0 0 10px hsl(var(--primary) / 0.08);
+  }
+
+  .sidebar-scroll::-webkit-scrollbar-thumb:hover {
+    background: linear-gradient(
+      180deg,
+      hsl(var(--primary) / 0.42) 0%,
+      hsl(var(--primary-glow) / 0.26) 100%
+    );
+  }
 }

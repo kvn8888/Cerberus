@@ -343,7 +343,7 @@ data: [DONE]
 | `backend/config.py` | Env var loader with validation |
 | `backend/neo4j_client.py` | Neo4j driver: traverse, cache/confirm, graph viz, geo (`get_memory_geo`, `get_all_geo`), Juspay, threat_score, blast_radius, shortest_path, suggest_next, memory |
 | `backend/llm.py` | Anthropic Claude narrative generation (blocking + streaming) |
-| `backend/rocketride.py` | RocketRide pipeline integration (async httpx, SSE proxy, 60s timeout) |
+| `backend/pipeline.py` | RocketRide pipeline orchestration (SDK client, 3-tier fallback, SSE streaming) |
 | `backend/enrich.py` | Real-time threat intel enrichment (OSV.dev, NVD, Abuse.ch) |
 | `backend/auth.py` | JWT authentication & RBAC (demo users, create_token, verify_token, require_role) |
 | `backend/models.py` | Pydantic models: EntityType, QueryRequest, ConfirmRequest |
@@ -409,14 +409,13 @@ Pipeline stages rendered in UI: `input → ner → classify → route → traver
 | Panel | Features |
 |-------|---------|
 | `QueryPanel` | Entity input with auto-detected type badge, NLP toggle (natural language → entity extraction via `/api/demo/natural`), cross-domain fraud alerts (`/api/juspay/signals`), investigation history (localStorage, last 10), quick-start buttons |
-| `NarrativePanel` | Streaming text, Technical/Executive toggle, threat score card + blast radius breakdown, IOC extraction (copy-all / CSV), external enrichment intel (VT/HIBP), "Investigate Next" suggestions, confirm, PDF export + STIX 2.1 bundle export |
+| `NarrativePanel` | Streaming text, Technical/Executive toggle, threat score card + blast radius breakdown, IOC extraction (copy-all / CSV), external enrichment intel (VT/HIBP), "Investigate Next" suggestions, confirm, PDF export + STIX 2.1 bundle export. Layout rule: the right narrative sidebar should scroll as one continuous column; avoid reintroducing separate top-controls/body vertical scroll regions. |
 | `GraphPanel` | Force-directed graph (react-force-graph-2d), attack-path stepper (DFS-ordered prev/next with cyan highlight, node label + auto-center), relationship type filter checkboxes, node search + gold highlight, legends, GraphMinimap, collaborative annotations on nodes (add/delete notes), "Watch Entity" button |
 | `ThreatMap` | Geomap tab: scroll-wheel zoom, drag pan, actor offsets, auto zoom-to-fit. **Pre-populates on mount with real Neo4j data via `GET /api/geomap/all`** (all IPs + ThreatActors with geo data). Investigation-triggered overlay added on top. No hardcoded demo nodes. |
 | `MitreHeatmapPanel` | MITRE ATT&CK tactic heatmap — counts Technique nodes from investigation graph, 14-tactic grid with intensity coloring |
 | `MemoryPanel` | Confirmed-threat subgraph + click-to-expand + STIX 2.1 bundle export button |
 | `ComparePanel` | Entity comparison — two entity inputs with type selectors, overlap score, shared/exclusive node lists |
 | `TimelinePanel` | Horizontal timeline with severity-colored dots, hover tooltip, click-to-replay |
-| `Graph3DPanel` | *(Deleted)* — Was WebGL 3D graph, removed during cleanup |
 
 ### Key Frontend Libraries
 
@@ -438,21 +437,25 @@ Typed functions include: `queryEntity()`, `queryEntityStream()`, `confirmEntity(
 
 Base URL uses `VITE_API_URL` when provided, otherwise defaults to `http://localhost:8000`. In unified Docker builds, `VITE_API_URL=""` makes all frontend API calls same-origin (`/api/...`).
 
-## RocketRide Integration (rocketride.py)
+## RocketRide Integration (pipeline.py)
 
 Backend integrates with RocketRide AI via the official Python SDK (`pip install rocketride`):
 
 ### Architecture
 
-The primary pipeline (`cerberus-threat-agent.pipe`) uses a CrewAI agent with an
-MCP Client node that connects to neo4j-mcp. The agent autonomously explores the
-Neo4j graph via MCP tools (get-schema, read-cypher) and reasons with Claude.
+The primary pipeline (`cerberus-threat-agent.pipe`) uses RocketRide's native
+wave-planning agent (`agent_rocketride`) with an MCP Client node that connects
+to neo4j-mcp, keyed memory for cross-wave context, and an HTTP request tool
+for live enrichment from external threat intel APIs. The agent autonomously
+explores the Neo4j graph via MCP tools (get-schema, read-cypher) and reasons
+with Claude Sonnet 4.6.
 
 ```
 Backend → SDK use() → loads pipeline → SDK send() → sends entity name
                                                           ↓
-                                              CrewAI agent explores Neo4j
-                                              via MCP Client tools
+                                              Wave-planning agent explores Neo4j
+                                              via MCP Client tools, stores findings
+                                              in memory, optionally enriches via HTTP
                                                           ↓
                                               Agent generates narrative
                                                           ↓
@@ -475,6 +478,9 @@ Backend → SDK use() → loads pipeline → SDK send() → sends entity name
 | `client.chat()` with Question object | `client.send()` with plain text |
 | Pipeline: prompt → LLM (just formatting) | Pipeline: agent → MCP tools + LLM (autonomous reasoning) |
 | RocketRide was a glorified LLM wrapper | RocketRide is the AI orchestration brain |
+| agent_crewai (sequential, no memory) | agent_rocketride (wave-planning, keyed memory, parallel tools) |
+| No live enrichment during investigation | tool_http_request calls MITRE/AbuseIPDB/VT |
+| Raw JSON text extraction in ingest | extract_data for structured tabular output |
 
 ## Project Structure (Current)
 
@@ -495,7 +501,7 @@ Cerberus/
 │   ├── config.py               # Env var loader
 │   ├── neo4j_client.py         # Neo4j driver: traverse, cache, confirm, graph viz, geo, Juspay, threat_score, blast_radius, shortest_path, suggest_next, memory
 │   ├── llm.py                  # Anthropic Claude narrative gen (blocking + streaming)
-│   ├── pipeline.py             # Pipeline orchestration
+│   ├── pipeline.py             # RocketRide SDK orchestration (3-tier fallback, SSE streaming)
 │   ├── enrich.py               # Real-time enrichment (OSV.dev, NVD, Abuse.ch)
 │   ├── auth.py                 # JWT auth + RBAC (3 demo users, require_role decorator)
 │   ├── models.py               # Pydantic models
@@ -553,7 +559,6 @@ Cerberus/
 │   │           ├── NarrativePanel.tsx  # Streaming text, Tech/Exec toggle, threat score, blast radius, IOC, suggestions, confirm, PDF, STIX export, enrichment intel
 │   │           ├── GraphPanel.tsx      # 2D force-graph, attack-path stepper, rel filter, node search, annotations, watch button
 │   │           ├── GraphMinimap.tsx    # 160×120 canvas overview (bottom-right)
-│   │           ├── Graph3DPanel.tsx    # 3D WebGL graph (exists but not routed)
 │   │           ├── ComparePanel.tsx    # Entity comparison: overlap score, shared/exclusive nodes
 │   │           ├── ThreatMap.tsx       # SVG geomap with zoom controls
 │   │           ├── MitreHeatmapPanel.tsx  # 14-tactic heatmap from Technique nodes
@@ -569,7 +574,10 @@ Cerberus/
 │   ├── nginx-unified.conf
 │   └── start.sh
 │
-└── docs/                       # Session retrospectives
+└── docs/                       # Session retrospectives + planning
+    ├── entity_schema.json
+    ├── marketing.md
+    ├── plan-rocketride-deep-integration.md
     ├── retro-001-script-consolidation.md
     ├── retro-002-frontend-build.md
     ├── retro-003-docker-setup.md
@@ -579,7 +587,10 @@ Cerberus/
     ├── retro-006-cve-enrichment-orphan-fix.md
     ├── retro-007-agent-pipeline-implementation.md
     ├── retro-008-perf-and-bugfixes.md
-    └── retro-009-phase2-features.md
+    ├── retro-009-code-cleanup-live-geomap.md
+    ├── retro-009-phase2-features.md
+    ├── retro-010-rocketride-deep-integration.md
+    └── retro-011-analyst-operations-pack.md
 ```
 
 ## Implementation Status
@@ -605,7 +616,7 @@ Cerberus/
 - [x] Backend API tested against live DB (all endpoints verified)
 - [x] Demo chain verified: ua-parser-js → ART-BY-FAISAL → 203.0.113.42 → APT41 + 3 FraudSignals
 - [x] Frontend scaffolded (React + Vite + Tailwind + panels + hooks + types)
-- [x] RocketRide integration (rocketride.py with LLM fallback)
+- [x] RocketRide integration (pipeline.py with wave-planning agent, memory, HTTP tools, LLM fallback)
 - [x] Demo APIs (NLP, comparison, feed, map, report)
 - [x] seed_data/ and import scripts removed (DB is live on Neo4j Aura)
 - [x] Technique nodes capped at 5 per ThreatActor in get_graph() to keep graph readable

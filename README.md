@@ -50,8 +50,10 @@ Cerberus is a thoughtful security agent that eliminates the 4-hour manual graph-
 │                    ROCKETRIDE PIPELINE                           │
 │                  (the "thoughtful agent")                        │
 │                                                                 │
-│  CrewAI Agent ──→ MCP Client ──→ Neo4j MCP Server               │
+│  Wave Agent ──→ MCP Client ──→ Neo4j MCP Server                │
 │       │             (get-schema, read-cypher, write-cypher)      │
+│       ├──→ Memory (keyed store for cross-wave context)           │
+│       ├──→ HTTP Request (MITRE CVE / AbuseIPDB / VirusTotal)    │
 │       ▼                                                         │
 │  LLM (Claude Sonnet) ── graph context → threat narrative        │
 │       │                                                         │
@@ -128,7 +130,7 @@ Cerberus is a thoughtful security agent that eliminates the 4-hour manual graph-
 | Graph DB | Neo4j Aura (free tier) |
 | MCP Bridge | neo4j-mcp v1.5.0 (HTTP mode) |
 | Backend | FastAPI + uvicorn |
-| Orchestration | RocketRide AI (CrewAI agent + MCP Client) |
+| Orchestration | RocketRide AI (wave-planning agent + MCP + memory + HTTP tools) |
 | LLM | Anthropic Claude (Sonnet 4.6) |
 | Frontend | React 18 + Vite + Tailwind CSS + shadcn/ui |
 | Graph Viz | react-force-graph-2d (d3-force) |
@@ -405,9 +407,9 @@ Pipeline definitions live in `pipelines/` as `.pipe` files:
 
 | File | Role | Flow |
 |------|------|------|
-| `cerberus-threat-agent.pipe` | **Primary** — AI agent with MCP | chat → CrewAI agent → MCP Client (neo4j-mcp) + LLM → response |
+| `cerberus-threat-agent.pipe` | **Primary** — AI agent with MCP | chat → wave agent → MCP Client (neo4j-mcp) + LLM + memory + HTTP → response |
 | `cerberus-query.pipe` | **Fallback** — Simple prompt + LLM | chat → prompt → LLM → response |
-| `cerberus-ingest.pipe` | NER extraction | chat → prompt → LLM (Haiku) → response |
+| `cerberus-ingest.pipe` | NER extraction + structured output | webhook → parse → OCR → prompt → LLM (Haiku) → extract_data → response |
 
 ### Fallback Chain
 
@@ -466,7 +468,7 @@ Cerberus/
 │   ├── config.py              # Environment variable loader
 │   ├── neo4j_client.py        # Neo4j driver, traversal, cache, graph viz
 │   ├── llm.py                 # Anthropic Claude integration
-│   ├── rocketride.py          # RocketRide pipeline SDK integration
+│   ├── pipeline.py            # RocketRide pipeline SDK integration (3-tier fallback)
 │   ├── enrich.py              # Real-time threat enrichment (OSV, NVD, Abuse.ch)
 │   ├── models.py              # Pydantic request/response models
 │   └── routes/

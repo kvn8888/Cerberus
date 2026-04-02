@@ -400,7 +400,7 @@ export function NarrativePanel({
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="sidebar-scroll flex h-full flex-col overflow-y-auto scroll-smooth">
       {/* ── Section header ─────────────────────────────────── */}
       {collapsed ? (
         /* Collapsed: just a centred toggle button, no overflow */
@@ -477,7 +477,7 @@ export function NarrativePanel({
       )}
 
       {!collapsed && (
-        <div className="flex flex-col flex-1 min-h-0 animate-fade-in">
+        <div className="flex flex-col animate-fade-in pb-4">
           <div className="px-4 pt-3 flex flex-col gap-2">
             <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface-raised/30 px-3 py-2">
               <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
@@ -613,7 +613,7 @@ export function NarrativePanel({
           </div>
 
           {/* ── Narrative body ─────────────────────────────────── */}
-          <div className="flex-1 overflow-y-auto p-4">
+          <div className="p-4">
             {state.status === "idle" && <IdleState />}
 
             {(state.status === "running" || state.status === "complete") &&
@@ -694,7 +694,7 @@ export function NarrativePanel({
                           </button>
                         </div>
                       </div>
-                      <div className="max-h-36 overflow-y-auto space-y-1">
+                      <div className="space-y-1">
                         {displayedIocs.map((row, i) => (
                           <div
                             key={`${row.type}-${row.value}-${i}`}

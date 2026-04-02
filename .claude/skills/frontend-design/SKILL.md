@@ -33,6 +33,15 @@ Focus on:
 - **Spatial Composition**: Unexpected layouts. Asymmetry. Overlap. Diagonal flow. Grid-breaking elements. Generous negative space OR controlled density.
 - **Backgrounds & Visual Details**: Create atmosphere and depth rather than defaulting to solid colors. Add contextual effects and textures that match the overall aesthetic. Apply creative forms like gradient meshes, noise textures, geometric patterns, layered transparencies, dramatic shadows, decorative borders, custom cursors, and grain overlays.
 
+## Sidebar Rule
+
+For persistent dashboard sidebars, treat the entire column as one continuous surface.
+
+- Prefer a single sidebar scroll container over stacked regions with independent vertical scrolling.
+- Avoid nested `overflow-y-auto` sections inside a sidebar unless the nested area is clearly a contained artifact such as a code editor or data grid.
+- If a sidebar has a header, controls, and content, they should usually scroll together so the column reads as one panel rather than multiple disconnected panes.
+- Make scroll treatment feel intentional: spacing, dividers, and scrollbar styling should reinforce that the user is moving through one surface.
+
 NEVER use generic AI-generated aesthetics like overused font families (Inter, Roboto, Arial, system fonts), cliched color schemes (particularly purple gradients on white backgrounds), predictable layouts and component patterns, and cookie-cutter design that lacks context-specific character.
 
 Interpret creatively and make unexpected choices that feel genuinely designed for the context. No design should be the same. Vary between light and dark themes, different fonts, different aesthetics. NEVER converge on common choices (Space Grotesk, for example) across generations.
