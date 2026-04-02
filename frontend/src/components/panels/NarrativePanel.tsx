@@ -199,9 +199,15 @@ function buildExecutiveSummary(narrative: string): string {
         .replace(/\bCVE-\d{4}-\d+/g, (m) => `security vulnerability ${m}`)
         .replace(/\bT\d{4}(?:\.\d{3})?\b/g, (m) => `attack technique ${m}`)
         // Technical phrases
-        .replace(/\bcross-domain boundary crossing\b/gi, "the attack spread across multiple systems")
+        .replace(
+          /\bcross-domain boundary crossing\b/gi,
+          "the attack spread across multiple systems",
+        )
         .replace(/\bsoftware supply.chain domain\b/gi, "software supply chain")
-        .replace(/\binfrastructure\/operational security\b/gi, "network infrastructure")
+        .replace(
+          /\binfrastructure\/operational security\b/gi,
+          "network infrastructure",
+        )
         .replace(/\battribution confidence\b/gi, "confidence level")
         .replace(/\bTTP[s]?\b/g, "attack methods")
         .replace(/\bIOC[s]?\b/g, "threat indicators")
@@ -209,7 +215,7 @@ function buildExecutiveSummary(narrative: string): string {
         // Markdown bold/italic cleanup
         .replace(/\*\*(.+?)\*\*/g, "$1")
         .replace(/\*(.+?)\*/g, "$1")
-        .replace(/`(.+?)`/g, "$1")
+        .replace(/`(.+?)`/g, "$1"),
     )
     .join("\n\n");
 
@@ -581,6 +587,30 @@ export function NarrativePanel({
       {!collapsed && (
         <div className="flex flex-col animate-fade-in pb-4">
           <div className="px-4 pt-3 flex flex-col gap-2">
+            {/* Entity header card — shown as soon as an investigation is active */}
+            {state.entity && (state.status === "running" || state.status === "complete") && (
+              <div className="flex items-center gap-2.5 p-3 rounded-lg bg-surface-raised/50 border border-border/50">
+                <div className="relative">
+                  <Shield className="h-5 w-5 text-primary relative z-10" />
+                  <div className="absolute inset-0 blur-md bg-primary/20 rounded-full" />
+                </div>
+                <div>
+                  <span className="font-mono text-sm font-semibold text-primary block">
+                    {state.entity}
+                  </span>
+                  <span className="text-[9px] font-mono uppercase text-muted-foreground tracking-wider">
+                    {state.entityType} investigation
+                  </span>
+                </div>
+                {state.fromCache && (
+                  <span className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono bg-success/10 text-success border border-success/20 animate-fade-in">
+                    <Zap className="h-2.5 w-2.5" />
+                    RECALLED INSTANTLY
+                  </span>
+                )}
+              </div>
+            )}
+
             <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface-raised/30 px-3 py-2">
               <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
                 Export TLP
@@ -725,28 +755,6 @@ export function NarrativePanel({
             {(state.status === "running" || state.status === "complete") &&
               deferredNarrative && (
                 <div className="space-y-4 animate-fade-in">
-                  {/* Entity header card */}
-                  <div className="flex items-center gap-2.5 p-3 rounded-lg bg-surface-raised/50 border border-border/50">
-                    <div className="relative">
-                      <Shield className="h-5 w-5 text-primary relative z-10" />
-                      <div className="absolute inset-0 blur-md bg-primary/20 rounded-full" />
-                    </div>
-                    <div>
-                      <span className="font-mono text-sm font-semibold text-primary block">
-                        {state.entity}
-                      </span>
-                      <span className="text-[9px] font-mono uppercase text-muted-foreground tracking-wider">
-                        {state.entityType} investigation
-                      </span>
-                    </div>
-                    {state.fromCache && (
-                      <span className="ml-auto flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono bg-success/10 text-success border border-success/20 animate-fade-in">
-                        <Zap className="h-2.5 w-2.5" />
-                        RECALLED INSTANTLY
-                      </span>
-                    )}
-                  </div>
-
                   {/* Extracted IOCs — copy / CSV for firewalls & SIEM */}
                   {state.status === "complete" && extractedIocs.length > 0 && (
                     <div className="p-3 rounded-lg bg-surface-raised/40 border border-border/50">
@@ -1044,11 +1052,17 @@ export function NarrativePanel({
                           What We Found
                         </p>
                         <div className="space-y-2">
-                          {executiveSummary.split("\n\n").filter(Boolean).map((para, i) => (
-                            <p key={i} className="text-[12px] leading-relaxed text-foreground/80">
-                              {para}
-                            </p>
-                          ))}
+                          {executiveSummary
+                            .split("\n\n")
+                            .filter(Boolean)
+                            .map((para, i) => (
+                              <p
+                                key={i}
+                                className="text-[12px] leading-relaxed text-foreground/80"
+                              >
+                                {para}
+                              </p>
+                            ))}
                         </div>
                       </div>
 
