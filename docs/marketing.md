@@ -361,8 +361,10 @@ Backend (FastAPI, port 8000)
      │              │
      │              └── Data found → Ingest into Neo4j → Re-traverse
      │
-     ├──→ RocketRide AI (agent + MCP orchestration)
-     │       CrewAI agent with MCP Client → neo4j-mcp
+     ├──→ RocketRide AI (wave-planning agent + MCP orchestration)
+     │       agent_rocketride with memory + MCP Client → neo4j-mcp
+     │       Includes: keyed memory (memory_internal), MITRE lookups
+     │         (tool_http_request), attack-chain scoring (tool_python)
      │       Falls back to direct LLM if unavailable
      │
      ├──→ Anthropic Claude (narrative generation)
@@ -386,9 +388,9 @@ Frontend receives:
 | **Graph DB** | Neo4j Aura (free tier) | Relationships are first-class; cross-domain traversal in one query |
 | **MCP Bridge** | neo4j-mcp v1.5.0 | HTTP bridge to Neo4j for agent tool-use (schema, Cypher) |
 | **Backend** | FastAPI + Python | Async, SSE support, fast to build |
-| **Orchestration** | RocketRide AI (CrewAI agent + MCP Client) | Autonomous agent explores graph via MCP tools |
+| **Orchestration** | RocketRide AI (native wave-planning agent + MCP Client) | Autonomous agent with memory, MITRE lookups, and Python scoring explores graph via MCP tools |
 | **Enrichment** | OSV.dev, NVD, Abuse.ch | Real-time threat intel for unknown entities (free, no keys) |
-| **LLM** | Anthropic Claude Sonnet | Narrative generation from graph context |
+| **LLM** | Anthropic Claude Sonnet 4.6 | Narrative generation from graph context |
 | **Frontend** | React 18 + Vite + Tailwind + shadcn/ui | Modern, fast, component library |
 | **Graph Viz** | react-force-graph-2d + SVG ThreatMap | Force-directed graph + separate geo threat map visualization |
 | **Streaming** | SSE (Server-Sent Events) | Real-time pipeline progress + narrative streaming |
@@ -423,7 +425,53 @@ Each input type triggers a different **route decision**, which the UI displays a
 
 ---
 
-## 11. Synthetic Data Disclaimer
+## 11. Analyst Operations & UI Features
+
+Since initial launch, Cerberus has grown from a graph + narrative viewer into a full analyst workstation. These features ship in the current build:
+
+### Investigation Views (Tabs)
+
+| Tab | What it shows |
+|---|---|
+| **Graph** | Force-directed 2D graph with confidence-weighted edges (opacity + width reflect score). Includes minimap for large graphs and attack-path stepper for walking entity chains step-by-step. |
+| **Narrative** | AI-generated threat assessment. Toggle between **Technical** (IOCs, CVEs, MITRE IDs) and **Executive** (business-impact summary) modes. |
+| **MITRE Heatmap** | Tactic × Technique grid populated from the investigation's graph data. Visual coverage map of attacker TTPs. |
+| **Geo Map** | IP geolocation map with threat actor offsets. Zoom-enabled, clustered markers for dense regions. |
+| **Memory** | Confirmed-threat subgraph — shows previously analyst-confirmed patterns from the knowledge base. |
+
+### IOC Extraction & Defanging
+
+The narrative panel automatically extracts IOCs (IPs, CVEs, domains, package names) and displays them in a copyable sidebar. All IOCs are **defanged** before display (e.g., `1.2.3[.]4`) to prevent accidental clicks in shared reports.
+
+### Export & Sharing
+
+| Format | Details |
+|---|---|
+| **PDF** | Full investigation report with graph snapshot, narrative, IOC list, and MITRE coverage |
+| **STIX 2.1 Bundle** | Standards-compliant export with TLP marking definitions (WHITE/GREEN/AMBER/RED) |
+| **Clipboard Markdown** | Copy narrative + IOCs in Slack/Jira/wiki-ready format |
+| **Permalinks** | Shareable `?entity=...&type=...` URLs that reproduce an investigation |
+
+### Detection Rules
+
+`/api/detect/rules` generates **Sigma** and **YARA** rule sketches from investigation data — ready to paste into a SIEM or EDR with minimal editing.
+
+### Bulk IOC Triage
+
+Paste a newline-or-comma-separated list of IOCs. Cerberus processes them in parallel (throttled) and returns a consolidated graph + narrative spanning all entities. Ideal for incident response when triaging a list of indicators from an alert.
+
+### Watchlist & Alerts
+
+- **Watchlist digest**: Header notification bell shows batched changes to watched entities
+- **Cross-domain alerts sidebar**: Juspay fraud signals with linked threat actor context, surfacing financial ↔ infrastructure connections
+
+### Session Timeline
+
+Bottom bar tracks investigation history within the current session — click any past query to restore its graph and narrative without re-running the pipeline.
+
+---
+
+## 12. Synthetic Data Disclaimer
 
 One relationship in the graph is simulated:
 
@@ -439,28 +487,59 @@ In the visualization, these edges render as **dashed lines** to distinguish them
 
 ---
 
-## 12. API Reference (Quick)
+## 13. API Reference (Quick)
 
 | Endpoint | Method | Purpose |
 |---|---|---|
+| **Core Investigation** |||
 | `/health` | GET | Health check |
 | `/api/schema` | GET | Live graph schema (labels, relationship types, counts) |
 | `/api/query` | POST | Main investigation: entity + type → graph + narrative |
 | `/api/query/stream` | GET | SSE streaming version of the above |
-| `/api/confirm` | POST | Analyst confirms a threat pattern |
-| `/api/query/graph` | GET | Full graph data for visualization |
+| `/api/query/graph` | GET | Graph traversal result (nodes + links for visualization) |
+| `/api/confirm` | POST | Analyst confirms a threat pattern (enables caching) |
+| **Intelligence Analytics** |||
+| `/api/threat-score` | GET | Compute 0-100 threat score from graph connectivity |
+| `/api/blast-radius` | GET | Count distinct entities reachable within 4 hops |
+| `/api/shortest-path` | GET | Find shortest path between two entities |
+| `/api/suggestions` | GET | Top 5 most-connected neighbors to investigate next |
+| **Analyst Operations** |||
+| `/api/detect/rules` | POST | Draft Sigma + YARA detection rules from investigation |
+| `/api/stix/bundle` | GET | Export STIX 2.1 bundle with TLP marking definitions |
+| `/api/stix/indicator-count` | GET | Aggregate indicator counts by type |
+| `/api/diff/compare` | POST | Compare investigation graphs of two entities (overlap) |
+| `/api/annotations` | GET/POST/DELETE | Analyst annotations on entities |
+| `/api/watchlist` | GET/POST/DELETE | Watched entities + `/check` for new connections |
+| **Enrichment** |||
+| `/api/enrich/virustotal` | GET | IP/domain/hash reputation from VirusTotal v3 |
+| `/api/enrich/hibp` | GET | Breach history for an email from HIBP v3 |
+| `/api/enrich/summary` | GET | Unified enrichment summary with highlights |
+| **Memory & Geo** |||
+| `/api/memory` | GET | Confirmed entities and connections (memorized subgraph) |
+| `/api/memory/geo` | GET | Geo-plottable points from memorized entities |
+| `/api/memory/expand` | GET | Children of a memorized node (click-to-expand) |
+| `/api/geomap/all` | GET | Geo points for all IPs and ThreatActors |
+| **Document Ingestion (RocketRide)** |||
+| `/api/ingest/text` | POST | Submit raw text for entity extraction via pipeline |
+| `/api/ingest/file` | POST | Upload file (PDF, image, doc) for entity extraction |
+| `/api/ingest/status` | GET | Check if ingest pipeline is loaded and ready |
+| **Fraud Integration** |||
+| `/api/juspay/ingest` | POST | Ingest Juspay fraud signals into graph |
+| `/api/juspay/signals` | GET | Fraud-signal layer summary (counts, actor links) |
+| **Auth & Admin** |||
+| `/api/auth/login` | POST | Authenticate with email + password → JWT |
+| `/api/auth/me` | GET | Current authenticated user's profile |
+| `/api/keys/create` | POST | Generate API key (admin-only) |
+| `/api/keys` | GET | List API keys with masked previews |
+| **Demo** |||
 | `/api/demo/natural` | POST | Free-text NLP entity extraction |
 | `/api/demo/compare` | POST | Multi-entity side-by-side comparison |
-| `/api/demo/feed` | GET | Live synthetic fraud event stream |
-| `/api/demo/feed/ingest` | POST | Ingest selected feed event into Neo4j |
-| `/api/juspay/ingest` | POST | Ingest normalized Juspay-style fraud payload(s) |
-| `/api/juspay/signals` | GET | FraudSignal summary (counts, actor links, recent signals) |
 | `/api/demo/map` | GET | Geo-IP data for map visualization |
-| `/api/demo/report` | GET | Full investigation report |
+| `/api/demo/report` | GET | Full investigation report payload |
 
 ---
 
-## 13. Anticipated Questions & Answers
+## 14. Anticipated Questions & Answers
 
 ### "Why not just use Postgres?"
 
@@ -480,11 +559,15 @@ Three mechanisms: (1) Seeded graph data means the LLM gets richer context and ne
 
 ### "What makes this a 'thoughtful agent' vs. a chatbot?"
 
-The pipeline makes visible decisions. It identifies the entity type (NER), classifies the threat domain (classification), chooses a traversal strategy (routing), and explains why it queried specific domains. Each stage is visible in the UI. A chatbot hides its reasoning; Cerberus shows it.
+The pipeline makes visible decisions. It identifies the entity type (NER), classifies the threat domain (classification), chooses a traversal strategy (routing), and explains why it queried specific domains. Each stage is visible in the UI. The RocketRide agent plans its investigation in waves — deciding which graph regions to explore, storing findings in keyed memory, and scoring attack chains with a custom Python scorer. A chatbot hides its reasoning; Cerberus shows it.
+
+### "What do the analyst operations add?"
+
+Cerberus is more than a viewer. Analysts can: generate Sigma + YARA detection rules from an investigation, export STIX 2.1 bundles with TLP markings, compare two entity graphs for infrastructure overlap, annotate nodes, watch entities for new connections, triage bulk IOC lists, and share investigations via permalinks. This turns a single query into a persistent workflow.
 
 ### "What's the RocketRide integration?"
 
-RocketRide orchestrates a **CrewAI agent with an MCP Client** that connects directly to our neo4j-mcp server. The agent autonomously explores the Neo4j threat graph using MCP tools (schema introspection, Cypher queries) and generates threat narratives using Claude Sonnet. It's not just an LLM wrapper — it's an autonomous agent that decides what to query and how to traverse the graph. If RocketRide is unavailable, the backend falls back to direct Claude calls.
+RocketRide orchestrates a **native wave-planning agent (`agent_rocketride`)** that connects directly to our neo4j-mcp server via an MCP Client. The agent autonomously explores the Neo4j threat graph using MCP tools (schema introspection, Cypher queries), stores findings in keyed memory (`memory_internal`) for cross-wave context, looks up live MITRE ATT&CK technique details via HTTP (`tool_http_request`), and scores cross-domain attack chains with a custom Python scorer (`tool_python`). It generates threat narratives using Claude Sonnet 4.6. If RocketRide is unavailable, the backend falls back to direct Claude calls.
 
 ### "Could this scale to production?"
 
@@ -509,7 +592,7 @@ Current runtime status:
 
 ---
 
-## 14. One-Line Pitches (Pick Your Audience)
+## 15. One-Line Pitches (Pick Your Audience)
 
 **For judges:**
 > Cerberus is a thoughtful security agent that traces cross-domain attack chains in 5 seconds instead of 4 hours — enriching gaps with live threat intel and learning from every investigation.
@@ -518,11 +601,11 @@ Current runtime status:
 > It connects your npm audit, Shodan, MITRE ATT&CK, and fraud dashboard into one queryable attack chain — and auto-enriches from OSV.dev, NVD, and Abuse.ch when entities are missing.
 
 **For technical audiences:**
-> Neo4j knowledge graph + real-time API enrichment + Claude narrative generation + self-improving cache, orchestrated through a CrewAI agent with MCP tools that shows its reasoning at every step.
+> Neo4j knowledge graph + real-time API enrichment + Claude narrative generation + self-improving cache, orchestrated through a RocketRide wave-planning agent with MCP tools, keyed memory, and a Python attack-chain scorer that shows its reasoning at every step.
 
 **For non-technical audiences:**
 > When hackers attack through software, we automatically trace the full chain — who did it, what infrastructure they used, and where the money went — in seconds instead of hours. Even if we've never seen the threat before.
 
 ---
 
-*This document is current as of the latest implementation. Real-time enrichment from OSV.dev, NVD, and Abuse.ch is live. All imports verified against live Neo4j Aura instance (~1,060 nodes). Demo chain (ua-parser-js → APT41 → fraud signals) confirmed end-to-end.*
+*This document is current as of April 2026. Real-time enrichment from OSV.dev, NVD, and Abuse.ch is live. All imports verified against live Neo4j Aura instance (~1,060 nodes). Demo chain (ua-parser-js → APT41 → fraud signals) confirmed end-to-end. RocketRide wave-planning agent replaces CrewAI for autonomous graph exploration. Full analyst operations (detection rules, STIX export, bulk triage, watchlist) are live.*
