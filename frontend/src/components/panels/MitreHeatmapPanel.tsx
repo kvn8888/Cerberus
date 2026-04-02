@@ -6,6 +6,7 @@ import type { InvestigationState } from "../../types/api";
 import { cn } from "../../lib/utils";
 import {
   MITRE_TACTICS_ORDER,
+  TACTIC_DESCRIPTIONS,
   extractTechniqueId,
   tacticForTechniqueId,
 } from "../../lib/mitreTactics";
@@ -20,13 +21,18 @@ function countTechniquesByTactic(nodes: GraphNode[]): Map<string, number> {
     /* Prefer the tactic field provided by the backend (from Neo4j).
        Fall back to the frontend T_TO_TACTIC lookup by technique ID. */
     const backendTactic = String((n as { tactic?: string }).tactic || "");
-    const raw = String((n as { mitre_id?: string }).mitre_id || n.label || n.id || "");
-    const tid = extractTechniqueId(raw) || extractTechniqueId(String(n.label || n.id));
+    const raw = String(
+      (n as { mitre_id?: string }).mitre_id || n.label || n.id || "",
+    );
+    const tid =
+      extractTechniqueId(raw) || extractTechniqueId(String(n.label || n.id));
 
     const tactic =
-      (backendTactic && MITRE_TACTICS_ORDER.includes(backendTactic as any) ? backendTactic : null)
-      || (tid ? tacticForTechniqueId(tid) : null)
-      || "Discovery";
+      (backendTactic && MITRE_TACTICS_ORDER.includes(backendTactic as any)
+        ? backendTactic
+        : null) ||
+      (tid ? tacticForTechniqueId(tid) : null) ||
+      "Discovery";
 
     m.set(tactic, (m.get(tactic) ?? 0) + 1);
   }
@@ -39,8 +45,14 @@ export function MitreHeatmapPanel({ state }: { state: InvestigationState }) {
     return countTechniquesByTactic(nodes);
   }, [state.graphData]);
 
-  const maxCount = useMemo(() => Math.max(1, ...Array.from(counts.values())), [counts]);
-  const total = useMemo(() => Array.from(counts.values()).reduce((a, b) => a + b, 0), [counts]);
+  const maxCount = useMemo(
+    () => Math.max(1, ...Array.from(counts.values())),
+    [counts],
+  );
+  const total = useMemo(
+    () => Array.from(counts.values()).reduce((a, b) => a + b, 0),
+    [counts],
+  );
 
   return (
     <div className="relative h-full w-full overflow-hidden grid-bg flex flex-col">
@@ -58,17 +70,19 @@ export function MitreHeatmapPanel({ state }: { state: InvestigationState }) {
               <div
                 key={tactic}
                 className={cn(
-                  "rounded-lg border p-3 min-h-[72px] flex flex-col justify-between transition-colors",
+                  "group relative rounded-lg border p-3 flex flex-col gap-1 transition-all duration-200 cursor-default",
                   c > 0
-                    ? "border-primary/40 bg-primary/[0.06]"
-                    : "border-border/40 bg-surface-raised/20 opacity-60"
+                    ? "border-primary/40 bg-primary/[0.06] hover:border-primary/70 hover:bg-primary/[0.10]"
+                    : "border-border/40 bg-surface-raised/20 opacity-60 hover:opacity-80",
                 )}
               >
-                <p className="text-[10px] font-mono text-muted-foreground leading-tight">{tactic}</p>
+                <p className="text-[10px] font-mono text-muted-foreground leading-tight">
+                  {tactic}
+                </p>
                 <p
                   className={cn(
                     "text-2xl font-bold font-mono tabular-nums",
-                    c > 0 ? "text-primary" : "text-muted-foreground/30"
+                    c > 0 ? "text-primary" : "text-muted-foreground/30",
                   )}
                   style={{
                     color:
@@ -78,6 +92,10 @@ export function MitreHeatmapPanel({ state }: { state: InvestigationState }) {
                   }}
                 >
                   {c}
+                </p>
+                {/* Description expands inline on hover — avoids overflow-clip issues */}
+                <p className="text-[10px] text-muted-foreground/60 leading-snug overflow-hidden max-h-0 group-hover:max-h-24 transition-all duration-200 ease-in-out">
+                  {TACTIC_DESCRIPTIONS[tactic]}
                 </p>
               </div>
             );

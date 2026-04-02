@@ -174,6 +174,7 @@ interface ActorLink {
 }
 
 export function QueryPanel({ onInvestigate, isRunning, investigationState }: QueryPanelProps) {
+  const [activeTab, setActiveTab] = useState<"investigate" | "crossdomain">("investigate");
   const [query, setQuery] = useState("");
   const [nlpMode, setNlpMode] = useState(false);
   const [nlpParsing, setNlpParsing] = useState(false);
@@ -284,9 +285,42 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
         <div className="absolute left-0 top-2 bottom-2 w-0.5 bg-primary/40 rounded-full" />
       </div>
 
-      {/* ── Single panel ──────────────────────────────────────── */}
+      {/* ── Tab bar ───────────────────────────────────────────── */}
+      <div className="flex border-b border-border">
+        <button
+          type="button"
+          onClick={() => setActiveTab("investigate")}
+          className={cn(
+            "flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-colors",
+            activeTab === "investigate"
+              ? "border-b-2 border-primary text-primary"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Investigate
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("crossdomain")}
+          className={cn(
+            "flex-1 py-2 text-[10px] font-mono uppercase tracking-wider transition-colors flex items-center justify-center gap-1.5",
+            activeTab === "crossdomain"
+              ? "border-b-2 border-threat-high text-threat-high"
+              : "text-muted-foreground hover:text-foreground"
+          )}
+        >
+          Cross-Domain
+          {fraudStats && fraudStats.signals > 0 && (
+            <span className="px-1 py-0.5 rounded text-[8px] font-bold bg-threat-high/15 text-threat-high border border-threat-high/30">
+              {fraudStats.signals}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* ── Tab content ───────────────────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
-          <form onSubmit={handleSubmit} className="p-4 space-y-4 flex flex-col h-full">
+          {activeTab === "investigate" && <form onSubmit={handleSubmit} className="p-4 space-y-4 flex flex-col h-full">
           {/* Search bar */}
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -465,20 +499,31 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
             </div>
           )}
 
-          {/* ── Cross-Domain Alerts (Juspay fraud ↔ cyber threats) ── */}
-          {fraudSignals.length > 0 && (
-            <div className="pt-2 pb-4">
-              <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] mb-1 flex items-center gap-1.5">
-                <AlertTriangle className="h-3 w-3 text-threat-high" />
-                Cross-Domain Alerts
-              </p>
-              <p className="text-[9px] font-mono text-muted-foreground/50 mb-2.5">
-                IPs shared between cyber attacks & financial fraud
+        </form>}
+
+          {activeTab === "crossdomain" && (
+            <div className="p-4 space-y-3">
+              <div className="flex items-center gap-1.5 mb-1">
+                <AlertTriangle className="h-3.5 w-3.5 text-threat-high" />
+                <p className="text-[10px] font-mono text-threat-high uppercase tracking-[0.15em]">
+                  Cross-Domain Alerts
+                </p>
+              </div>
+              <p className="text-[9px] font-mono text-muted-foreground/50">
+                IPs shared between cyber attack graphs &amp; financial fraud signals
               </p>
 
-              {/* Actor badges — the "why this matters" at a glance */}
+              {fraudStats && (
+                <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-threat-high/5 border border-threat-high/15">
+                  <DollarSign className="h-3 w-3 text-threat-high" />
+                  <span className="text-[10px] font-mono text-threat-high">
+                    {fraudStats.signals} fraud signals · ${fraudStats.total_amount.toLocaleString()} total
+                  </span>
+                </div>
+              )}
+
               {actorLinks.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
+                <div className="flex flex-wrap gap-1">
                   {actorLinks.map((a) => (
                     <span
                       key={a.actor}
@@ -492,20 +537,19 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
                 </div>
               )}
 
-              {fraudStats && (
-                <div className="flex items-center gap-2 mb-2 px-2 py-1.5 rounded-md bg-threat-high/5 border border-threat-high/15">
-                  <DollarSign className="h-3 w-3 text-threat-high" />
-                  <span className="text-[10px] font-mono text-threat-high">
-                    {fraudStats.signals} fraud signals · ${fraudStats.total_amount.toLocaleString()} total
-                  </span>
-                </div>
+              {fraudSignals.length === 0 && (
+                <p className="text-[10px] font-mono text-muted-foreground/40 text-center py-8">
+                  No cross-domain signals detected
+                </p>
               )}
+
               <div className="space-y-1">
                 {fraudSignals.map((sig) => (
                   <button
                     key={sig.juspay_id}
                     onClick={() => {
                       setQuery(sig.ip_address);
+                      setActiveTab("investigate");
                       onInvestigate(sig.ip_address, "ip");
                     }}
                     className={cn(
@@ -528,15 +572,14 @@ export function QueryPanel({ onInvestigate, isRunning, investigationState }: Que
                     <div className="flex items-center justify-between mt-0.5">
                       <span className="text-muted-foreground/40 text-[10px]">
                         Also seen in {sig.type.replace(/_/g, " ")} fraud
-                        </span>
+                      </span>
                       <ChevronRight className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-all duration-200" />
                     </div>
                   </button>
                 ))}
+              </div>
             </div>
-          </div>
-        )}
-        </form>
+          )}
       </div>
     </div>
   );

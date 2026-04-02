@@ -18,6 +18,23 @@ export const MITRE_TACTICS_ORDER = [
   "Impact",
 ] as const;
 
+export const TACTIC_DESCRIPTIONS: Record<string, string> = {
+  "Reconnaissance": "Gathering information about the target before attacking — scanning networks, harvesting emails, and profiling infrastructure.",
+  "Resource Development": "Acquiring tools, infrastructure, or accounts attackers will use — buying domains, setting up servers, or creating fake identities.",
+  "Initial Access": "Getting a foothold into the target environment — phishing emails, exploiting public-facing apps, or abusing valid credentials.",
+  "Execution": "Running malicious code on the target system — scripts, payloads, or abusing built-in system tools.",
+  "Persistence": "Maintaining access across reboots or credential changes — adding startup entries, scheduled tasks, or backdoor accounts.",
+  "Privilege Escalation": "Gaining higher-level permissions — moving from a normal user to admin or SYSTEM level access.",
+  "Defense Evasion": "Avoiding detection — disabling security tools, obfuscating code, or hiding malicious activity in legitimate processes.",
+  "Credential Access": "Stealing usernames and passwords — keylogging, dumping password hashes, or brute-forcing accounts.",
+  "Discovery": "Learning about the internal environment — mapping the network, listing accounts, and finding valuable assets.",
+  "Lateral Movement": "Moving deeper into the network from an initial foothold — spreading to other machines or services.",
+  "Collection": "Gathering data of interest before exfiltration — capturing keystrokes, screenshots, or harvesting files.",
+  "Command and Control": "Communicating with compromised systems to issue commands — using encrypted channels or blending in with normal traffic.",
+  "Exfiltration": "Stealing data out of the environment — transferring files to attacker-controlled systems, often using stealth techniques.",
+  "Impact": "Disrupting, destroying, or manipulating systems and data — ransomware encryption, wiping disks, or crashing services.",
+};
+
 const T_TO_TACTIC: Record<string, string> = {
   T1595: "Reconnaissance",
   T1592: "Reconnaissance",
