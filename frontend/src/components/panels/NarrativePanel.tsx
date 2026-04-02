@@ -28,7 +28,6 @@ import {
   PanelRightOpen,
   Globe,
   Server,
-  DollarSign,
   Link2,
   FileCode2,
   ShieldCheck,
