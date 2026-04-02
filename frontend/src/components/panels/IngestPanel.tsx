@@ -11,7 +11,7 @@
  * This panel connects the cerberus-ingest.pipe pipeline to the frontend,
  * making document ingestion visible and interactive for the demo.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   Upload,
   FileText,
@@ -31,7 +31,6 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import {
-  checkIngestStatus,
   ingestText,
   ingestFile,
   type IngestResponse,
@@ -72,9 +71,6 @@ const CONFIDENCE_COLORS: Record<string, string> = {
 export function IngestPanel({ onInvestigate }: IngestPanelProps) {
   /* ── State ────────────────────────────────────────────────────────── */
 
-  // Pipeline readiness — checked on mount
-  const [pipelineReady, setPipelineReady] = useState<boolean | null>(null);
-
   // Input mode: user can paste text or upload a file
   const [mode, setMode] = useState<"text" | "file">("text");
 
@@ -97,13 +93,6 @@ export function IngestPanel({ onInvestigate }: IngestPanelProps) {
   // Drag state for the file drop zone
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  /* ── Check pipeline readiness on mount ────────────────────────────── */
-  useEffect(() => {
-    checkIngestStatus()
-      .then((status) => setPipelineReady(status.ready))
-      .catch(() => setPipelineReady(false));
-  }, []);
 
   /* ── File drag-and-drop handlers ──────────────────────────────────── */
   const handleDragOver = useCallback((e: React.DragEvent) => {
@@ -200,27 +189,6 @@ export function IngestPanel({ onInvestigate }: IngestPanelProps) {
         <h2 className="text-sm font-semibold text-foreground">
           Threat Intel Ingestion
         </h2>
-
-        {/* Pipeline status indicator */}
-        <div className="ml-auto flex items-center gap-1.5">
-          {pipelineReady === null ? (
-            <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
-          ) : pipelineReady ? (
-            <>
-              <span className="h-2 w-2 rounded-full bg-green-500 animate-pulse" />
-              <span className="text-[10px] text-muted-foreground">
-                Pipeline Ready
-              </span>
-            </>
-          ) : (
-            <>
-              <span className="h-2 w-2 rounded-full bg-red-500" />
-              <span className="text-[10px] text-muted-foreground">
-                Pipeline Offline
-              </span>
-            </>
-          )}
-        </div>
       </div>
 
       {/* Mode toggle — Text vs File */}
