@@ -280,5 +280,11 @@ export function useInvestigation() {
     setState((prev) => ({ ...prev, tlp }));
   }, []);
 
-  return { state, investigate, reset, setAudienceMode, setTlp, history };
+  /** Cancel an in-flight investigation and return to idle */
+  const cancel = useCallback(() => {
+    abortRef.current?.abort();
+    setState((prev) => ({ ...IDLE_STATE, tlp: prev.tlp, audienceMode: prev.audienceMode }));
+  }, []);
+
+  return { state, investigate, cancel, reset, setAudienceMode, setTlp, history };
 }

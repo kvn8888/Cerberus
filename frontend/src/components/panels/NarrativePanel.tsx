@@ -7,7 +7,7 @@
  *
  * Implements US-4 (streaming narrative) and US-7 (analyst confirmation).
  */
-import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   FileText,
@@ -31,6 +31,8 @@ import {
   Link2,
   FileCode2,
   ShieldCheck,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import type {
   InvestigationState,
@@ -84,6 +86,8 @@ interface NarrativePanelProps {
   onInvestigate?: (entity: string, type: EntityType) => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
 }
 
 const TLP_LABELS: Record<TlpLevel, string> = {
@@ -116,7 +120,9 @@ function buildInvestigationMarkdown(args: {
     const blast = Object.entries(state.blastRadius.by_type)
       .map(([type, count]) => `${count} ${type}`)
       .join(", ");
-    lines.push(`**Blast Radius:** ${state.blastRadius.total} entities${blast ? `, ${blast}` : ""}`);
+    lines.push(
+      `**Blast Radius:** ${state.blastRadius.total} entities${blast ? `, ${blast}` : ""}`,
+    );
   }
 
   lines.push("", "### Narrative", narrative || "No narrative available.");
@@ -134,7 +140,9 @@ function buildInvestigationMarkdown(args: {
   if (state.suggestions?.length) {
     lines.push("", "### Investigate Next");
     state.suggestions.forEach((suggestion) => {
-      lines.push(`- ${suggestion.entity} (${suggestion.type}) — ${suggestion.reason}`);
+      lines.push(
+        `- ${suggestion.entity} (${suggestion.type}) — ${suggestion.reason}`,
+      );
     });
   }
 
@@ -170,6 +178,8 @@ export function NarrativePanel({
   onInvestigate,
   collapsed,
   onToggleCollapse,
+  expanded,
+  onToggleExpanded,
 }: NarrativePanelProps) {
   const [confirmed, setConfirmed] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -188,7 +198,9 @@ export function NarrativePanel({
   const [defangedCopy, setDefangedCopy] = useState(true);
   const [copiedAction, setCopiedAction] = useState<string | null>(null);
   const [rulesBusy, setRulesBusy] = useState(false);
-  const [detectionRules, setDetectionRules] = useState<DetectionRuleSet | null>(null);
+  const [detectionRules, setDetectionRules] = useState<DetectionRuleSet | null>(
+    null,
+  );
 
   const displayedIocs = useMemo(
     () => (defangedCopy ? defangRows(extractedIocs) : extractedIocs),
@@ -207,6 +219,12 @@ export function NarrativePanel({
     [state.status, state.entity],
   );
 
+  /* Memoized executive summary — avoids re-processing large narrative on every render */
+  const executiveSummary = useMemo(
+    () => buildExecutiveSummary(deferredNarrative || ""),
+    [deferredNarrative],
+  );
+
   /* Enrichment intel — auto-fetches from VirusTotal / HIBP when investigation completes */
   const [enrichments, setEnrichments] = useState<
     { source: string; simulated: boolean; highlights: string[] }[]
@@ -217,18 +235,29 @@ export function NarrativePanel({
   const [crossDomainHits, setCrossDomainHits] = useState<
     { juspay_id: string; type: string; amount: number; ip_address: string }[]
   >([]);
+  /* Track last entity we fetched for, to avoid re-fetching on cache hits */
+  const crossDomainFetchedFor = useRef<string | null>(null);
 
   useEffect(() => {
     if (state.status !== "complete" || !state.graphData?.nodes) {
-      setCrossDomainHits([]);
+      if (state.status !== "complete") {
+        setCrossDomainHits([]);
+        crossDomainFetchedFor.current = null;
+      }
       return;
     }
+    /* Skip re-fetch if we already have results for this entity */
+    if (crossDomainFetchedFor.current === state.entity) return;
     const ipNodes = new Set(
       state.graphData.nodes
         .filter((n) => (n.type || "").toLowerCase() === "ip")
         .map((n) => n.label || n.id),
     );
-    if (ipNodes.size === 0) return;
+    if (ipNodes.size === 0) {
+      crossDomainFetchedFor.current = state.entity;
+      return;
+    }
+    crossDomainFetchedFor.current = state.entity;
     fetch(`${API_BASE}/api/juspay/signals?limit=50`)
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
@@ -239,7 +268,7 @@ export function NarrativePanel({
         setCrossDomainHits(hits);
       })
       .catch(() => {});
-  }, [state.status, state.entity]);
+  }, [state.status, state.entity, state.graphData]);
 
   useEffect(() => {
     if (state.status !== "complete" || !state.entity) {
@@ -294,7 +323,10 @@ export function NarrativePanel({
 
   const flashCopied = (label: string) => {
     setCopiedAction(label);
-    window.setTimeout(() => setCopiedAction((current) => (current === label ? null : current)), 1400);
+    window.setTimeout(
+      () => setCopiedAction((current) => (current === label ? null : current)),
+      1400,
+    );
   };
 
   const handleExportPdf = async () => {
@@ -307,10 +339,13 @@ export function NarrativePanel({
         import("../report/ThreatReportPdf"),
       ]);
       // Fetch the report data from the backend
-      const report = await fetchReport({
-        entity: state.entity,
-        type: state.entityType,
-      }, state.tlp);
+      const report = await fetchReport(
+        {
+          entity: state.entity,
+          type: state.entityType,
+        },
+        state.tlp,
+      );
       // Render the React-PDF document to a blob (all client-side, no popups)
       const blob = await pdf(<ThreatReportPdf report={report} />).toBlob();
       // Create a temporary download link and trigger the save dialog
@@ -337,10 +372,13 @@ export function NarrativePanel({
     if (!canExport || stixBusy) return;
     setStixBusy(true);
     try {
-      const bundle = await fetchStixBundle({
-        entity: state.entity,
-        type: state.entityType,
-      }, state.tlp);
+      const bundle = await fetchStixBundle(
+        {
+          entity: state.entity,
+          type: state.entityType,
+        },
+        state.tlp,
+      );
       const json = JSON.stringify(bundle, null, 2);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -364,7 +402,9 @@ export function NarrativePanel({
       state,
       iocs: displayedIocs,
       techniques: techniqueIds,
-      narrative: defangedCopy ? defangText(deferredNarrative || "") : deferredNarrative || "",
+      narrative: defangedCopy
+        ? defangText(deferredNarrative || "")
+        : deferredNarrative || "",
     });
     await navigator.clipboard.writeText(markdown);
     flashCopied("markdown");
@@ -386,7 +426,10 @@ export function NarrativePanel({
       const rules = await generateDetectionRules({
         entity: state.entity,
         entityType: state.entityType,
-        iocs: extractedIocs.map((ioc) => ({ type: ioc.type, value: ioc.value })),
+        iocs: extractedIocs.map((ioc) => ({
+          type: ioc.type,
+          value: ioc.value,
+        })),
         techniques: techniqueIds,
         narrative: deferredNarrative || "",
         tlp: state.tlp,
@@ -461,7 +504,21 @@ export function NarrativePanel({
               </>
             )}
 
-            {/* Collapse toggle */}
+            {/* Expand / collapse toggles */}
+            {onToggleExpanded && (
+              <button
+                type="button"
+                onClick={onToggleExpanded}
+                className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-surface-raised transition-colors"
+                title={expanded ? "Restore panel size" : "Expand to full width"}
+              >
+                {expanded ? (
+                  <Minimize2 className="h-4 w-4" />
+                ) : (
+                  <Maximize2 className="h-4 w-4" />
+                )}
+              </button>
+            )}
             {onToggleCollapse && (
               <button
                 type="button"
@@ -485,7 +542,9 @@ export function NarrativePanel({
               </span>
               <select
                 value={state.tlp}
-                onChange={(event) => onTlpChange?.(event.target.value as TlpLevel)}
+                onChange={(event) =>
+                  onTlpChange?.(event.target.value as TlpLevel)
+                }
                 className="ml-auto rounded-md border border-border/60 bg-surface px-2 py-1 text-[10px] font-mono text-foreground focus:outline-none focus:border-primary/40"
               >
                 {Object.entries(TLP_LABELS).map(([value, label]) => (
@@ -576,7 +635,9 @@ export function NarrativePanel({
             >
               <span className="flex items-center justify-center gap-2">
                 <FileCode2 className="h-3.5 w-3.5" />
-                {rulesBusy ? "Drafting detection rules..." : "Generate Detection Rules"}
+                {rulesBusy
+                  ? "Drafting detection rules..."
+                  : "Generate Detection Rules"}
               </span>
             </button>
 
@@ -652,7 +713,9 @@ export function NarrativePanel({
                         <div className="flex gap-1">
                           <button
                             type="button"
-                            onClick={() => setDefangedCopy((current) => !current)}
+                            onClick={() =>
+                              setDefangedCopy((current) => !current)
+                            }
                             className={cn(
                               "px-2 py-0.5 rounded text-[9px] font-mono border transition-colors",
                               defangedCopy
@@ -666,13 +729,13 @@ export function NarrativePanel({
                             type="button"
                             onClick={() => {
                               const lines = displayedIocs.map((r) => r.value);
-                              void navigator.clipboard.writeText(
-                                lines.join("\n"),
-                              );
+                              void navigator.clipboard.writeText(lines.join("\n"));
+                              flashCopied("ioc-copy");
                             }}
                             className="px-2 py-0.5 rounded text-[9px] font-mono border border-border/60 hover:bg-primary/10 hover:border-primary/30 transition-colors flex items-center gap-1"
                           >
-                            <Copy className="h-2.5 w-2.5" /> Copy all
+                            <Copy className="h-2.5 w-2.5" />
+                            {copiedAction === "ioc-copy" ? "Copied!" : "Copy all"}
                           </button>
                           <button
                             type="button"
@@ -687,30 +750,48 @@ export function NarrativePanel({
                               a.download = `cerberus-iocs-${state.entity}-${Date.now()}.csv`;
                               a.click();
                               URL.revokeObjectURL(url);
+                              flashCopied("ioc-csv");
                             }}
                             className="px-2 py-0.5 rounded text-[9px] font-mono border border-border/60 hover:bg-primary/10 hover:border-primary/30 transition-colors"
                           >
-                            CSV
+                            {copiedAction === "ioc-csv" ? "Saved!" : "CSV"}
                           </button>
                         </div>
                       </div>
                       <div className="space-y-1">
-                        {displayedIocs.map((row, i) => (
-                          <div
-                            key={`${row.type}-${row.value}-${i}`}
-                            className="flex items-center justify-between gap-2 text-[10px] font-mono px-2 py-1 rounded bg-surface/50 border border-border/30"
-                          >
-                            <span className="text-muted-foreground/70 uppercase w-14 flex-shrink-0">
-                              {row.type}
-                            </span>
-                            <span className="text-foreground truncate flex-1">
-                              {row.value}
-                            </span>
-                            <span className="text-muted-foreground/40 w-16 text-right flex-shrink-0">
-                              {row.source}
-                            </span>
-                          </div>
-                        ))}
+                        {displayedIocs.map((row, i) => {
+                          const investigableType =
+                            row.type === "ip" ? "ip" :
+                            row.type === "domain" ? "domain" :
+                            row.type === "package" ? "package" : null;
+                          /* Use the raw (non-defanged) value for investigation */
+                          const rawValue = extractedIocs[i]?.value ?? row.value;
+                          return (
+                            <div
+                              key={`${row.type}-${row.value}-${i}`}
+                              className="flex items-center justify-between gap-2 text-[10px] font-mono px-2 py-1 rounded bg-surface/50 border border-border/30"
+                            >
+                              <span className="text-muted-foreground/70 uppercase w-14 flex-shrink-0">
+                                {row.type}
+                              </span>
+                              <span className="text-foreground truncate flex-1">
+                                {row.value}
+                              </span>
+                              {investigableType ? (
+                                <button
+                                  type="button"
+                                  onClick={() => onInvestigate?.(rawValue, investigableType as EntityType)}
+                                  className="text-[9px] font-mono text-primary/50 hover:text-primary transition-colors flex-shrink-0 w-16 text-right"
+                                  title={`Investigate ${rawValue}`}
+                                >
+                                  → graph
+                                </button>
+                              ) : (
+                                <span className="w-16" />
+                              )}
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
                   )}
@@ -730,10 +811,16 @@ export function NarrativePanel({
                       <div className="space-y-2">
                         <div>
                           <div className="mb-1 flex items-center justify-between">
-                            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Sigma</span>
+                            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                              Sigma
+                            </span>
                             <button
                               type="button"
-                              onClick={() => void navigator.clipboard.writeText(detectionRules.sigma)}
+                              onClick={() =>
+                                void navigator.clipboard.writeText(
+                                  detectionRules.sigma,
+                                )
+                              }
                               className="px-2 py-0.5 rounded text-[9px] font-mono border border-border/60 hover:bg-primary/10 hover:border-primary/30 transition-colors"
                             >
                               Copy
@@ -746,10 +833,16 @@ export function NarrativePanel({
 
                         <div>
                           <div className="mb-1 flex items-center justify-between">
-                            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">YARA</span>
+                            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                              YARA
+                            </span>
                             <button
                               type="button"
-                              onClick={() => void navigator.clipboard.writeText(detectionRules.yara)}
+                              onClick={() =>
+                                void navigator.clipboard.writeText(
+                                  detectionRules.yara,
+                                )
+                              }
                               className="px-2 py-0.5 rounded text-[9px] font-mono border border-border/60 hover:bg-primary/10 hover:border-primary/30 transition-colors"
                             >
                               Copy
@@ -795,8 +888,11 @@ export function NarrativePanel({
                               <p className="text-[10px] font-mono text-primary/70 uppercase mb-1 flex items-center gap-1">
                                 {e.source}
                                 {e.simulated && (
-                                  <span className="text-[8px] px-1 py-0.5 rounded bg-muted/30 text-muted-foreground normal-case">
-                                    simulated
+                                  <span
+                                    title="Demo enrichment data — connect live VirusTotal/HIBP API keys for real results"
+                                    className="text-[8px] px-1 py-0.5 rounded bg-muted/30 text-muted-foreground/50 normal-case cursor-help border border-border/40"
+                                  >
+                                    demo
                                   </span>
                                 )}
                               </p>
@@ -901,7 +997,7 @@ export function NarrativePanel({
                           )}
                         >
                           <ReactMarkdown>
-                            {buildExecutiveSummary(deferredNarrative)}
+                            {executiveSummary}
                           </ReactMarkdown>
                         </div>
                       </div>

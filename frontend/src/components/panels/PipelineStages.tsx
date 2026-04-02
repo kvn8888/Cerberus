@@ -19,6 +19,7 @@ import {
   Brain,
   FileText,
   CheckCircle2,
+  StopCircle,
 } from "lucide-react";
 import type { PipelineStage, RouteInfo } from "../../types/api";
 import { cn } from "../../lib/utils";
@@ -93,12 +94,14 @@ interface PipelineStagesProps {
   currentStage: PipelineStage;
   isRunning: boolean;
   routeInfo?: RouteInfo;
+  onCancel?: () => void;
 }
 
 export function PipelineStages({
   currentStage,
   isRunning,
   routeInfo,
+  onCancel,
 }: PipelineStagesProps) {
   const currentIdx = STAGE_ORDER.indexOf(currentStage);
   const routeIdx = STAGE_ORDER.indexOf("route");
@@ -116,7 +119,20 @@ export function PipelineStages({
         />
       )}
 
-      <div className="flex items-center justify-between min-w-max relative z-10">
+      <div className="flex items-center gap-4 min-w-max relative z-10">
+        {/* Cancel button — only shown while running */}
+        {isRunning && onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-mono border border-threat-critical/30 bg-threat-critical/10 text-threat-critical hover:bg-threat-critical/20 transition-colors flex-shrink-0"
+            title="Cancel investigation"
+          >
+            <StopCircle className="h-3 w-3" />
+            STOP
+          </button>
+        )}
+        <div className="flex items-center">
         {STAGES.map((stage, idx) => {
           const Icon = stage.icon;
           const isComplete = idx < currentIdx;
@@ -196,6 +212,7 @@ export function PipelineStages({
             </div>
           );
         })}
+        </div>
       </div>
 
       {showRouteInfo && routeInfo && (
