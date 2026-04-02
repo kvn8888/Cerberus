@@ -10,8 +10,14 @@
         "type": "webhook"
       },
       "ui": {
-        "position": { "x": 20, "y": 200 },
-        "measured": { "width": 150, "height": 160 },
+        "position": {
+          "x": 20,
+          "y": 200
+        },
+        "measured": {
+          "width": 150,
+          "height": 136
+        },
         "nodeType": "default",
         "formDataValid": true
       }
@@ -23,8 +29,14 @@
         "parameters": {}
       },
       "ui": {
-        "position": { "x": 240, "y": 200 },
-        "measured": { "width": 150, "height": 136 },
+        "position": {
+          "x": 240,
+          "y": 200
+        },
+        "measured": {
+          "width": 150,
+          "height": 136
+        },
         "nodeType": "default",
         "formDataValid": true
       },
@@ -43,8 +55,14 @@
         "parameters": {}
       },
       "ui": {
-        "position": { "x": 460, "y": 340 },
-        "measured": { "width": 150, "height": 84 },
+        "position": {
+          "x": 460,
+          "y": 340
+        },
+        "measured": {
+          "width": 150,
+          "height": 84
+        },
         "nodeType": "default",
         "formDataValid": true
       },
@@ -65,8 +83,14 @@
         "parameters": {}
       },
       "ui": {
-        "position": { "x": 460, "y": 200 },
-        "measured": { "width": 150, "height": 119 },
+        "position": {
+          "x": 460,
+          "y": 200
+        },
+        "measured": {
+          "width": 150,
+          "height": 119
+        },
         "nodeType": "default",
         "formDataValid": true
       },
@@ -92,8 +116,14 @@
         "parameters": {}
       },
       "ui": {
-        "position": { "x": 680, "y": 200 },
-        "measured": { "width": 150, "height": 66 },
+        "position": {
+          "x": 680,
+          "y": 200
+        },
+        "measured": {
+          "width": 150,
+          "height": 66
+        },
         "nodeType": "default",
         "formDataValid": true
       },
@@ -105,78 +135,37 @@
       ]
     },
     {
-      "id": "extract_data_1",
-      "provider": "extract_data",
-      "config": {
-        "profile": "default",
-        "default": {
-          "fields": [
-            { "column": "type", "type": "text" },
-            { "column": "value", "type": "text" },
-            { "column": "threat_domain", "type": "text" },
-            { "column": "confidence", "type": "text" },
-            { "column": "context", "type": "text" }
-          ]
-        }
-      },
-      "ui": {
-        "position": { "x": 900, "y": 200 },
-        "measured": { "width": 150, "height": 84 },
-        "nodeType": "default",
-        "formDataValid": true
-      },
-      "input": [
-        {
-          "lane": "text",
-          "from": "llm_anthropic_1"
-        }
-      ]
-    },
-    {
-      "id": "llm_anthropic_2",
-      "provider": "llm_anthropic",
-      "config": {
-        "profile": "claude-haiku-4-5",
-        "claude-haiku-4-5": {
-          "apikey": "${ROCKETRIDE_ANTHROPIC_KEY}"
-        },
-        "parameters": {}
-      },
-      "ui": {
-        "position": { "x": 900, "y": 380 },
-        "measured": { "width": 150, "height": 66 },
-        "nodeType": "default",
-        "formDataValid": true
-      },
-      "control": [
-        {
-          "classType": "llm",
-          "from": "extract_data_1"
-        }
-      ]
-    },
-    {
       "id": "response_answers_1",
       "provider": "response_answers",
       "config": {
         "laneName": "entities"
       },
       "ui": {
-        "position": { "x": 1120, "y": 200 },
-        "measured": { "width": 150, "height": 66 },
+        "position": {
+          "x": 900,
+          "y": 200
+        },
+        "measured": {
+          "width": 150,
+          "height": 66
+        },
         "nodeType": "default",
         "formDataValid": true
       },
       "input": [
         {
           "lane": "answers",
-          "from": "extract_data_1"
+          "from": "llm_anthropic_1"
         }
       ]
     }
   ],
   "project_id": "3191b5f7-7ab9-4540-8044-1536f039d7d1",
-  "viewport": { "x": 0, "y": 0, "zoom": 1 },
+  "viewport": {
+    "x": 0,
+    "y": 0,
+    "zoom": 1
+  },
   "version": 1,
   "source": "webhook_1"
 }

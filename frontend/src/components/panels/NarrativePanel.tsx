@@ -73,8 +73,9 @@ interface NarrativePanelProps {
 }
 
 /**
- * Extract a short executive summary from the full narrative.
- * Pulls the first meaningful paragraph and trims to ~2 sentences.
+ * Extract a longer executive summary from the full narrative.
+ * Pulls all meaningful prose paragraphs (skips markdown headings,
+ * tables, code blocks) so executives get the full picture.
  */
 function buildExecutiveSummary(narrative: string): string {
   const lines = narrative
@@ -88,9 +89,9 @@ function buildExecutiveSummary(narrative: string): string {
         !l.startsWith("|") &&
         !l.startsWith("```"),
     );
-  const meaningful = lines.filter((l) => l.length > 40);
-  if (meaningful.length === 0) return lines.slice(0, 2).join(" ");
-  return meaningful.slice(0, 2).join(" ");
+  const meaningful = lines.filter((l) => l.length > 30);
+  if (meaningful.length === 0) return lines.slice(0, 4).join(" ");
+  return meaningful.slice(0, 10).join("\n\n");
 }
 
 export function NarrativePanel({
@@ -570,41 +571,50 @@ export function NarrativePanel({
                     )}
 
                   {viewMode === "executive" ? (
-                    /* ── EXECUTIVE VIEW — clean summary for leadership ── */
+                    /* ── EXECUTIVE VIEW — plain-English summary for non-technical leadership ── */
                     <div className="space-y-4">
-                      {/* Risk verdict */}
+                      {/* Risk verdict with explanation */}
                       {state.threatScore && (
                         <div
                           className={cn(
-                            "p-4 rounded-lg border text-center",
+                            "p-4 rounded-lg border",
                             SEVERITY_COLORS[state.threatScore.severity],
                           )}
                         >
-                          <p className="text-[10px] font-mono uppercase tracking-wider opacity-70 mb-1">
-                            Risk Level
-                          </p>
-                          <p className="text-2xl font-bold font-mono uppercase">
-                            {state.threatScore.severity}
-                          </p>
-                          <p className="text-3xl font-bold font-mono mt-1">
-                            {state.threatScore.score}/100
+                          <div className="text-center mb-3">
+                            <p className="text-[10px] font-mono uppercase tracking-wider opacity-70 mb-1">
+                              Risk Level
+                            </p>
+                            <p className="text-2xl font-bold font-mono uppercase">
+                              {state.threatScore.severity}
+                            </p>
+                            <p className="text-3xl font-bold font-mono mt-1">
+                              {state.threatScore.score}/100
+                            </p>
+                          </div>
+                          <p className="text-[11px] leading-relaxed opacity-80 text-center">
+                            {state.threatScore.score >= 70
+                              ? "This is a critical-level threat. The score reflects confirmed connections to known malicious infrastructure, active attack campaigns, or exploitation of serious vulnerabilities. This requires immediate attention from your security team."
+                              : state.threatScore.score >= 40
+                                ? "This is a moderate-level threat. The score indicates some suspicious activity or connections to known threat indicators, but not yet confirmed active exploitation. This should be monitored closely."
+                                : "This is a low-level threat. The score reflects minimal connections to known malicious activity. Standard security monitoring should continue, but no immediate action is necessary."}
                           </p>
                         </div>
                       )}
 
-                      {/* Key finding */}
+                      {/* What happened — plain English summary */}
                       <div className="p-4 rounded-lg bg-surface-raised/40 border border-border/50">
                         <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1.5">
                           <FileText className="h-3 w-3 text-primary" />
-                          Key Finding
+                          What We Found
                         </p>
                         <div
                           className={cn(
-                            "text-sm leading-relaxed text-foreground/90",
+                            "text-sm leading-[1.9] text-foreground/90",
                             "prose prose-invert prose-sm max-w-none",
                             "prose-headings:text-primary prose-headings:font-mono prose-headings:text-sm prose-headings:mt-3 prose-headings:mb-1",
                             "prose-strong:text-primary prose-strong:font-semibold",
-                            "prose-p:mb-2 prose-p:leading-relaxed",
+                            "prose-p:mb-3 prose-p:leading-[1.9]",
                             "prose-ul:my-1 prose-li:my-0.5 prose-li:marker:text-primary/40",
                             "prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-xs",
                           )}
@@ -615,39 +625,193 @@ export function NarrativePanel({
                         </div>
                       </div>
 
-                      {/* Impact numbers */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50 text-center">
-                          <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">
-                            Threat Paths
-                          </p>
-                          <p className="text-xl font-bold font-mono text-primary">
-                            {state.pathsFound}
+                      {/* Impact numbers with plain-English descriptions */}
+                      <div className="space-y-2">
+                        <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                              Attack Paths Found
+                            </p>
+                            <p className="text-xl font-bold font-mono text-primary">
+                              {state.pathsFound}
+                            </p>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                            {state.pathsFound === 0
+                              ? "No direct attack routes were discovered connecting this entity to known threats. This is a good sign."
+                              : state.pathsFound === 1
+                                ? `We found 1 route that an attacker could use (or has used) to move from ${state.entity} toward your systems or data. Think of it as a chain of connections — each link represents a relationship between a piece of malware, a server, a vulnerability, or a hacking group.`
+                                : `We found ${state.pathsFound} different routes that attackers could use (or have used) to move from ${state.entity} toward your systems or data. Each path is a chain of connections — linking malware, servers, vulnerabilities, and hacking groups together. More paths means more exposure.`}
                           </p>
                         </div>
-                        <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50 text-center">
-                          <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground mb-1">
-                            Blast Radius
-                          </p>
-                          <p className="text-xl font-bold font-mono text-threat-high">
-                            {state.blastRadius?.total ?? 0}
+                        <div className="p-3 rounded-lg bg-surface-raised/30 border border-border/50">
+                          <div className="flex items-center justify-between mb-1">
+                            <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                              Blast Radius
+                            </p>
+                            <p className="text-xl font-bold font-mono text-threat-high">
+                              {state.blastRadius?.total ?? 0} entities
+                            </p>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+                            {(state.blastRadius?.total ?? 0) === 0
+                              ? "No other systems, accounts, or assets appear to be connected to this threat. The impact is contained."
+                              : `If this threat is exploited, ${state.blastRadius?.total ?? 0} other systems, accounts, IP addresses, or digital assets in our network could be affected. This is the "blast radius" — the total number of things connected to this threat that could be compromised. ${(state.blastRadius?.total ?? 0) >= 100 ? "This is a very large blast radius, meaning the potential damage from this threat is widespread across the organization." : (state.blastRadius?.total ?? 0) >= 20 ? "This is a significant blast radius that warrants close monitoring." : "This is a contained blast radius."}`}
                           </p>
                         </div>
                       </div>
 
-                      {/* Recommended action */}
+                      {/* Cross-domain fraud overlap — executive explanation */}
+                      {crossDomainHits.length > 0 && (
+                        <div className="p-4 rounded-lg bg-threat-high/5 border border-threat-high/20">
+                          <p className="text-[10px] font-mono uppercase tracking-wider text-threat-high mb-2 flex items-center gap-1.5">
+                            <AlertTriangle className="h-3 w-3" />
+                            Financial Fraud Connection Detected
+                          </p>
+                          <p className="text-[11px] text-foreground/80 leading-relaxed mb-3">
+                            This is a critical finding. The IP address
+                            {crossDomainHits.length > 1 ? "es" : ""} involved in
+                            this cyber threat{" "}
+                            {crossDomainHits.length > 1 ? "are" : "is"} also
+                            connected to financial fraud activity — meaning the
+                            same infrastructure used for hacking is also being
+                            used to steal money. This suggests a well-organized
+                            criminal operation that operates across both
+                            cybersecurity and financial crime.
+                          </p>
+                          <div className="space-y-1.5">
+                            {crossDomainHits.map((hit) => (
+                              <div
+                                key={hit.juspay_id}
+                                className="flex items-center justify-between text-[11px] px-2.5 py-2 rounded bg-threat-high/8 border border-threat-high/15"
+                              >
+                                <span className="text-foreground/80 flex items-center gap-1.5">
+                                  <Server className="h-2.5 w-2.5 text-threat-high/60" />
+                                  {hit.ip_address}
+                                </span>
+                                <div className="text-right">
+                                  <span className="text-threat-high font-semibold">
+                                    ${hit.amount.toLocaleString()}
+                                  </span>
+                                  <span className="text-muted-foreground/50 block text-[9px]">
+                                    {hit.type.replace(/_/g, " ")} fraud
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground/50 mt-2 leading-relaxed">
+                            Total fraud exposure: $
+                            {crossDomainHits
+                              .reduce((sum, h) => sum + h.amount, 0)
+                              .toLocaleString()}{" "}
+                            across {crossDomainHits.length} transaction
+                            {crossDomainHits.length > 1 ? "s" : ""}.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Recommended action — detailed for executives */}
                       <div className="p-4 rounded-lg bg-primary/5 border border-primary/20">
                         <p className="text-[10px] font-mono uppercase tracking-wider text-primary mb-2 flex items-center gap-1.5">
                           <Shield className="h-3 w-3" />
-                          Recommended Action
+                          What Should We Do
                         </p>
-                        <p className="text-sm text-foreground/80 leading-relaxed">
-                          {state.threatScore && state.threatScore.score >= 70
-                            ? `Immediate investigation required. ${state.entity} is linked to active threat infrastructure with ${state.pathsFound} confirmed attack path${state.pathsFound === 1 ? "" : "s"}. Escalate to incident response.`
-                            : state.threatScore && state.threatScore.score >= 40
-                              ? `Monitor closely. ${state.entity} shows indicators of compromise but threat level is moderate. Add to watchlist and review in 24 hours.`
-                              : `Low risk. ${state.entity} shows minimal threat indicators. Continue standard monitoring.`}
-                        </p>
+                        <div className="text-sm text-foreground/80 leading-relaxed space-y-2">
+                          {state.threatScore &&
+                          state.threatScore.score >= 70 ? (
+                            <>
+                              <p>
+                                <strong className="text-primary">
+                                  Immediate action is required.
+                                </strong>{" "}
+                                Our investigation found that{" "}
+                                <strong className="text-foreground">
+                                  {state.entity}
+                                </strong>{" "}
+                                is directly connected to active, dangerous
+                                threat infrastructure — meaning attackers are
+                                actively using these systems right now.
+                              </p>
+                              <p>
+                                We discovered {state.pathsFound} confirmed
+                                attack path{state.pathsFound === 1 ? "" : "s"}{" "}
+                                and {state.blastRadius?.total ?? 0} connected
+                                entities that could be affected.{" "}
+                                {crossDomainHits.length > 0
+                                  ? `Additionally, this threat overlaps with $${crossDomainHits.reduce((s, h) => s + h.amount, 0).toLocaleString()} in financial fraud activity, suggesting organized criminal operations.`
+                                  : ""}
+                              </p>
+                              <p>
+                                <strong className="text-primary">
+                                  Recommended next steps:
+                                </strong>{" "}
+                                Escalate to your incident response team
+                                immediately. Block the associated IP addresses
+                                at the firewall. Notify affected business units.
+                                If financial fraud overlap was detected,
+                                coordinate with your fraud prevention and legal
+                                teams.
+                              </p>
+                            </>
+                          ) : state.threatScore &&
+                            state.threatScore.score >= 40 ? (
+                            <>
+                              <p>
+                                <strong className="text-primary">
+                                  This warrants close monitoring.
+                                </strong>{" "}
+                                Our investigation found that{" "}
+                                <strong className="text-foreground">
+                                  {state.entity}
+                                </strong>{" "}
+                                shows indicators of compromise — meaning there
+                                are suspicious connections or activity, but we
+                                have not confirmed active exploitation yet.
+                              </p>
+                              <p>
+                                We found {state.pathsFound} potential attack
+                                path{state.pathsFound === 1 ? "" : "s"} and{" "}
+                                {state.blastRadius?.total ?? 0} entities that
+                                could be impacted if this threat escalates.
+                              </p>
+                              <p>
+                                <strong className="text-primary">
+                                  Recommended next steps:
+                                </strong>{" "}
+                                Add this entity to your active watchlist. Have
+                                your security team review in 24 hours. Prepare
+                                containment procedures in case the threat level
+                                increases. Brief your IT team on what to look
+                                for.
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p>
+                                <strong className="text-primary">
+                                  No immediate action needed.
+                                </strong>{" "}
+                                Our investigation found that{" "}
+                                <strong className="text-foreground">
+                                  {state.entity}
+                                </strong>{" "}
+                                shows minimal connections to known threats.
+                                While it did appear in our threat intelligence
+                                database, the risk level is low.
+                              </p>
+                              <p>
+                                <strong className="text-primary">
+                                  Recommended next steps:
+                                </strong>{" "}
+                                Continue standard security monitoring. No
+                                escalation is necessary at this time. Our system
+                                will continue to track this entity and alert you
+                                if the risk level changes.
+                              </p>
+                            </>
+                          )}
+                        </div>
                       </div>
                     </div>
                   ) : (
