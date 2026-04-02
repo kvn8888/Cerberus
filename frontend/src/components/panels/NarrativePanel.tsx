@@ -27,6 +27,8 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Globe,
+  Server,
+  DollarSign,
 } from "lucide-react";
 import type { InvestigationState, EntityType } from "../../types/api";
 import {
@@ -37,6 +39,11 @@ import {
 } from "../../lib/api";
 import { cn } from "../../lib/utils";
 import { mergeIOCs, iocsToCsv } from "../../lib/iocExtract";
+
+const API_BASE =
+  import.meta.env.VITE_API_URL !== undefined
+    ? import.meta.env.VITE_API_URL
+    : "http://localhost:8000";
 /* ThreatReportPdf and @react-pdf/renderer are dynamically imported in
    handleExportPdf so the 518KB vendor-pdf chunk only loads on click. */
 
@@ -118,6 +125,34 @@ export function NarrativePanel({
     { source: string; simulated: boolean; highlights: string[] }[]
   >([]);
   const [enrichLoading, setEnrichLoading] = useState(false);
+
+  /* Cross-domain fraud overlap — IPs in this graph that also appear in fraud signals */
+  const [crossDomainHits, setCrossDomainHits] = useState<
+    { juspay_id: string; type: string; amount: number; ip_address: string }[]
+  >([]);
+
+  useEffect(() => {
+    if (state.status !== "complete" || !state.graphData?.nodes) {
+      setCrossDomainHits([]);
+      return;
+    }
+    const ipNodes = new Set(
+      state.graphData.nodes
+        .filter((n) => (n.type || "").toLowerCase() === "ip")
+        .map((n) => n.label || n.id),
+    );
+    if (ipNodes.size === 0) return;
+    fetch(`${API_BASE}/api/juspay/signals?limit=50`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!data) return;
+        const hits = (data.recent_signals ?? []).filter((s: any) =>
+          ipNodes.has(s.ip_address),
+        );
+        setCrossDomainHits(hits);
+      })
+      .catch(() => {});
+  }, [state.status, state.entity]);
 
   useEffect(() => {
     if (state.status !== "complete" || !state.entity) {
@@ -499,6 +534,38 @@ export function NarrativePanel({
                             </div>
                           ))
                         )}
+                      </div>
+                    )}
+
+                  {/* Cross-domain fraud overlap — only shown when IPs in this graph match fraud signals */}
+                  {state.status === "complete" &&
+                    crossDomainHits.length > 0 && (
+                      <div className="p-3 rounded-lg bg-threat-high/5 border border-threat-high/20 animate-fade-in">
+                        <p className="text-[10px] font-mono uppercase tracking-wider text-threat-high flex items-center gap-1.5 mb-2">
+                          <AlertTriangle className="h-3 w-3" />
+                          Cross-Domain Hit — Financial Fraud Overlap
+                        </p>
+                        <div className="space-y-1">
+                          {crossDomainHits.map((hit) => (
+                            <div
+                              key={hit.juspay_id}
+                              className="flex items-center justify-between text-[10px] font-mono px-2 py-1.5 rounded bg-threat-high/8 border border-threat-high/15"
+                            >
+                              <span className="text-foreground/80 flex items-center gap-1.5">
+                                <Server className="h-2.5 w-2.5 text-threat-high/60" />
+                                {hit.ip_address}
+                              </span>
+                              <div className="text-right">
+                                <span className="text-threat-high">
+                                  ${hit.amount.toLocaleString()}
+                                </span>
+                                <span className="text-muted-foreground/40 block text-[9px]">
+                                  {hit.type.replace(/_/g, " ")}
+                                </span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
 
