@@ -29,12 +29,22 @@ from fastapi.responses import StreamingResponse
 
 import neo4j_client as db
 import llm
+try:
+    import rocketride
+except ImportError:
+    rocketride = None
 import pipeline
 import enrich
 from models import EntityType, QueryRequest
 
 router = APIRouter(prefix="/api/query")
 _CACHE_CHECK_TIMEOUT_SECONDS = 5.0
+
+
+def _narrative_pipeline():
+    if rocketride is not None and hasattr(rocketride, "generate_narrative_or_fallback"):
+        return rocketride
+    return pipeline
 
 
 def _route_info(entity_type: str) -> dict[str, object]:
@@ -131,30 +141,14 @@ async def query(req: QueryRequest):
     # pipeline.generate_narrative_or_fallback() tries RocketRide first.
     # On any failure it silently falls back to direct llm.py calls.
     if paths_found == 0:
-        neighborhood = traversal.get("neighborhood", [])
-        try:
-            narrative = await asyncio.to_thread(
-                llm.generate_clean_assessment, entity, entity_type
-            )
-            llm_called = True
-            if neighborhood:
-                neighbors_desc = ", ".join(
-                    f"{n['neighbor_label']}:{n['neighbor_id']} (via {n['rel_type']})"
-                    for n in neighborhood[:10]
-                )
-                narrative += (
-                    f"\n\nNote: {len(neighborhood)} connected entities exist in the graph: "
-                    f"{neighbors_desc}."
-                )
-        except Exception:
-            narrative = (
-                f"No threat paths found for {entity} in the current graph. "
-                f"The entity may not yet be ingested or has no known connections."
-            )
-            llm_called = False
+        narrative = (
+            f"No threat paths found for {entity} in the current graph. "
+            f"The entity may not yet be ingested or has no known connections."
+        )
+        llm_called = False
     else:
         try:
-            narrative  = await pipeline.generate_narrative_or_fallback(
+            narrative  = await _narrative_pipeline().generate_narrative_or_fallback(
                 entity, entity_type, traversal
             )
             llm_called = bool(narrative)
@@ -297,7 +291,7 @@ async def query_stream(entity: str, type: EntityType = EntityType.package):
         # contract: {"stage":...}, {"text":...} chunks, then returns.
         narrative_chunks: list[str] = []
         try:
-            async for sse_line in pipeline.stream_via_rocketride_or_fallback(
+            async for sse_line in _narrative_pipeline().stream_via_rocketride_or_fallback(
                 entity, entity_type, traversal
             ):
                 # Collect text chunks for write-back, then forward to client

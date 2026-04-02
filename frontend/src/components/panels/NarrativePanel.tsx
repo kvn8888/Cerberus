@@ -28,17 +28,30 @@ import {
   PanelRightOpen,
   Globe,
   Server,
-  DollarSign,
+  Link2,
+  FileCode2,
+  ShieldCheck,
 } from "lucide-react";
-import type { InvestigationState, EntityType } from "../../types/api";
+import type {
+  InvestigationState,
+  EntityType,
+  DetectionRuleSet,
+  TlpLevel,
+} from "../../types/api";
 import {
   confirmEntity,
   fetchReport,
   fetchStixBundle,
   fetchEnrichmentSummary,
+  generateDetectionRules,
 } from "../../lib/api";
 import { cn } from "../../lib/utils";
-import { mergeIOCs, iocsToCsv } from "../../lib/iocExtract";
+import {
+  mergeIOCs,
+  iocsToCsv,
+  defangRows,
+  defangText,
+} from "../../lib/iocExtract";
 
 const API_BASE =
   import.meta.env.VITE_API_URL !== undefined
@@ -66,10 +79,66 @@ const SEVERITY_SCORE_COLORS: Record<string, string> = {
 
 interface NarrativePanelProps {
   state: InvestigationState;
+  onTlpChange?: (tlp: TlpLevel) => void;
   onMemorySaved?: () => void;
   onInvestigate?: (entity: string, type: EntityType) => void;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+}
+
+const TLP_LABELS: Record<TlpLevel, string> = {
+  clear: "TLP:CLEAR",
+  green: "TLP:GREEN",
+  amber: "TLP:AMBER",
+  "amber+strict": "TLP:AMBER+STRICT",
+  red: "TLP:RED",
+};
+
+function buildInvestigationMarkdown(args: {
+  state: InvestigationState;
+  iocs: Array<{ type: string; value: string }>;
+  techniques: string[];
+  narrative: string;
+}): string {
+  const { state, iocs, techniques, narrative } = args;
+  const lines = [
+    `## Investigation: ${state.entity} (${state.entityType})`,
+    `**TLP:** ${TLP_LABELS[state.tlp]}`,
+  ];
+
+  if (state.threatScore) {
+    lines.push(
+      `**Threat Score:** ${state.threatScore.score}/100 (${state.threatScore.severity.toUpperCase()})`,
+    );
+  }
+
+  if (state.blastRadius) {
+    const blast = Object.entries(state.blastRadius.by_type)
+      .map(([type, count]) => `${count} ${type}`)
+      .join(", ");
+    lines.push(`**Blast Radius:** ${state.blastRadius.total} entities${blast ? `, ${blast}` : ""}`);
+  }
+
+  lines.push("", "### Narrative", narrative || "No narrative available.");
+
+  if (iocs.length > 0) {
+    lines.push("", "### IOCs");
+    iocs.forEach((ioc) => lines.push(`- ${ioc.value} (${ioc.type})`));
+  }
+
+  if (techniques.length > 0) {
+    lines.push("", "### MITRE Techniques");
+    techniques.forEach((technique) => lines.push(`- ${technique}`));
+  }
+
+  if (state.suggestions?.length) {
+    lines.push("", "### Investigate Next");
+    state.suggestions.forEach((suggestion) => {
+      lines.push(`- ${suggestion.entity} (${suggestion.type}) — ${suggestion.reason}`);
+    });
+  }
+
+  return lines.join("\n");
 }
 
 /**
@@ -96,6 +165,7 @@ function buildExecutiveSummary(narrative: string): string {
 
 export function NarrativePanel({
   state,
+  onTlpChange,
   onMemorySaved,
   onInvestigate,
   collapsed,
@@ -115,6 +185,22 @@ export function NarrativePanel({
     () => mergeIOCs(state.graphData, deferredNarrative || ""),
     [state.graphData, deferredNarrative],
   );
+  const [defangedCopy, setDefangedCopy] = useState(true);
+  const [copiedAction, setCopiedAction] = useState<string | null>(null);
+  const [rulesBusy, setRulesBusy] = useState(false);
+  const [detectionRules, setDetectionRules] = useState<DetectionRuleSet | null>(null);
+
+  const displayedIocs = useMemo(
+    () => (defangedCopy ? defangRows(extractedIocs) : extractedIocs),
+    [defangedCopy, extractedIocs],
+  );
+  const techniqueIds = useMemo(() => {
+    if (!state.graphData?.nodes?.length) return [] as string[];
+    return state.graphData.nodes
+      .filter((node) => node.type === "Technique")
+      .map((node) => String(node.mitre_id || node.id || "").trim())
+      .filter(Boolean);
+  }, [state.graphData]);
 
   const canExport = useMemo(
     () => state.status === "complete" && !!state.entity,
@@ -177,6 +263,11 @@ export function NarrativePanel({
     };
   }, [state.status, state.entity, state.entityType]);
 
+  useEffect(() => {
+    setDetectionRules(null);
+    setCopiedAction(null);
+  }, [state.entity]);
+
   /**
    * Handle analyst confirmation — sends a POST /api/confirm
    * to mark this threat pattern for cache acceleration.
@@ -201,6 +292,11 @@ export function NarrativePanel({
   const [pdfBusy, setPdfBusy] = useState(false);
   const [stixBusy, setStixBusy] = useState(false);
 
+  const flashCopied = (label: string) => {
+    setCopiedAction(label);
+    window.setTimeout(() => setCopiedAction((current) => (current === label ? null : current)), 1400);
+  };
+
   const handleExportPdf = async () => {
     if (!canExport || pdfBusy) return;
     setPdfBusy(true);
@@ -214,7 +310,7 @@ export function NarrativePanel({
       const report = await fetchReport({
         entity: state.entity,
         type: state.entityType,
-      });
+      }, state.tlp);
       // Render the React-PDF document to a blob (all client-side, no popups)
       const blob = await pdf(<ThreatReportPdf report={report} />).toBlob();
       // Create a temporary download link and trigger the save dialog
@@ -244,7 +340,7 @@ export function NarrativePanel({
       const bundle = await fetchStixBundle({
         entity: state.entity,
         type: state.entityType,
-      });
+      }, state.tlp);
       const json = JSON.stringify(bundle, null, 2);
       const blob = new Blob([json], { type: "application/json" });
       const url = URL.createObjectURL(blob);
@@ -259,6 +355,47 @@ export function NarrativePanel({
       console.error("STIX export failed:", err);
     } finally {
       setStixBusy(false);
+    }
+  };
+
+  const handleCopyMarkdown = async () => {
+    if (!canExport) return;
+    const markdown = buildInvestigationMarkdown({
+      state,
+      iocs: displayedIocs,
+      techniques: techniqueIds,
+      narrative: defangedCopy ? defangText(deferredNarrative || "") : deferredNarrative || "",
+    });
+    await navigator.clipboard.writeText(markdown);
+    flashCopied("markdown");
+  };
+
+  const handleCopyPermalink = async () => {
+    if (!state.entity || typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("entity", state.entity);
+    url.searchParams.set("type", state.entityType);
+    await navigator.clipboard.writeText(url.toString());
+    flashCopied("permalink");
+  };
+
+  const handleGenerateRules = async () => {
+    if (!canExport || rulesBusy) return;
+    setRulesBusy(true);
+    try {
+      const rules = await generateDetectionRules({
+        entity: state.entity,
+        entityType: state.entityType,
+        iocs: extractedIocs.map((ioc) => ({ type: ioc.type, value: ioc.value })),
+        techniques: techniqueIds,
+        narrative: deferredNarrative || "",
+        tlp: state.tlp,
+      });
+      setDetectionRules(rules);
+    } catch (err) {
+      console.error("Detection rule generation failed:", err);
+    } finally {
+      setRulesBusy(false);
     }
   };
 
@@ -317,6 +454,10 @@ export function NarrativePanel({
                     {state.blastRadius.total} AFFECTED
                   </span>
                 )}
+                <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-surface-raised text-muted-foreground border border-border/60">
+                  <ShieldCheck className="h-3 w-3" />
+                  {TLP_LABELS[state.tlp]}
+                </span>
               </>
             )}
 
@@ -338,7 +479,24 @@ export function NarrativePanel({
       {!collapsed && (
         <div className="flex flex-col flex-1 min-h-0 animate-fade-in">
           <div className="px-4 pt-3 flex flex-col gap-2">
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2 rounded-lg border border-border/60 bg-surface-raised/30 px-3 py-2">
+              <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">
+                Export TLP
+              </span>
+              <select
+                value={state.tlp}
+                onChange={(event) => onTlpChange?.(event.target.value as TlpLevel)}
+                className="ml-auto rounded-md border border-border/60 bg-surface px-2 py-1 text-[10px] font-mono text-foreground focus:outline-none focus:border-primary/40"
+              >
+                {Object.entries(TLP_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
               <button
                 type="button"
                 disabled={!canExport || pdfBusy}
@@ -371,7 +529,56 @@ export function NarrativePanel({
                   {stixBusy ? "Exporting..." : "STIX Bundle"}
                 </span>
               </button>
+              <button
+                type="button"
+                disabled={!canExport}
+                onClick={() => void handleCopyMarkdown()}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-xs font-mono transition-all",
+                  canExport
+                    ? "border-primary/25 bg-primary/10 text-primary hover:bg-primary/15"
+                    : "border-border bg-surface-raised text-muted-foreground",
+                )}
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <Copy className="h-3.5 w-3.5" />
+                  {copiedAction === "markdown" ? "Copied" : "Markdown"}
+                </span>
+              </button>
+              <button
+                type="button"
+                disabled={!canExport}
+                onClick={() => void handleCopyPermalink()}
+                className={cn(
+                  "rounded-lg border px-3 py-2 text-xs font-mono transition-all",
+                  canExport
+                    ? "border-primary/25 bg-primary/10 text-primary hover:bg-primary/15"
+                    : "border-border bg-surface-raised text-muted-foreground",
+                )}
+              >
+                <span className="flex items-center justify-center gap-2">
+                  <Link2 className="h-3.5 w-3.5" />
+                  {copiedAction === "permalink" ? "Copied" : "Permalink"}
+                </span>
+              </button>
             </div>
+
+            <button
+              type="button"
+              disabled={!canExport || rulesBusy}
+              onClick={() => void handleGenerateRules()}
+              className={cn(
+                "w-full rounded-lg border px-3 py-2 text-xs font-mono transition-all",
+                canExport && !rulesBusy
+                  ? "border-threat-high/30 bg-threat-high/10 text-threat-high hover:bg-threat-high/15"
+                  : "border-border bg-surface-raised text-muted-foreground",
+              )}
+            >
+              <span className="flex items-center justify-center gap-2">
+                <FileCode2 className="h-3.5 w-3.5" />
+                {rulesBusy ? "Drafting detection rules..." : "Generate Detection Rules"}
+              </span>
+            </button>
 
             {/* Audience mode toggle — switches between full technical detail and executive summary */}
             <div className="flex items-center gap-1 rounded-lg border border-border/60 bg-surface-raised/30 p-0.5">
@@ -445,8 +652,20 @@ export function NarrativePanel({
                         <div className="flex gap-1">
                           <button
                             type="button"
+                            onClick={() => setDefangedCopy((current) => !current)}
+                            className={cn(
+                              "px-2 py-0.5 rounded text-[9px] font-mono border transition-colors",
+                              defangedCopy
+                                ? "border-primary/30 bg-primary/10 text-primary"
+                                : "border-border/60 hover:bg-primary/10 hover:border-primary/30",
+                            )}
+                          >
+                            {defangedCopy ? "Defanged" : "Raw"}
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => {
-                              const lines = extractedIocs.map((r) => r.value);
+                              const lines = displayedIocs.map((r) => r.value);
                               void navigator.clipboard.writeText(
                                 lines.join("\n"),
                               );
@@ -459,7 +678,7 @@ export function NarrativePanel({
                             type="button"
                             onClick={() => {
                               const blob = new Blob(
-                                [iocsToCsv(extractedIocs)],
+                                [iocsToCsv(displayedIocs)],
                                 { type: "text/csv" },
                               );
                               const url = URL.createObjectURL(blob);
@@ -476,7 +695,7 @@ export function NarrativePanel({
                         </div>
                       </div>
                       <div className="max-h-36 overflow-y-auto space-y-1">
-                        {extractedIocs.map((row, i) => (
+                        {displayedIocs.map((row, i) => (
                           <div
                             key={`${row.type}-${row.value}-${i}`}
                             className="flex items-center justify-between gap-2 text-[10px] font-mono px-2 py-1 rounded bg-surface/50 border border-border/30"
@@ -493,6 +712,68 @@ export function NarrativePanel({
                           </div>
                         ))}
                       </div>
+                    </div>
+                  )}
+
+                  {detectionRules && (
+                    <div className="p-3 rounded-lg bg-surface-raised/40 border border-border/50 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                          <FileCode2 className="h-3 w-3 text-threat-high" />
+                          Detection Rule Sketches
+                        </p>
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-mono bg-threat-high/10 text-threat-high border border-threat-high/20">
+                          {TLP_LABELS[detectionRules.tlp]}
+                        </span>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div>
+                          <div className="mb-1 flex items-center justify-between">
+                            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">Sigma</span>
+                            <button
+                              type="button"
+                              onClick={() => void navigator.clipboard.writeText(detectionRules.sigma)}
+                              className="px-2 py-0.5 rounded text-[9px] font-mono border border-border/60 hover:bg-primary/10 hover:border-primary/30 transition-colors"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                          <pre className="overflow-x-auto rounded-lg border border-border/50 bg-surface/70 p-3 text-[10px] leading-relaxed text-foreground/85">
+                            <code>{detectionRules.sigma}</code>
+                          </pre>
+                        </div>
+
+                        <div>
+                          <div className="mb-1 flex items-center justify-between">
+                            <span className="text-[10px] font-mono uppercase tracking-wider text-muted-foreground">YARA</span>
+                            <button
+                              type="button"
+                              onClick={() => void navigator.clipboard.writeText(detectionRules.yara)}
+                              className="px-2 py-0.5 rounded text-[9px] font-mono border border-border/60 hover:bg-primary/10 hover:border-primary/30 transition-colors"
+                            >
+                              Copy
+                            </button>
+                          </div>
+                          <pre className="overflow-x-auto rounded-lg border border-border/50 bg-surface/70 p-3 text-[10px] leading-relaxed text-foreground/85">
+                            <code>{detectionRules.yara}</code>
+                          </pre>
+                        </div>
+                      </div>
+
+                      {detectionRules.notes.length > 0 && (
+                        <div className="space-y-1">
+                          {detectionRules.notes.map((note, index) => (
+                            <p
+                              key={index}
+                              className="text-[10px] font-mono text-muted-foreground/75 flex items-start gap-1.5"
+                            >
+                              <span className="mt-1 h-1 w-1 rounded-full bg-threat-high/50" />
+                              {note}
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

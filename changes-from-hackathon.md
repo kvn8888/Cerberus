@@ -189,6 +189,54 @@ The original pipelines used `agent_crewai` (a CrewAI wrapper) which lacked memor
 
 ---
 
+## Phase 4 — Analyst Operations Pack
+
+### New Features
+
+| Feature | Details |
+|---------|---------|
+| **IOC Defanging Toggle** | `NarrativePanel` copy/CSV flows now default to defanged output (`hxxp`, `[.]`) for Slack, Jira, and ticket-safe sharing. |
+| **TLP-Aware Exports** | Investigation state now carries a TLP selection. `GET /api/demo/report` and `GET /api/stix/bundle` accept `tlp`, PDFs show a banner, and STIX bundles emit `marking-definition` objects plus `object_marking_refs`. |
+| **Markdown Summary Clipboard** | `NarrativePanel` can serialize the current investigation into markdown with threat score, blast radius, IOCs, MITRE techniques, and suggested next investigations. |
+| **Detection Rule Sketches** | New `POST /api/detect/rules` endpoint uses Claude Sonnet 4.6 to draft Sigma and YARA content from the active investigation. |
+| **Bulk IOC Submission** | `QueryPanel` bulk mode accepts newline/comma-separated entities, auto-detects types, throttles to 3 concurrent investigations, and renders a click-through triage table. |
+| **Shareable Permalinks** | Investigation URLs now encode `entity` + `type`; app bootstraps from query params and the narrative panel can copy a permalink. |
+| **Enrichment Confidence Scoring** | Enrichment relationships now store source reliability, timestamps, and corroboration count; graph edges expose confidence and threat scoring weights connections by confidence. |
+| **Watchlist Change Digest** | Header watchlist polling now accumulates a digest window and supports “Mark reviewed”; backend `/api/watchlist/check` also accepts `since`. |
+
+### New Files
+
+| File | Purpose |
+|------|---------|
+| `backend/routes/detect.py` | Detection-rule drafting endpoint for Sigma/YARA sketches |
+| `docs/retro-011-analyst-operations-pack.md` | Technical retrospective for the analyst-focused feature pack |
+
+### Modified Files
+
+| File | Change |
+|------|--------|
+| `backend/routes/demo.py` | Added `tlp` handling to report payloads |
+| `backend/routes/stix.py` | Added TLP marking-definition injection and object marking refs |
+| `backend/routes/query.py` | URL/query-flow compatibility cleanup; no-path sync response remains deterministic |
+| `backend/routes/watchlist.py` | Added digest-friendly `since` parameter support |
+| `backend/routes/detect.py` | Registered in `main.py` for `/api/detect/rules` |
+| `backend/neo4j_client.py` | Exposes link confidence in graph responses and weights threat scores by confidence |
+| `backend/enrich.py` | Enrichment relationships now stamp `confidence`, `source_reliability`, `last_seen`, and `corroboration_count` |
+| `backend/llm.py` | Added structured detection-rule drafting prompt/parser |
+| `backend/pipeline.py` | Registered RocketRide-compatible aliases for tested narrative helpers |
+| `frontend/src/types/api.ts` | Added `TlpLevel`, `DetectionRuleSet`, and confidence-bearing graph link fields |
+| `frontend/src/lib/api.ts` | Added TLP-aware export calls, detection-rule API client, and `checkWatchlistSince()` |
+| `frontend/src/lib/iocExtract.ts` | Added defanging helpers for IOC rows and free text |
+| `frontend/src/hooks/useInvestigation.ts` | Added persistent TLP state and URL query synchronization |
+| `frontend/src/App.tsx` | Bootstraps investigations from permalinks and wires TLP changes into the narrative panel |
+| `frontend/src/components/panels/NarrativePanel.tsx` | Added TLP dropdown, markdown copy, permalink copy, defanging toggle, and detection-rule UI |
+| `frontend/src/components/panels/QueryPanel.tsx` | Added bulk IOC triage mode and result table |
+| `frontend/src/components/panels/GraphPanel.tsx` | Link width/opacity now reflect relationship confidence |
+| `frontend/src/components/layout/Header.tsx` | Watchlist bell now renders a batched digest with review action |
+| `frontend/src/components/report/ThreatReportPdf.tsx` | Added PDF TLP banner |
+
+---
+
 ## How to keep docs in sync
 
 When you change UX or API surface again, update this file plus [README.md](README.md) and [.claude/skills/cerberus-project/SKILL.md](.claude/skills/cerberus-project/SKILL.md) so judges and future sessions see one story.

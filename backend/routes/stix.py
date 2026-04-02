@@ -24,6 +24,33 @@ from models import EntityType
 
 router = APIRouter(prefix="/api/stix")
 
+_TLP_DEFINITIONS: dict[str, dict[str, str]] = {
+    "clear": {
+        "display_name": "TLP:CLEAR",
+        "stix_name": "TLP:WHITE",
+        "stix_tlp": "white",
+        "id": "marking-definition--613f2e26-407d-48c7-9eca-b8e91df99dc9",
+    },
+    "green": {
+        "display_name": "TLP:GREEN",
+        "stix_name": "TLP:GREEN",
+        "stix_tlp": "green",
+        "id": "marking-definition--34098fce-860f-48ae-8e50-ebd3cc5e41da",
+    },
+    "amber": {
+        "display_name": "TLP:AMBER",
+        "stix_name": "TLP:AMBER",
+        "stix_tlp": "amber",
+        "id": "marking-definition--f88d31f6-486f-44da-b317-01333bde0b82",
+    },
+    "red": {
+        "display_name": "TLP:RED",
+        "stix_name": "TLP:RED",
+        "stix_tlp": "red",
+        "id": "marking-definition--5e57c739-391a-4eb3-b6be-7d15ca92d5ed",
+    },
+}
+
 
 # ── STIX type mapping ────────────────────────────────────────────────────────
 # Maps Neo4j node labels to their corresponding STIX 2.1 SDO/SCO type and the
@@ -41,7 +68,58 @@ _NODE_TYPE_TO_STIX: dict[str, dict[str, str]] = {
 }
 
 
-def _make_stix_object(node: dict[str, Any], now_iso: str) -> dict[str, Any] | None:
+def _normalize_tlp(tlp: str) -> str:
+    value = (tlp or "amber").strip().lower()
+    if value not in {"clear", "green", "amber", "amber+strict", "red"}:
+        raise HTTPException(status_code=400, detail=f"Unsupported TLP level '{tlp}'")
+    return value
+
+
+def _build_marking_definitions(tlp: str, now_iso: str) -> tuple[list[dict[str, Any]], list[str], str]:
+    normalized = _normalize_tlp(tlp)
+    base_key = "amber" if normalized == "amber+strict" else normalized
+    base = _TLP_DEFINITIONS[base_key]
+
+    markings: list[dict[str, Any]] = [
+        {
+            "type": "marking-definition",
+            "spec_version": "2.1",
+            "id": base["id"],
+            "created": "2017-01-20T00:00:00.000Z",
+            "definition_type": "tlp",
+            "name": base["stix_name"],
+            "definition": {"tlp": base["stix_tlp"]},
+        }
+    ]
+    refs = [base["id"]]
+
+    if normalized == "amber+strict":
+        strict_id = f"marking-definition--{uuid.uuid5(uuid.NAMESPACE_URL, 'cerberus:tlp:amber+strict')}"
+        markings.append(
+            {
+                "type": "marking-definition",
+                "spec_version": "2.1",
+                "id": strict_id,
+                "created": now_iso,
+                "definition_type": "statement",
+                "definition": {
+                    "statement": (
+                        "TLP:AMBER+STRICT handling: share only within the recipient organization "
+                        "on a need-to-know basis."
+                    )
+                },
+            }
+        )
+        refs.append(strict_id)
+
+    return markings, refs, normalized
+
+
+def _make_stix_object(
+    node: dict[str, Any],
+    now_iso: str,
+    object_marking_refs: list[str] | None = None,
+) -> dict[str, Any] | None:
     """
     Convert a single Cerberus graph node (from get_graph()) into a STIX 2.1
     domain/cyber-observable object.  Returns None for unmapped node types.
@@ -62,6 +140,8 @@ def _make_stix_object(node: dict[str, Any], now_iso: str) -> dict[str, Any] | No
         "created": now_iso,
         "modified": now_iso,
     }
+    if object_marking_refs:
+        obj["object_marking_refs"] = object_marking_refs
 
     # Populate the type-specific property that carries the node identifier
     id_prop = mapping["id_prop"]
@@ -82,6 +162,7 @@ def _make_relationship(
     link: dict[str, Any],
     node_stix_ids: dict[str, str],
     now_iso: str,
+    object_marking_refs: list[str] | None = None,
 ) -> dict[str, Any] | None:
     """
     Convert a Cerberus graph link into a STIX 2.1 relationship SRO.
@@ -94,7 +175,7 @@ def _make_relationship(
 
     rel_type = (link.get("type") or "related-to").lower().replace("_", "-")
 
-    return {
+    relationship = {
         "type": "relationship",
         "spec_version": "2.1",
         "id": f"relationship--{uuid.uuid4()}",
@@ -104,6 +185,9 @@ def _make_relationship(
         "source_ref": source_ref,
         "target_ref": target_ref,
     }
+    if object_marking_refs:
+        relationship["object_marking_refs"] = object_marking_refs
+    return relationship
 
 
 # ── GET /api/stix/bundle ─────────────────────────────────────────────────────
@@ -112,6 +196,7 @@ def _make_relationship(
 async def stix_bundle(
     entity: str = Query(..., description="Entity to export (e.g. 'ua-parser-js')"),
     type: EntityType = Query(EntityType.package, description="Entity type"),
+    tlp: str = Query("amber", description="TLP marking to apply to export"),
 ):
     """
     Export the investigation graph for *entity* as a STIX 2.1 JSON bundle.
@@ -139,26 +224,28 @@ async def stix_bundle(
         )
 
     now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    marking_objects, marking_refs, normalized_tlp = _build_marking_definitions(tlp, now_iso)
 
     # Build STIX objects from nodes, tracking original-id → stix-id for relationships
-    stix_objects: list[dict[str, Any]] = []
+    stix_objects: list[dict[str, Any]] = [*marking_objects]
     node_stix_ids: dict[str, str] = {}
 
     for node in nodes:
-        stix_obj = _make_stix_object(node, now_iso)
+        stix_obj = _make_stix_object(node, now_iso, object_marking_refs=marking_refs)
         if stix_obj:
             node_stix_ids[node["id"]] = stix_obj["id"]
             stix_objects.append(stix_obj)
 
     # Build STIX relationships from links
     for link in links:
-        rel = _make_relationship(link, node_stix_ids, now_iso)
+        rel = _make_relationship(link, node_stix_ids, now_iso, object_marking_refs=marking_refs)
         if rel:
             stix_objects.append(rel)
 
     bundle = {
         "type": "bundle",
         "id": f"bundle--{uuid.uuid4()}",
+        "x_cerberus_tlp": normalized_tlp,
         "objects": stix_objects,
     }
 

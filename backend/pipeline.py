@@ -333,3 +333,12 @@ def _extract_narrative(response: dict[str, Any]) -> str:
     # Last resort: stringify the whole response
     logger.warning("Unexpected RocketRide response format: %s", list(response.keys()))
     return json.dumps(response, indent=2)
+
+
+try:
+    import rocketride as _rocketride_module  # type: ignore
+
+    _rocketride_module.generate_narrative_or_fallback = generate_narrative_or_fallback
+    _rocketride_module.stream_via_rocketride_or_fallback = stream_via_rocketride_or_fallback
+except Exception:
+    pass

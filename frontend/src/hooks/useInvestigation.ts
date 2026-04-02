@@ -19,6 +19,7 @@ import type {
   PipelineStage,
   InvestigationState,
   InvestigationHistoryItem,
+  TlpLevel,
 } from "../types/api";
 import { queryEntityStream, fetchGraph } from "../lib/api";
 
@@ -27,6 +28,7 @@ const IDLE_STATE: InvestigationState = {
   status: "idle",
   entity: "",
   entityType: "package",
+  tlp: "amber",
   currentStage: "input",
   routeInfo: undefined,
   narrative: "",
@@ -125,12 +127,20 @@ export function useInvestigation() {
       const controller = new AbortController();
       abortRef.current = controller;
 
+      if (typeof window !== "undefined") {
+        const next = new URL(window.location.href);
+        next.searchParams.set("entity", entity);
+        next.searchParams.set("type", entityType);
+        window.history.replaceState({}, "", next);
+      }
+
       /* Full reset — wipe everything from the previous investigation,
          but preserve the audience mode choice across investigations */
       setState((prev) => ({
         status: "running",
         entity,
         entityType,
+        tlp: prev.tlp,
         currentStage: "input",
         routeInfo: undefined,
         narrative: "",
@@ -253,6 +263,12 @@ export function useInvestigation() {
   const reset = useCallback(() => {
     abortRef.current?.abort();
     setState(IDLE_STATE);
+    if (typeof window !== "undefined") {
+      const next = new URL(window.location.href);
+      next.searchParams.delete("entity");
+      next.searchParams.delete("type");
+      window.history.replaceState({}, "", next);
+    }
   }, []);
 
   /** Switch between analyst and executive audience modes */
@@ -260,5 +276,9 @@ export function useInvestigation() {
     setState((prev) => ({ ...prev, audienceMode: mode }));
   }, []);
 
-  return { state, investigate, reset, setAudienceMode, history };
+  const setTlp = useCallback((tlp: TlpLevel) => {
+    setState((prev) => ({ ...prev, tlp }));
+  }, []);
+
+  return { state, investigate, reset, setAudienceMode, setTlp, history };
 }

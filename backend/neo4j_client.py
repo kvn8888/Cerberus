@@ -11,6 +11,7 @@ Provides:
 from __future__ import annotations
 
 import hashlib
+import time
 from typing import Any
 
 from neo4j import GraphDatabase
@@ -109,6 +110,35 @@ def normalize_entity(entity: str, entity_type: str) -> tuple[str, str]:
     return (entity, entity_type)
 
 
+def _base_relationship_confidence(rel: Any) -> float:
+    rel_type = getattr(rel, "type", None) or rel.get("type") or ""
+    explicit = rel.get("confidence") or rel.get("source_reliability")
+    if explicit is not None:
+        return float(explicit)
+    if rel_type == "LINKED_TO":
+        return 0.55
+    if rel_type in {"EXPLOITED_BY", "OPERATES"}:
+        return 0.7
+    return 0.85
+
+
+def _freshness_factor(last_seen: int | None) -> float:
+    if not last_seen:
+        return 1.0
+    age_days = max(0.0, (time.time() * 1000 - last_seen) / 86_400_000)
+    if age_days >= 365:
+        return 0.45
+    return 1.0 - ((age_days / 365.0) * 0.55)
+
+
+def _relationship_confidence(rel: Any) -> float:
+    last_seen = rel.get("last_seen") or rel.get("confirmed_at") or rel.get("created_at")
+    corroboration_count = int(rel.get("corroboration_count") or 1)
+    corroboration_bonus = min(0.18, max(0, corroboration_count - 1) * 0.05)
+    confidence = (_base_relationship_confidence(rel) * _freshness_factor(last_seen)) + corroboration_bonus
+    return round(min(0.99, confidence), 2)
+
+
 # ── Entity-type routing ───────────────────────────────────────────────────────
 
 def _entity_key(entity_type: str) -> str:
@@ -161,7 +191,11 @@ def cache_check(entity: str, entity_type: str) -> list[dict] | None:
             _CACHE_CHECK_START_TMPL.format(label=label, key=key),
             value=entity,
         )
-        if start_result.single() is None:
+        if hasattr(start_result, "single"):
+            start_record = start_result.single()
+        else:
+            start_record = next(iter(start_result), None)
+        if start_record is None:
             return None
 
         result = s.run(
@@ -169,6 +203,10 @@ def cache_check(entity: str, entity_type: str) -> list[dict] | None:
             value=entity,
         )
         records = [r.data() for r in result]
+        if not records and hasattr(start_record, "data"):
+            fallback = start_record.data()
+            if fallback:
+                return [fallback]
         return records if records else None
 
 
@@ -396,9 +434,27 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
         if name and name not in nodes_map:
             nodes_map[name] = {"id": name, "label": name, "type": node_label, "val": val}
 
-    def _add_link(src: str, tgt: str, rel_type: str, dashed: bool = False):
+    def _add_link(
+        src: str,
+        tgt: str,
+        rel_type: str,
+        dashed: bool = False,
+        confidence: float | None = None,
+        source_reliability: float | None = None,
+        last_seen: int | None = None,
+    ):
         if src and tgt:
-            links.append({"source": src, "target": tgt, "type": rel_type, "dashed": dashed})
+            links.append(
+                {
+                    "source": src,
+                    "target": tgt,
+                    "type": rel_type,
+                    "dashed": dashed,
+                    "confidence": confidence,
+                    "source_reliability": source_reliability,
+                    "last_seen": last_seen,
+                }
+            )
 
     # Extract nodes and links from Neo4j Path objects
     _GRAPH_PATH_QUERY = """
@@ -449,7 +505,15 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
                 rel_type = rel.type
                 # Mark LINKED_TO as synthetic (dashed edge)
                 is_synthetic = rel_type == "LINKED_TO"
-                _add_link(src, tgt, rel_type, dashed=is_synthetic)
+                _add_link(
+                    src,
+                    tgt,
+                    rel_type,
+                    dashed=is_synthetic,
+                    confidence=_relationship_confidence(rel),
+                    source_reliability=float(rel.get("source_reliability") or rel.get("confidence") or 0.0),
+                    last_seen=rel.get("last_seen") or rel.get("confirmed_at") or rel.get("created_at"),
+                )
 
         # Cross-domain enrichment for IP type
         if etype == "ip":
@@ -480,15 +544,15 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
                 if fraud_id: _add_node(fraud_id, "FraudSignal", 4)
 
                 if publisher and ip_addr:
-                    _add_link(publisher, ip_addr, "LINKED_TO", dashed=True)
+                    _add_link(publisher, ip_addr, "LINKED_TO", dashed=True, confidence=_relationship_confidence({"type": "LINKED_TO", "synthetic": True}))
                 if pkg_name and publisher:
-                    _add_link(pkg_name, publisher, "PUBLISHED_BY")
+                    _add_link(pkg_name, publisher, "PUBLISHED_BY", confidence=_relationship_confidence({"type": "PUBLISHED_BY"}))
                 if actor and ip_addr:
-                    _add_link(actor, ip_addr, "OPERATES")
+                    _add_link(actor, ip_addr, "OPERATES", confidence=_relationship_confidence({"type": "OPERATES"}))
                 if ip_addr and domain:
-                    _add_link(ip_addr, domain, "HOSTS")
+                    _add_link(ip_addr, domain, "HOSTS", confidence=_relationship_confidence({"type": "HOSTS"}))
                 if ip_addr and fraud_id:
-                    _add_link(ip_addr, fraud_id, "ASSOCIATED_WITH")
+                    _add_link(ip_addr, fraud_id, "ASSOCIATED_WITH", confidence=_relationship_confidence({"type": "ASSOCIATED_WITH"}))
 
         # Cross-domain query for package type (adds fraud signals)
         if etype == "package":
@@ -506,18 +570,18 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
                 if actor: _add_node(actor, "ThreatActor", 7)
 
                 if pkg_name and publisher:
-                    _add_link(pkg_name, publisher, "PUBLISHED_BY")
+                    _add_link(pkg_name, publisher, "PUBLISHED_BY", confidence=_relationship_confidence({"type": "PUBLISHED_BY"}))
                 if publisher and ip_addr:
-                    _add_link(publisher, ip_addr, "LINKED_TO", dashed=True)
+                    _add_link(publisher, ip_addr, "LINKED_TO", dashed=True, confidence=_relationship_confidence({"type": "LINKED_TO", "synthetic": True}))
                 if ip_addr and actor:
-                    _add_link(actor, ip_addr, "OPERATES")
+                    _add_link(actor, ip_addr, "OPERATES", confidence=_relationship_confidence({"type": "OPERATES"}))
 
                 # Add fraud signal nodes if any
                 for i, ft in enumerate(fraud_types):
                     if ft and ip_addr:
                         fs_id = f"fraud-{ip_addr}-{i}"
                         _add_node(fs_id, "FraudSignal", 4)
-                        _add_link(ip_addr, fs_id, "ASSOCIATED_WITH")
+                        _add_link(ip_addr, fs_id, "ASSOCIATED_WITH", confidence=_relationship_confidence({"type": "ASSOCIATED_WITH"}))
 
     # Ensure the queried entity is always the root node with largest size
     if entity in nodes_map:
@@ -561,7 +625,7 @@ def get_graph(entity: str, entity_type: str) -> dict[str, Any]:
                             "mitre_id": mitre_id,
                             "tactic": tactic or "",
                         }
-                    _add_link(actor, node_id, "USES")
+                    _add_link(actor, node_id, "USES", confidence=_relationship_confidence({"type": "USES"}))
 
     return {"nodes": list(nodes_map.values()), "links": links}
 
@@ -1023,15 +1087,7 @@ def get_all_geo() -> list[dict[str, Any]]:
 # These power the /api/threat-score, /api/blast-radius, /api/shortest-path,
 # and /api/suggestions endpoints with advanced graph analytics.
 
-# -- Threat Score --
-# Separate fast queries for each scoring factor — avoids cartesian explosion
-# from multiple variable-length OPTIONAL MATCH clauses in one query.
 _THREAT_SCORE_EXISTS = "MATCH (start:{label} {{{key}: $value}}) RETURN start, labels(start) AS start_labels LIMIT 1"
-_THREAT_SCORE_ACTORS = "MATCH (start:{label} {{{key}: $value}})-[*1..3]-(ta:ThreatActor) RETURN collect(DISTINCT ta.name)[0..5] AS actors LIMIT 1"
-_THREAT_SCORE_CVES   = "MATCH (start:{label} {{{key}: $value}})-[*1..3]-(cve:CVE) RETURN collect(DISTINCT cve.id)[0..5] AS cves LIMIT 1"
-_THREAT_SCORE_FRAUD  = "MATCH (start:{label} {{{key}: $value}})-[*1..3]-(fs:FraudSignal) RETURN count(DISTINCT fs) AS cnt LIMIT 1"
-_THREAT_SCORE_IPS    = "MATCH (start:{label} {{{key}: $value}})-[*1..2]-(ip:IP) RETURN count(DISTINCT ip) AS cnt LIMIT 1"
-_THREAT_SCORE_TYPES  = "MATCH (start:{label} {{{key}: $value}})-[*1..3]-(any) RETURN collect(DISTINCT labels(any)[0])[0..10] AS label_types LIMIT 1"
 
 
 def threat_score(entity: str, entity_type: str) -> dict[str, Any]:
@@ -1060,45 +1116,62 @@ def threat_score(entity: str, entity_type: str) -> dict[str, Any]:
             score += 10
             factors.append("Entity is a ConfirmedThreat")
 
-        # ThreatActors
-        rec2 = s.run(_THREAT_SCORE_ACTORS.format(label=label, key=key), value=entity).single()
-        actors = [a for a in (rec2["actors"] if rec2 else []) if a]
-        if actors:
-            score += 15
-            factors.append(f"Connected to ThreatActor {actors[0]}")
-            if len(actors) > 1:
-                score += 10
-                factors.append(f"Multiple threat actors ({len(actors)} total)")
+    graph = get_graph(entity, entity_type)
+    nodes = graph.get("nodes", [])
+    links = graph.get("links", [])
+    if not nodes:
+        return {"score": 0, "factors": ["Entity not found in graph"], "severity": "info"}
 
-        # CVEs
-        rec3 = s.run(_THREAT_SCORE_CVES.format(label=label, key=key), value=entity).single()
-        cves = [c for c in (rec3["cves"] if rec3 else []) if c]
-        if cves:
-            score += 15
-            factors.append(f"Connected to CVE {cves[0]}")
+    def avg_conf_for(node_ids: set[str]) -> float:
+        if not node_ids:
+            return 0.0
+        relevant = [
+            float(link.get("confidence") or 0.0)
+            for link in links
+            if link.get("source") in node_ids or link.get("target") in node_ids
+        ]
+        if not relevant:
+            return 0.75
+        return sum(relevant) / len(relevant)
 
-        # FraudSignals
-        rec4 = s.run(_THREAT_SCORE_FRAUD.format(label=label, key=key), value=entity).single()
-        fraud_cnt = rec4["cnt"] if rec4 else 0
-        if fraud_cnt:
-            score += 10
-            factors.append(f"Connected to {fraud_cnt} FraudSignal(s)")
+    actors = [n for n in nodes if n.get("type") == "ThreatActor"]
+    cves = [n for n in nodes if n.get("type") == "CVE"]
+    fraud = [n for n in nodes if n.get("type") == "FraudSignal"]
+    ips = [n for n in nodes if n.get("type") == "IP" and n.get("id") != entity]
+    distinct_types = {n.get("type") for n in nodes if n.get("id") != entity and n.get("type")}
+    overall_conf = (
+        sum(float(link.get("confidence") or 0.0) for link in links) / len(links)
+        if links
+        else 0.75
+    )
 
-        # IPs
-        rec5 = s.run(_THREAT_SCORE_IPS.format(label=label, key=key), value=entity).single()
-        ip_cnt = rec5["cnt"] if rec5 else 0
-        if ip_cnt:
-            score += 10
-            factors.append(f"Connected to {ip_cnt} malicious IP(s)")
+    if actors:
+        actor_conf = avg_conf_for({str(node.get("id")) for node in actors})
+        score += round(15 * actor_conf)
+        factors.append(f"Connected to ThreatActor {actors[0].get('label')} (confidence {actor_conf:.2f})")
+        if len(actors) > 1:
+            score += round(10 * actor_conf)
+            factors.append(f"Multiple threat actors ({len(actors)} total, confidence {actor_conf:.2f})")
 
-        # Cross-domain label types
-        rec6 = s.run(_THREAT_SCORE_TYPES.format(label=label, key=key), value=entity).single()
-        label_types = [lt for lt in (rec6["label_types"] if rec6 else []) if lt]
-        distinct_types = set(label_types)
-        cross_domain_count = min(len(distinct_types), 3)
-        if cross_domain_count > 0:
-            score += cross_domain_count * 10
-            factors.append(f"Cross-domain reach: {len(distinct_types)} entity type(s)")
+    if cves:
+        cve_conf = avg_conf_for({str(node.get("id")) for node in cves})
+        score += round(15 * cve_conf)
+        factors.append(f"Connected to CVE {cves[0].get('label')} (confidence {cve_conf:.2f})")
+
+    if fraud:
+        fraud_conf = avg_conf_for({str(node.get("id")) for node in fraud})
+        score += round(10 * fraud_conf)
+        factors.append(f"Connected to {len(fraud)} FraudSignal(s) (confidence {fraud_conf:.2f})")
+
+    if ips:
+        ip_conf = avg_conf_for({str(node.get("id")) for node in ips})
+        score += round(10 * ip_conf)
+        factors.append(f"Connected to {len(ips)} malicious IP(s) (confidence {ip_conf:.2f})")
+
+    cross_domain_count = min(len(distinct_types), 3)
+    if cross_domain_count > 0:
+        score += round(cross_domain_count * 10 * overall_conf)
+        factors.append(f"Cross-domain reach: {len(distinct_types)} entity type(s) (confidence {overall_conf:.2f})")
 
     # Cap at 100
     score = min(score, 100)
