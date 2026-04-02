@@ -24,6 +24,7 @@ import logging
 from pathlib import Path
 from typing import Any
 
+import anthropic
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
@@ -86,6 +87,53 @@ def _get_client():
         return None
 
 
+# ── Direct-LLM fallback extraction ──────────────────────────────────────
+# Used when RocketRide is unavailable (pipeline already running, SDK missing, etc.)
+# Calls Claude Haiku directly to extract entities from text.
+
+_EXTRACT_SYSTEM = """\
+You are a threat intelligence entity extractor. Given raw text, extract all \
+cyber threat entities and return ONLY a JSON array. Each element must have:
+  type: one of "Package", "IP", "Domain", "CVE", "ThreatActor", "Technique"
+  value: the exact entity string
+  threat_domain: one of "supply_chain", "infrastructure", "financial", "unknown"
+  confidence: "high", "medium", or "low"
+  context: a short phrase explaining where/how this entity appears
+Return only the JSON array, no markdown fences, no extra text.\
+"""
+
+
+def _extract_entities_via_llm(text: str) -> list[dict[str, Any]]:
+    """
+    Direct Anthropic API fallback for entity extraction.
+    Uses Claude Haiku to extract entities when RocketRide pipeline is unavailable.
+    """
+    try:
+        api_key = config.get("ANTHROPIC_API_KEY") or config.get("ROCKETRIDE_ANTHROPIC_KEY")
+        if not api_key:
+            logger.warning("No Anthropic API key for direct extraction fallback")
+            return []
+
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=2048,
+            system=_EXTRACT_SYSTEM,
+            messages=[{"role": "user", "content": text}],
+        )
+
+        raw = message.content[0].text.strip()
+        # Strip markdown fences if present
+        if raw.startswith("```"):
+            raw = "\n".join(raw.split("\n")[1:])
+        if raw.endswith("```"):
+            raw = "\n".join(raw.split("\n")[:-1])
+        return json.loads(raw.strip())
+    except Exception as exc:
+        logger.error("Direct LLM extraction failed: %s", exc)
+        return []
+
+
 async def _get_ingest_token(client) -> str:
     """Load the cerberus-ingest pipeline and cache its token."""
     global _ingest_token
@@ -120,38 +168,42 @@ async def ingest_status():
 @router.post("/text")
 async def ingest_text(req: TextIngestRequest):
     """
-    Submit raw text for threat entity extraction via RocketRide.
-    The ingest pipeline uses Claude Haiku to extract entities from the text.
-    Extracted entities are optionally written to the Neo4j graph.
+    Submit raw text for threat entity extraction.
+    Tries RocketRide ingest pipeline first; falls back to direct Claude Haiku
+    if the pipeline is unavailable (already running, SDK missing, etc.).
     """
+    pipeline_name = "direct-llm (Claude Haiku)"
+    entities: list[dict[str, Any]] = []
+
+    # ── Try RocketRide pipeline first ────────────────────────────────
     client = _get_client()
-    if client is None:
-        raise HTTPException(status_code=503, detail="RocketRide not available")
+    if client is not None:
+        try:
+            from rocketride.schema import Question  # type: ignore
+            await client.connect()
+            token = await _get_ingest_token(client)
 
-    try:
-        from rocketride.schema import Question  # type: ignore
-        await client.connect()
-        token = await _get_ingest_token(client)
+            question = Question()
+            question.addContext(req.text)
+            question.addQuestion(
+                "Extract all threat intelligence entities from the above content. "
+                "Return a JSON array of entities with type, value, threat_domain, confidence, and context."
+            )
 
-        # Send text through the ingest pipeline as a question with context
-        question = Question()
-        question.addContext(req.text)
-        question.addQuestion(
-            "Extract all threat intelligence entities from the above content. "
-            "Return a JSON array of entities with type, value, threat_domain, confidence, and context."
-        )
+            response = await client.chat(token=token, question=question)
+            entities = _parse_extraction_response(response)
+            pipeline_name = "cerberus-ingest (RocketRide)"
+        except Exception as exc:
+            logger.warning("RocketRide ingest failed (%s), falling back to direct LLM", exc)
 
-        response = await client.chat(token=token, question=question)
+    # ── Fallback: extract entities via direct Anthropic API ──────────
+    if not entities:
+        entities = _extract_entities_via_llm(req.text)
 
-        # extract_data returns structured tabular data in 'entities' key
-        # (via response_answers laneName="entities"); fall back to 'answers'
-        entities = _parse_extraction_response(response)
+    if not entities:
+        raise HTTPException(status_code=500, detail="No entities extracted — both pipeline and LLM fallback failed")
 
-    except Exception as exc:
-        logger.error("RocketRide ingest failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Ingest pipeline error: {exc}")
-
-    # Optionally write extracted entities to the graph
+    # ── Optionally write to graph ────────────────────────────────────
     written = 0
     if req.write_to_graph and entities:
         written = _write_entities_to_graph(entities)
@@ -160,7 +212,7 @@ async def ingest_text(req: TextIngestRequest):
         "entities_found": len(entities),
         "entities": entities,
         "written_to_graph": written,
-        "pipeline": "cerberus-ingest (RocketRide)",
+        "pipeline": pipeline_name,
     }
 
 
@@ -170,32 +222,47 @@ async def ingest_file(
     write_to_graph: bool = Form(default=True),
 ):
     """
-    Upload a file (PDF, image, text) for threat entity extraction via RocketRide.
-    The pipeline runs: webhook → parse → ocr → llm_anthropic → response
+    Upload a file (PDF, image, text) for threat entity extraction.
+    Tries RocketRide pipeline (with OCR support) first; for text-based files,
+    falls back to direct Claude Haiku extraction if pipeline is unavailable.
     """
-    client = _get_client()
-    if client is None:
-        raise HTTPException(status_code=503, detail="RocketRide not available")
-
     content = await file.read()
     if len(content) > 10 * 1024 * 1024:  # 10MB limit
         raise HTTPException(status_code=413, detail="File too large (max 10MB)")
 
-    try:
-        await client.connect()
-        token = await _get_ingest_token(client)
+    pipeline_name = "direct-llm (Claude Haiku)"
+    entities: list[dict[str, Any]] = []
 
-        # Send file through RocketRide's webhook pipeline (parse + OCR + extract_data)
-        result = await client.send_files(
-            token=token,
-            files=[{"name": file.filename, "content": content, "mime_type": file.content_type}],
+    # ── Try RocketRide pipeline first (supports OCR for images/PDFs) ──
+    client = _get_client()
+    if client is not None:
+        try:
+            await client.connect()
+            token = await _get_ingest_token(client)
+
+            result = await client.send_files(
+                token=token,
+                files=[{"name": file.filename, "content": content, "mime_type": file.content_type}],
+            )
+            entities = _parse_extraction_response(result)
+            pipeline_name = "cerberus-ingest (RocketRide webhook + OCR)"
+        except Exception as exc:
+            logger.warning("RocketRide file ingest failed (%s), trying direct LLM fallback", exc)
+
+    # ── Fallback: try to decode file as text and run through direct LLM ──
+    if not entities:
+        try:
+            text_content = content.decode("utf-8", errors="ignore")
+            if text_content.strip():
+                entities = _extract_entities_via_llm(text_content)
+        except Exception as exc:
+            logger.warning("Direct LLM file fallback failed: %s", exc)
+
+    if not entities:
+        raise HTTPException(
+            status_code=500,
+            detail="No entities extracted — file may be binary (PDF/image) and requires the RocketRide OCR pipeline",
         )
-
-        entities = _parse_extraction_response(result)
-
-    except Exception as exc:
-        logger.error("RocketRide file ingest failed: %s", exc)
-        raise HTTPException(status_code=500, detail=f"Ingest pipeline error: {exc}")
 
     written = 0
     if write_to_graph and entities:
@@ -206,7 +273,7 @@ async def ingest_file(
         "entities_found": len(entities),
         "entities": entities,
         "written_to_graph": written,
-        "pipeline": "cerberus-ingest (RocketRide webhook + OCR)",
+        "pipeline": pipeline_name,
     }
 
 
