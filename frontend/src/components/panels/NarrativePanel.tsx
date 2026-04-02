@@ -400,7 +400,7 @@ export function NarrativePanel({
   };
 
   return (
-    <div className="sidebar-scroll flex h-full flex-col overflow-y-auto scroll-smooth">
+    <div className="flex min-h-full flex-col">
       {/* ── Section header ─────────────────────────────────── */}
       {collapsed ? (
         /* Collapsed: just a centred toggle button, no overflow */

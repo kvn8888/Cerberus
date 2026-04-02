@@ -112,7 +112,7 @@ function App() {
         </section>
 
         <aside className={cn(
-          "flex-shrink-0 border-l border-border bg-surface/40 backdrop-blur-sm overflow-x-hidden flex flex-col transition-all duration-300",
+          "sidebar-scroll flex-shrink-0 border-l border-border bg-surface/40 backdrop-blur-sm overflow-x-hidden overflow-y-auto scroll-smooth flex flex-col transition-all duration-300",
           narrativeCollapsed ? "w-12" : "w-96"
         )}>
           <NarrativePanel
