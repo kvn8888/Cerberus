@@ -394,14 +394,13 @@ export function IngestPanel({ onInvestigate }: IngestPanelProps) {
           onClick={handleSubmit}
           disabled={
             processing ||
-            pipelineReady === false ||
             (mode === "text" ? !text.trim() : !selectedFile)
           }
           className={cn(
             "w-full mt-3 py-2 rounded-lg text-sm font-medium",
             "flex items-center justify-center gap-2",
             "transition-all duration-200",
-            processing || pipelineReady === false
+            processing
               ? "bg-muted text-muted-foreground cursor-not-allowed"
               : "bg-primary/15 text-primary border border-primary/30 hover:bg-primary/25 active:scale-[0.98]"
           )}
