@@ -334,18 +334,20 @@ export function GraphPanel({ state }: GraphPanelProps) {
     (link: any, ctx: CanvasRenderingContext2D) => {
       const source = link.source;
       const target = link.target;
+      const confidence = Math.max(0.2, Math.min(0.99, Number(link.confidence ?? 0.75)));
+      const lineOpacity = 0.12 + confidence * 0.45;
 
       ctx.beginPath();
 
       if (link.dashed) {
         ctx.setLineDash([4, 4]);
-        ctx.strokeStyle = "rgba(255, 200, 50, 0.4)";
+        ctx.strokeStyle = `rgba(255, 200, 50, ${Math.min(0.75, lineOpacity + 0.1)})`;
       } else {
         ctx.setLineDash([]);
-        ctx.strokeStyle = "rgba(0, 229, 255, 0.2)";
+        ctx.strokeStyle = `rgba(0, 229, 255, ${lineOpacity})`;
       }
 
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 0.75 + confidence * 2.25;
       ctx.moveTo(source.x, source.y);
       ctx.lineTo(target.x, target.y);
       ctx.stroke();
@@ -407,6 +409,10 @@ export function GraphPanel({ state }: GraphPanelProps) {
       {/* ── Search + Filter toolbar ──────────────────────── */}
       {hasGraph && (
         <div className="absolute top-3 right-3 z-20 flex items-center gap-2">
+          <div className="hidden sm:flex items-center gap-1 rounded-md border border-border/60 bg-surface/90 px-2 py-1 text-[10px] font-mono text-muted-foreground backdrop-blur-sm">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary/70" />
+            confidence-weighted
+          </div>
           {/* Node search */}
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />

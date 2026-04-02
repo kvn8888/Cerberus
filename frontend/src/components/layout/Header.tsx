@@ -5,10 +5,12 @@
  * a subtle gradient bottom border, and live backend connection
  * status with a pulsing indicator dot.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Shield, Wifi, WifiOff, Activity, Cpu, GitCommit, Bell } from "lucide-react";
-import { healthCheck, rocketrideHealthCheck, checkWatchlist } from "../../lib/api";
+import { healthCheck, rocketrideHealthCheck, checkWatchlistSince } from "../../lib/api";
 import { cn } from "../../lib/utils";
+
+const DIGEST_WINDOW_MS = 15 * 60 * 1000;
 
 export function Header() {
   /* Track whether the backend is reachable */
@@ -19,6 +21,8 @@ export function Header() {
   const [alertCount, setAlertCount] = useState(0);
   const [showAlerts, setShowAlerts] = useState(false);
   const [alertDetails, setAlertDetails] = useState<{ entity: string; new_connections: number }[]>([]);
+  const [digestConnections, setDigestConnections] = useState(0);
+  const lastPollRef = useRef(Date.now() - DIGEST_WINDOW_MS);
 
   useEffect(() => {
     const check = () => {
@@ -33,13 +37,30 @@ export function Header() {
   /* Periodically check watchlist for new connections */
   useEffect(() => {
     const checkAlerts = () => {
-      checkWatchlist()
+      checkWatchlistSince(lastPollRef.current)
         .then((result) => {
-          setAlertCount(result.alerts.length);
-          setAlertDetails(result.alerts.map((a) => ({
-            entity: a.entity,
-            new_connections: a.new_connections,
-          })));
+          lastPollRef.current = result.checked_at;
+          setAlertDetails((prev) => {
+            const cutoff = Date.now() - DIGEST_WINDOW_MS;
+            const merged = new Map<string, { entity: string; new_connections: number; seen_at: number }>();
+            prev.forEach((item) => {
+              if (item && (item as any).seen_at >= cutoff) {
+                merged.set(item.entity, item as any);
+              }
+            });
+            result.alerts.forEach((alert) => {
+              const existing = merged.get(alert.entity);
+              merged.set(alert.entity, {
+                entity: alert.entity,
+                new_connections: (existing?.new_connections ?? 0) + alert.new_connections,
+                seen_at: result.checked_at,
+              });
+            });
+            const digest = Array.from(merged.values()).sort((a, b) => b.new_connections - a.new_connections);
+            setAlertCount(digest.length);
+            setDigestConnections(digest.reduce((total, item) => total + item.new_connections, 0));
+            return digest as unknown as { entity: string; new_connections: number }[];
+          });
         })
         .catch(() => {});
     };
@@ -47,6 +68,12 @@ export function Header() {
     const id = setInterval(checkAlerts, 30_000);
     return () => clearInterval(id);
   }, []);
+
+  const markReviewed = () => {
+    setAlertDetails([]);
+    setAlertCount(0);
+    setDigestConnections(0);
+  };
 
   return (
     <header className="relative sticky top-0 z-50">
@@ -122,9 +149,23 @@ export function Header() {
             {/* Alert dropdown */}
             {showAlerts && alertDetails.length > 0 && (
               <div className="absolute right-0 top-full mt-1 w-64 rounded-lg border border-border/60 bg-surface/95 backdrop-blur-md shadow-lg z-50 p-2 space-y-1">
-                <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest px-2 py-1">
-                  Watchlist Alerts
-                </p>
+                <div className="flex items-center justify-between px-2 py-1">
+                  <div>
+                    <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">
+                      Watchlist Digest
+                    </p>
+                    <p className="text-[9px] font-mono text-muted-foreground/50 mt-1">
+                      {digestConnections} new connections across {alertCount} watched entities
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={markReviewed}
+                    className="rounded border border-border/50 px-2 py-1 text-[9px] font-mono text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+                  >
+                    Mark reviewed
+                  </button>
+                </div>
                 {alertDetails.map((a) => (
                   <div key={a.entity} className="flex items-center justify-between px-2 py-1.5 rounded bg-surface-raised/30 text-[10px] font-mono">
                     <span className="text-foreground truncate max-w-[140px]">{a.entity}</span>

@@ -9,7 +9,7 @@
  * The PipelineStages bar sits between the header and main content,
  * showing the agent's progress through each investigation stage.
  */
-import { lazy, startTransition, Suspense, useCallback, useState } from "react";
+import { lazy, startTransition, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Header } from "./components/layout/Header";
 import { ViewNav, type CenterView } from "./components/layout/ViewNav";
 import { QueryPanel } from "./components/panels/QueryPanel";
@@ -29,8 +29,9 @@ const MemoryPanel = lazy(() => import("./components/panels/MemoryPanel").then(m 
 const ComparePanel = lazy(() => import("./components/panels/ComparePanel").then(m => ({ default: m.ComparePanel })));
 
 function App() {
-  const { state, investigate } = useInvestigation();
+  const { state, investigate, setTlp } = useInvestigation();
   const [centerView, setCenterView] = useState<CenterView>("geomap");
+  const bootstrappedFromUrl = useRef(false);
 
   /* Bumped by NarrativePanel after a successful "Save to Memory" so
      the MemoryPanel re-fetches from the backend automatically. */
@@ -47,6 +48,25 @@ function App() {
       setCenterView(view);
     });
   }, []);
+
+  useEffect(() => {
+    if (bootstrappedFromUrl.current || typeof window === "undefined") return;
+    bootstrappedFromUrl.current = true;
+    const params = new URLSearchParams(window.location.search);
+    const entity = params.get("entity")?.trim();
+    const type = params.get("type")?.trim();
+    if (!entity || !type) return;
+    const allowed = new Set([
+      "package",
+      "ip",
+      "domain",
+      "cve",
+      "threatactor",
+      "fraudsignal",
+    ]);
+    if (!allowed.has(type)) return;
+    investigate(entity, type as Parameters<typeof investigate>[1]);
+  }, [investigate]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden">
@@ -97,6 +117,7 @@ function App() {
         )}>
           <NarrativePanel
             state={state}
+            onTlpChange={setTlp}
             onMemorySaved={onMemorySaved}
             onInvestigate={investigate}
             collapsed={narrativeCollapsed}

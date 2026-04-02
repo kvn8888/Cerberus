@@ -14,6 +14,13 @@ export type EntityType =
   | "threatactor"
   | "fraudsignal";
 
+export type TlpLevel =
+  | "clear"
+  | "green"
+  | "amber"
+  | "amber+strict"
+  | "red";
+
 /** POST /api/query request body */
 export interface QueryRequest {
   entity: string;
@@ -68,6 +75,9 @@ export interface GraphLink {
   target: string;
   type?: string;
   dashed?: boolean;
+  confidence?: number;
+  source_reliability?: number;
+  last_seen?: number;
 }
 
 /** GET /api/query/graph response — nodes + links for force-directed graph */
@@ -144,6 +154,7 @@ export interface InvestigationState {
   status: "idle" | "running" | "complete" | "error";
   entity: string;
   entityType: EntityType;
+  tlp: TlpLevel;
   currentStage: PipelineStage;
   routeInfo?: RouteInfo;
   narrative: string;
@@ -215,6 +226,7 @@ export interface MapResponse {
 export interface ReportResponse {
   entity: string;
   entity_type: EntityType;
+  tlp: TlpLevel;
   generated_at: number;
   from_cache: boolean;
   paths_found: number;
@@ -227,4 +239,11 @@ export interface ReportResponse {
   };
   narrative: string;
   summary: string;
+}
+
+export interface DetectionRuleSet {
+  sigma: string;
+  yara: string;
+  notes: string[];
+  tlp: TlpLevel;
 }

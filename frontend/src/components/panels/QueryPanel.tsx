@@ -17,6 +17,7 @@ import {
   Clock,
   Trash2,
   MessageSquare,
+  Table2,
 } from "lucide-react";
 import type {
   EntityType,
@@ -24,7 +25,12 @@ import type {
   InvestigationHistoryItem,
 } from "../../types/api";
 import { cn } from "../../lib/utils";
-import { parseNaturalLanguage } from "../../lib/api";
+import {
+  parseNaturalLanguage,
+  queryEntity,
+  fetchThreatScore,
+  fetchGraph,
+} from "../../lib/api";
 
 interface QueryPanelProps {
   onInvestigate: (entity: string, type: EntityType) => void;
@@ -204,6 +210,66 @@ const TYPE_ICONS: Record<EntityType, typeof Package> = {
   fraudsignal: Zap,
 };
 
+interface BulkCandidate {
+  raw: string;
+  extracted: string;
+  type: EntityType;
+  label: string;
+}
+
+interface BulkResult {
+  entity: string;
+  type: EntityType;
+  pathsFound: number;
+  threatScore?: number;
+  severity?: string;
+  topConnection: string;
+  error?: string;
+}
+
+function parseBulkInput(input: string): BulkCandidate[] {
+  const seen = new Set<string>();
+  return input
+    .split(/[\n,]+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .map((token) => {
+      const detected = detectEntityType(token);
+      return {
+        raw: token,
+        extracted: detected.extracted,
+        type: detected.type,
+        label: detected.label,
+      };
+    })
+    .filter((candidate) => {
+      const key = `${candidate.type}:${candidate.extracted.toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+
+  async function runWorker() {
+    while (cursor < items.length) {
+      const current = cursor;
+      cursor += 1;
+      results[current] = await worker(items[current]);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, () => runWorker()));
+  return results;
+}
+
 const EXAMPLES = [
   {
     entity: "ua-parser-js",
@@ -243,6 +309,10 @@ export function QueryPanel({
   investigationState,
 }: QueryPanelProps) {
   const [query, setQuery] = useState("");
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkInput, setBulkInput] = useState("");
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkResults, setBulkResults] = useState<BulkResult[]>([]);
   const [nlpMode, setNlpMode] = useState(false);
   const [nlpParsing, setNlpParsing] = useState(false);
   const [nlpError, setNlpError] = useState<string | null>(null);
@@ -298,11 +368,56 @@ export function QueryPanel({
     } catch {}
   };
 
+  useEffect(() => {
+    if (bulkMode) return;
+    if (investigationState?.entity) {
+      setQuery(investigationState.entity);
+    }
+  }, [investigationState?.entity, bulkMode]);
   const detected = detectEntityType(query);
   const DetectedIcon = TYPE_ICONS[detected.type];
+  const bulkCandidates = parseBulkInput(bulkInput);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (bulkMode) {
+      if (bulkCandidates.length === 0) return;
+      setBulkBusy(true);
+      try {
+        const results = await mapWithConcurrency(bulkCandidates, 3, async (candidate) => {
+          const req = { entity: candidate.extracted, type: candidate.type };
+          try {
+            const [queryResult, threatScore, graph] = await Promise.all([
+              queryEntity(req),
+              fetchThreatScore(req).catch(() => undefined),
+              fetchGraph(req).catch(() => ({ nodes: [], links: [] })),
+            ]);
+            const topConnection = graph.nodes.find((node) => node.id !== candidate.extracted)?.label || "No graph connection";
+            return {
+              entity: candidate.extracted,
+              type: candidate.type,
+              pathsFound: queryResult.paths_found,
+              threatScore: threatScore?.score,
+              severity: threatScore?.severity,
+              topConnection,
+            } as BulkResult;
+          } catch (err) {
+            return {
+              entity: candidate.extracted,
+              type: candidate.type,
+              pathsFound: 0,
+              topConnection: "Unavailable",
+              error: err instanceof Error ? err.message : "Bulk query failed",
+            } satisfies BulkResult;
+          }
+        });
+        setBulkResults(results);
+      } finally {
+        setBulkBusy(false);
+      }
+      return;
+    }
+
     if (!query.trim()) return;
 
     if (nlpMode) {
@@ -350,55 +465,95 @@ export function QueryPanel({
           className="p-4 space-y-4 flex flex-col h-full"
         >
           {/* Search bar */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em]">
-                {nlpMode ? "Ask a question" : "Enter an entity"}
-              </label>
-              {/* NLP mode toggle — switches between entity search and natural language */}
-              <button
-                type="button"
-                onClick={() => {
-                  setNlpMode(!nlpMode);
-                  setNlpError(null);
-                }}
-                className={cn(
-                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono transition-all",
-                  nlpMode
-                    ? "bg-primary/15 text-primary border border-primary/30"
-                    : "bg-surface-raised text-muted-foreground border border-border/50 hover:border-primary/20",
-                )}
-              >
-                <MessageSquare className="h-2.5 w-2.5" />
-                NLP
-              </button>
-            </div>
-            <div className="relative group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground transition-colors group-focus-within:text-primary" />
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={
-                  nlpMode
-                    ? "e.g. What packages are linked to APT41?"
-                    : "e.g. ua-parser-js, 203.0.113.42, CVE-2021-44228"
-                }
-                className={cn(
-                  "w-full pl-10 pr-4 py-3 rounded-lg text-sm font-mono",
-                  "bg-surface-raised border border-border",
-                  "text-foreground placeholder:text-muted-foreground/40",
-                  "focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15 focus:shadow-glow",
-                  "transition-all duration-300",
-                )}
-              />
-            </div>
-            {nlpError && (
-              <p className="mt-1.5 text-[10px] font-mono text-threat-high animate-fade-in">
-                {nlpError}
-              </p>
-            )}
-            {!nlpMode && query.trim() && (
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em]">
+                  {bulkMode ? "Paste IOCs" : nlpMode ? "Ask a question" : "Enter an entity"}
+                </label>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setNlpMode(!nlpMode);
+                      setBulkMode(false);
+                      setNlpError(null);
+                    }}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono transition-all",
+                      nlpMode
+                        ? "bg-primary/15 text-primary border border-primary/30"
+                        : "bg-surface-raised text-muted-foreground border border-border/50 hover:border-primary/20"
+                    )}
+                  >
+                    <MessageSquare className="h-2.5 w-2.5" />
+                    NLP
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBulkMode(!bulkMode);
+                      setNlpMode(false);
+                      setNlpError(null);
+                    }}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-mono transition-all",
+                      bulkMode
+                        ? "bg-threat-high/15 text-threat-high border border-threat-high/30"
+                        : "bg-surface-raised text-muted-foreground border border-border/50 hover:border-threat-high/20"
+                    )}
+                  >
+                    <Table2 className="h-2.5 w-2.5" />
+                    Bulk
+                  </button>
+                </div>
+              </div>
+              {bulkMode ? (
+                <textarea
+                  value={bulkInput}
+                  onChange={(e) => setBulkInput(e.target.value)}
+                  placeholder="Paste newline- or comma-separated IOCs\nua-parser-js\n203.0.113.42\nCVE-2021-27292"
+                  rows={6}
+                  className={cn(
+                    "w-full rounded-lg px-4 py-3 text-sm font-mono resize-none",
+                    "bg-surface-raised border border-border",
+                    "text-foreground placeholder:text-muted-foreground/40",
+                    "focus:outline-none focus:border-threat-high/50 focus:ring-2 focus:ring-threat-high/10",
+                    "transition-all duration-300"
+                  )}
+                />
+              ) : (
+                <div className="relative group">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground transition-colors group-focus-within:text-primary" />
+                  <input
+                    type="text"
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder={nlpMode ? "e.g. What packages are linked to APT41?" : "e.g. ua-parser-js, 203.0.113.42, CVE-2021-44228"}
+                    className={cn(
+                      "w-full pl-10 pr-4 py-3 rounded-lg text-sm font-mono",
+                      "bg-surface-raised border border-border",
+                      "text-foreground placeholder:text-muted-foreground/40",
+                      "focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15 focus:shadow-glow",
+                      "transition-all duration-300"
+                    )}
+                  />
+                </div>
+              )}
+              {nlpError && (
+                <p className="mt-1.5 text-[10px] font-mono text-threat-high animate-fade-in">
+                  {nlpError}
+                </p>
+              )}
+              {bulkMode && bulkCandidates.length > 0 && (
+                <div className="mt-2 flex items-center gap-2 animate-fade-in flex-wrap">
+                  <span className="text-[10px] font-mono text-muted-foreground/60">Parsed:</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-mono bg-threat-high/10 text-threat-high border border-threat-high/20">
+                    <Table2 className="h-2.5 w-2.5" />
+                    {bulkCandidates.length} entities
+                  </span>
+                </div>
+              )}
+              {!nlpMode && query.trim() && (
               <div className="mt-2 flex items-center gap-2 animate-fade-in flex-wrap">
                 <span className="text-[10px] font-mono text-muted-foreground/60">
                   Detected:
@@ -416,31 +571,83 @@ export function QueryPanel({
             )}
           </div>
 
-          <button
-            type="submit"
-            disabled={!query.trim() || nlpParsing}
-            className={cn(
-              "w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
-              "transition-all duration-300 relative",
-              !query.trim() || nlpParsing
-                ? "bg-muted text-muted-foreground cursor-not-allowed"
-                : "bg-primary text-primary-foreground hover:shadow-glow-lg active:scale-[0.97] hover:tracking-wider",
+            <button
+              type="submit"
+              disabled={bulkMode ? bulkCandidates.length === 0 || bulkBusy : !query.trim() || nlpParsing}
+              className={cn(
+                "w-full py-2.5 rounded-lg text-sm font-bold tracking-wide",
+                "transition-all duration-300 relative",
+                (bulkMode ? bulkCandidates.length === 0 || bulkBusy : !query.trim() || nlpParsing)
+                  ? "bg-muted text-muted-foreground cursor-not-allowed"
+                  : "bg-primary text-primary-foreground hover:shadow-glow-lg active:scale-[0.97] hover:tracking-wider"
+              )}
+            >
+              {bulkBusy ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/60 border-t-transparent animate-spin" />
+                  <span className="animate-pulse">Running bulk triage...</span>
+                </span>
+              ) : nlpParsing ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/60 border-t-transparent animate-spin" />
+                  <span className="animate-pulse">Parsing...</span>
+                </span>
+              ) : isRunning ? (
+                <span className="flex items-center justify-center gap-2">
+                  <span className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/60 border-t-transparent animate-spin" />
+                  <span className="animate-pulse">Restart Investigation</span>
+                </span>
+              ) : (
+                bulkMode ? "BULK TRIAGE" : "INVESTIGATE"
+              )}
+            </button>
+
+            {bulkResults.length > 0 && (
+              <div className="rounded-lg border border-border/60 bg-surface-raised/30 p-3 space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em] flex items-center gap-1.5">
+                    <Table2 className="h-3 w-3 text-threat-high" />
+                    Bulk Results
+                  </p>
+                  <span className="text-[9px] font-mono text-muted-foreground/50">
+                    concurrency 3
+                  </span>
+                </div>
+                <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,0.7fr)] gap-2 px-2 text-[9px] font-mono uppercase tracking-wider text-muted-foreground/50">
+                  <span>Entity</span>
+                  <span>Score</span>
+                  <span>Top Link</span>
+                </div>
+                <div className="space-y-1 max-h-52 overflow-y-auto">
+                  {bulkResults.map((row) => (
+                    <button
+                      key={`${row.type}:${row.entity}`}
+                      type="button"
+                      onClick={() => {
+                        setBulkMode(false);
+                        setQuery(row.entity);
+                        onInvestigate(row.entity, row.type);
+                      }}
+                      className="w-full rounded-md border border-transparent bg-surface/40 px-2 py-2 text-left font-mono hover:border-primary/20 hover:bg-primary/8 transition-all"
+                    >
+                      <div className="grid grid-cols-[minmax(0,1.6fr)_minmax(0,0.8fr)_minmax(0,0.7fr)] gap-2 text-[10px]">
+                        <div className="min-w-0">
+                          <p className="truncate text-foreground/85">{row.entity}</p>
+                          <p className="text-[9px] text-muted-foreground/45">{row.type} · {row.pathsFound} paths</p>
+                        </div>
+                        <div className="text-muted-foreground/75">
+                          {row.error ? "ERR" : row.threatScore !== undefined ? `${row.threatScore}/100` : "--"}
+                        </div>
+                        <div className="truncate text-muted-foreground/65">{row.topConnection}</div>
+                      </div>
+                      {row.error && (
+                        <p className="mt-1 text-[9px] text-threat-high/70 truncate">{row.error}</p>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
             )}
-          >
-            {nlpParsing ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/60 border-t-transparent animate-spin" />
-                <span className="animate-pulse">Parsing...</span>
-              </span>
-            ) : isRunning ? (
-              <span className="flex items-center justify-center gap-2">
-                <span className="h-3.5 w-3.5 rounded-full border-2 border-primary-foreground/60 border-t-transparent animate-spin" />
-                <span className="animate-pulse">Restart Investigation</span>
-              </span>
-            ) : (
-              "INVESTIGATE"
-            )}
-          </button>
 
           {/* Quick start examples */}
           <div className="mt-auto pt-4">

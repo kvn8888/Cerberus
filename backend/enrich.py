@@ -156,7 +156,14 @@ def _ingest_package_vulns(package_name: str, vulns: list[dict]) -> int:
                   cve.cvss        = v.cvss,
                   cve.source      = 'osv_enrichment',
                   cve.enriched_at = timestamp()
-    MERGE (pkg)-[:HAS_VULNERABILITY]->(cve)
+    MERGE (pkg)-[r:HAS_VULNERABILITY]->(cve)
+    ON CREATE SET r.source = 'osv_enrichment',
+                  r.source_reliability = 0.8,
+                  r.confidence = 0.8,
+                  r.corroboration_count = 1,
+                  r.created_at = timestamp(),
+                  r.last_seen = timestamp()
+    ON MATCH SET  r.last_seen = timestamp()
     RETURN count(cve) AS cnt
     """
 
@@ -314,7 +321,19 @@ def _link_cve_to_products(cve_id: str, product_names: list[str]) -> None:
     MERGE (pkg:Package {name: prod_name})
     ON CREATE SET pkg.source      = 'nvd_cpe_enrichment',
                   pkg.enriched_at = timestamp()
-    MERGE (pkg)-[:HAS_VULNERABILITY]->(cve)
+    MERGE (pkg)-[r:HAS_VULNERABILITY]->(cve)
+    ON CREATE SET r.source = 'nvd_cpe_enrichment',
+                  r.source_reliability = 0.9,
+                  r.confidence = 0.9,
+                  r.corroboration_count = 1,
+                  r.created_at = timestamp(),
+                  r.last_seen = timestamp()
+    ON MATCH SET  r.last_seen = timestamp(),
+                  r.corroboration_count = coalesce(r.corroboration_count, 1) + 1,
+                  r.confidence = CASE
+                      WHEN coalesce(r.confidence, 0.9) >= 0.95 THEN coalesce(r.confidence, 0.9)
+                      ELSE coalesce(r.confidence, 0.9) + 0.05
+                  END
     """
     with _get_driver().session() as s:
         s.run(cypher, cve_id=cve_id, products=product_names)
@@ -376,7 +395,14 @@ def _link_cve_to_techniques_via_cwe(cve_id: str, cwes: list[str]) -> None:
     OPTIONAL MATCH (t:Technique)
     WHERE t.mitre_id = tid OR t.mitre_id STARTS WITH tid + '.'
     WITH cve, t WHERE t IS NOT NULL
-    MERGE (cve)-[:RELATED_TECHNIQUE]->(t)
+    MERGE (cve)-[r:RELATED_TECHNIQUE]->(t)
+    ON CREATE SET r.source = 'cwe_mapping',
+                  r.source_reliability = 0.65,
+                  r.confidence = 0.65,
+                  r.corroboration_count = 1,
+                  r.created_at = timestamp(),
+                  r.last_seen = timestamp()
+    ON MATCH SET  r.last_seen = timestamp()
     """
     with _get_driver().session() as s:
         s.run(cypher, cve_id=cve_id, technique_ids=list(technique_ids))
@@ -399,8 +425,13 @@ def _link_cve_to_existing_actors(cve_id: str) -> None:
     WITH cve, ta, count(*) AS strength ORDER BY strength DESC LIMIT 2
     MERGE (cve)-[r:EXPLOITED_BY]->(ta)
     ON CREATE SET r.confidence = 0.5,
+                  r.source_reliability = 0.5,
+                  r.corroboration_count = 1,
+                  r.created_at = timestamp(),
+                  r.last_seen = timestamp(),
                   r.source     = 'graph_correlation',
                   r.synthetic  = true
+    ON MATCH SET  r.last_seen = timestamp()
     RETURN ta.name AS actor
     """
     # Path 2: CVE → Technique → ThreatActor (via ATT&CK technique usage)
@@ -410,8 +441,13 @@ def _link_cve_to_existing_actors(cve_id: str) -> None:
     WITH cve, ta, count(t) AS overlap ORDER BY overlap DESC LIMIT 3
     MERGE (cve)-[r:EXPLOITED_BY]->(ta)
     ON CREATE SET r.confidence = 0.4,
+                  r.source_reliability = 0.4,
+                  r.corroboration_count = 1,
+                  r.created_at = timestamp(),
+                  r.last_seen = timestamp(),
                   r.source     = 'technique_correlation',
                   r.synthetic  = true
+    ON MATCH SET  r.last_seen = timestamp()
     RETURN ta.name AS actor
     """
     with _get_driver().session() as s:
@@ -609,7 +645,15 @@ def _link_cves_to_existing_actors(package_name: str) -> int:
     MATCH (other_cve:CVE)-[:EXPLOITED_BY]->(ta:ThreatActor)
     WITH cve, ta, count(other_cve) AS activity ORDER BY activity DESC
     LIMIT 1
-    MERGE (cve)-[:EXPLOITED_BY]->(ta)
+    MERGE (cve)-[r:EXPLOITED_BY]->(ta)
+    ON CREATE SET r.source = 'package_actor_bridge',
+                  r.source_reliability = 0.45,
+                  r.confidence = 0.45,
+                  r.corroboration_count = 1,
+                  r.created_at = timestamp(),
+                  r.last_seen = timestamp(),
+                  r.synthetic = true
+    ON MATCH SET  r.last_seen = timestamp()
     RETURN count(*) AS linked
     """
     with _get_driver().session() as s:
@@ -633,8 +677,13 @@ def _link_ip_to_actor_by_asn(ip_address: str, asn: str | None) -> bool:
     MATCH (ip:IP {address: $addr})
     MERGE (ta)-[r:OPERATES]->(ip)
     ON CREATE SET r.confidence = 0.4,
+                  r.source_reliability = 0.4,
+                  r.corroboration_count = 1,
+                  r.created_at = timestamp(),
+                  r.last_seen = timestamp(),
                   r.source     = 'asn_correlation',
                   r.synthetic  = true
+    ON MATCH SET  r.last_seen = timestamp()
     RETURN ta.name AS actor
     """
     with _get_driver().session() as s:
@@ -662,7 +711,12 @@ def _link_ip_to_actor_by_malware(ip_address: str, malware: str | None) -> bool:
     MATCH (ip:IP {address: $addr})
     MERGE (ta)-[r:OPERATES]->(ip)
     ON CREATE SET r.confidence = 0.7,
+                  r.source_reliability = 0.7,
+                  r.corroboration_count = 1,
+                  r.created_at = timestamp(),
+                  r.last_seen = timestamp(),
                   r.source     = 'malware_family_attribution'
+    ON MATCH SET  r.last_seen = timestamp()
     RETURN ta.name AS actor
     """
     with _get_driver().session() as s:

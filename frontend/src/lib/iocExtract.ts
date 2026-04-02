@@ -87,3 +87,38 @@ export function iocsToCsv(rows: IocRow[]): string {
   const lines = rows.map((r) => `${r.type},"${r.value.replace(/"/g, '""')}",${r.source}`);
   return [header, ...lines].join("\n");
 }
+
+export function defangValue(value: string, type?: IocType): string {
+  let next = value.trim();
+  if (!next) return next;
+
+  next = next
+    .replace(/^https:/i, "hxxps:")
+    .replace(/^http:/i, "hxxp:")
+    .replace(/^ftp:/i, "fxp:");
+
+  if (type === "ip" || /^\d{1,3}(?:\.\d{1,3}){3}$/.test(next)) {
+    return next.replace(/\./g, "[.]");
+  }
+
+  if (type === "domain" || /[a-z0-9-]+\.[a-z]{2,}/i.test(next)) {
+    return next.replace(/\./g, "[.]");
+  }
+
+  return next;
+}
+
+export function defangRows(rows: IocRow[]): IocRow[] {
+  return rows.map((row) => ({
+    ...row,
+    value: defangValue(row.value, row.type),
+  }));
+}
+
+export function defangText(text: string): string {
+  return text
+    .replace(/https:\/\//gi, "hxxps://")
+    .replace(/http:\/\//gi, "hxxp://")
+    .replace(IPV4, (match) => defangValue(match, "ip"))
+    .replace(DOMAIN, (match) => defangValue(match, "domain"));
+}

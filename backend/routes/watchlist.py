@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 import neo4j_client as db
@@ -105,7 +105,7 @@ async def remove_from_watchlist(entity: str):
 
 
 @router.get("/check")
-async def check_watchlist():
+async def check_watchlist(since: int | None = Query(default=None)):
     """Check all watched entities for new connections since last check.
 
     For each watched entity, counts relationships on matching nodes
@@ -126,15 +126,16 @@ async def check_watchlist():
     for w in watched:
         entity = w["entity"]
         last_checked = w["last_checked"] or 0
+        effective_since = max(last_checked, since or 0)
 
         # Count new relationships since last check
         new_connections = db.run_query("""
             MATCH (e)-[r]-(neighbor)
-            WHERE (e.name = $entity OR e.id = $entity)
+                        WHERE coalesce(e.name, e.id, e.address, e.juspay_id, e.username, e.mitre_id) = $entity
               AND (r.created_at > $since OR r.confirmed_at > $since)
             RETURN count(r) AS new_count,
                    collect(DISTINCT labels(neighbor)[0])[..5] AS neighbor_types
-        """, {"entity": entity, "since": last_checked})
+                """, {"entity": entity, "since": effective_since})
 
         new_count = new_connections[0]["new_count"] if new_connections else 0
         neighbor_types = new_connections[0].get("neighbor_types", []) if new_connections else []
@@ -145,7 +146,7 @@ async def check_watchlist():
                 "entity_type": w["entity_type"],
                 "new_connections": new_count,
                 "neighbor_types": neighbor_types,
-                "since": last_checked,
+                "since": effective_since,
             })
 
     # Update last_checked for all watched entities
@@ -155,6 +156,7 @@ async def check_watchlist():
     """, {"now": now})
 
     return {
+        "digest_since": since,
         "checked_at": now,
         "watched_count": len(watched),
         "alerts": alerts,

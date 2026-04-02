@@ -17,6 +17,8 @@ import type {
   ThreatScore,
   BlastRadius,
   Suggestion,
+  DetectionRuleSet,
+  TlpLevel,
 } from "../types/api";
 
 /** Base URL for the Cerberus backend — no trailing slash.
@@ -165,12 +167,14 @@ export async function fetchGeoMap(
 }
 
 export async function fetchReport(
-  req: QueryRequest
+  req: QueryRequest,
+  tlp?: TlpLevel
 ): Promise<ReportResponse> {
   const params = new URLSearchParams({
     entity: req.entity,
     type: req.type,
   });
+  if (tlp) params.set("tlp", tlp);
   const res = await fetch(`${API_BASE}/api/demo/report?${params}`);
   if (!res.ok) {
     throw new Error(`Report failed: ${res.status} ${res.statusText}`);
@@ -270,11 +274,30 @@ export async function fetchSuggestions(
 /** Fetch the STIX 2.1 bundle JSON for a given entity investigation.
  *  Returns the raw bundle object — caller handles download. */
 export async function fetchStixBundle(
-  req: QueryRequest
+  req: QueryRequest,
+  tlp?: TlpLevel
 ): Promise<Record<string, unknown>> {
   const params = new URLSearchParams({ entity: req.entity, type: req.type });
+  if (tlp) params.set("tlp", tlp);
   const res = await fetch(`${API_BASE}/api/stix/bundle?${params}`);
   if (!res.ok) throw new Error(`STIX export failed: ${res.status}`);
+  return res.json();
+}
+
+export async function generateDetectionRules(payload: {
+  entity: string;
+  entityType: string;
+  iocs: Array<{ type: string; value: string }>;
+  techniques: string[];
+  narrative: string;
+  tlp: TlpLevel;
+}): Promise<DetectionRuleSet> {
+  const res = await fetch(`${API_BASE}/api/detect/rules`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) throw new Error(`Detection rules failed: ${res.status}`);
   return res.json();
 }
 
@@ -428,11 +451,24 @@ export async function removeFromWatchlist(entity: string): Promise<void> {
 
 /** Check all watched entities for new connections. */
 export async function checkWatchlist(): Promise<{
+  digest_since?: number;
   checked_at: number;
   watched_count: number;
   alerts: WatchlistAlert[];
 }> {
   const res = await fetch(`${API_BASE}/api/watchlist/check`);
+  if (!res.ok) throw new Error(`Watchlist check failed: ${res.status}`);
+  return res.json();
+}
+
+export async function checkWatchlistSince(since: number): Promise<{
+  digest_since?: number;
+  checked_at: number;
+  watched_count: number;
+  alerts: WatchlistAlert[];
+}> {
+  const params = new URLSearchParams({ since: String(since) });
+  const res = await fetch(`${API_BASE}/api/watchlist/check?${params}`);
   if (!res.ok) throw new Error(`Watchlist check failed: ${res.status}`);
   return res.json();
 }

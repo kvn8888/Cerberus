@@ -24,6 +24,15 @@ from models import EntityType
 
 router = APIRouter(prefix="/api/demo")
 
+_TLP_LEVELS = {"clear", "green", "amber", "amber+strict", "red"}
+
+
+def _normalize_tlp(tlp: str) -> str:
+    value = (tlp or "amber").strip().lower()
+    if value not in _TLP_LEVELS:
+        raise HTTPException(status_code=400, detail=f"Unsupported TLP level '{tlp}'")
+    return value
+
 
 class NaturalLanguageRequest(BaseModel):
     message: str
@@ -105,12 +114,17 @@ async def geo_map(entity: str, type: EntityType = EntityType.package):
 
 
 @router.get("/report")
-async def report(entity: str, type: EntityType = EntityType.package):
+async def report(
+    entity: str,
+    type: EntityType = EntityType.package,
+    tlp: str = "amber",
+):
     entity = entity.strip()
     if not entity:
         raise HTTPException(status_code=400, detail="entity must not be empty")
 
     entity_type = type.value
+    normalized_tlp = _normalize_tlp(tlp)
     # Run all DB lookups concurrently — these are independent queries
     cached, traversal, graph, juspay = await asyncio.gather(
         asyncio.to_thread(db.cache_check, entity, entity_type),
@@ -128,6 +142,7 @@ async def report(entity: str, type: EntityType = EntityType.package):
     return {
         "entity": entity,
         "entity_type": entity_type,
+        "tlp": normalized_tlp,
         "generated_at": int(time.time() * 1000),
         "from_cache": from_cache,
         "paths_found": traversal["paths_found"],

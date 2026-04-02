@@ -141,3 +141,69 @@ def generate_clean_assessment_stream(entity: str, entity_type: str):
     ) as stream:
         for text in stream.text_stream:
             yield text
+
+
+_DETECTION_RULES_PROMPT = """\
+You are a senior detection engineer supporting a SOC analyst.
+
+Generate analyst-ready drafts, not perfect production rules.
+- Use the provided IOCs and MITRE techniques only.
+- Output strict JSON with keys: sigma, yara, notes.
+- sigma: a single Sigma rule string inside plain text.
+- yara: a single YARA rule string inside plain text.
+- notes: a JSON array of short caveats or tuning notes.
+- Keep rules conservative and clearly labeled as drafts.
+- If evidence is sparse, still provide useful sketches and explain the gaps in notes.
+"""
+
+
+def _parse_json_response(raw: str) -> dict[str, Any]:
+    text = raw.strip()
+    if text.startswith("```"):
+        text = "\n".join(text.splitlines()[1:-1]).strip()
+    return json.loads(text)
+
+
+def generate_detection_rules(
+    entity: str,
+    entity_type: str,
+    iocs: list[dict[str, str]],
+    techniques: list[str],
+    narrative: str,
+    tlp: str,
+) -> dict[str, Any]:
+    """Generate Sigma and YARA draft rules from an investigation context."""
+    user_content = json.dumps(
+        {
+            "entity": entity,
+            "entity_type": entity_type,
+            "tlp": tlp,
+            "iocs": iocs,
+            "mitre_techniques": techniques,
+            "narrative": narrative[:2500],
+        },
+        indent=2,
+    )
+
+    message = _get_client().messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=1800,
+        system=_DETECTION_RULES_PROMPT,
+        messages=[{"role": "user", "content": user_content}],
+    )
+    raw = message.content[0].text
+    try:
+        parsed = _parse_json_response(raw)
+    except Exception:
+        parsed = {
+            "sigma": raw.strip(),
+            "yara": "rule cerberus_placeholder {\n  condition:\n    false\n}",
+            "notes": ["The model response could not be parsed as structured JSON; review manually."],
+        }
+
+    return {
+        "sigma": str(parsed.get("sigma", "")).strip(),
+        "yara": str(parsed.get("yara", "")).strip(),
+        "notes": [str(note).strip() for note in parsed.get("notes", []) if str(note).strip()],
+        "tlp": tlp,
+    }

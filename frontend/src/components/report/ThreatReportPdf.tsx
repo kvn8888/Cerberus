@@ -32,6 +32,14 @@ const colors = {
   headerBg: "#020617",    // slate-950 — header bar
 };
 
+const tlpColors: Record<string, { bg: string; text: string }> = {
+  clear: { bg: "#dbeafe", text: "#1e3a8a" },
+  green: { bg: "#dcfce7", text: "#166534" },
+  amber: { bg: "#fef3c7", text: "#92400e" },
+  "amber+strict": { bg: "#fde68a", text: "#78350f" },
+  red: { bg: "#fee2e2", text: "#991b1b" },
+};
+
 // ── PDF stylesheet ──────────────────────────────────────────
 const styles = StyleSheet.create({
   // Page-level layout: dark background, consistent padding
@@ -62,6 +70,18 @@ const styles = StyleSheet.create({
     color: colors.muted,
     letterSpacing: 2,
     textTransform: "uppercase" as const,
+  },
+  tlpBanner: {
+    marginTop: 12,
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignSelf: "flex-start" as const,
+  },
+  tlpBannerText: {
+    fontSize: 9,
+    fontFamily: "Helvetica-Bold",
+    letterSpacing: 1,
   },
 
   // ── Metadata row (entity, type, timestamp) ────────────
@@ -188,6 +208,9 @@ interface ThreatReportPdfProps {
 export function ThreatReportPdf({ report }: ThreatReportPdfProps) {
   // Format the generation timestamp for display
   const generatedDate = new Date(report.generated_at).toLocaleString();
+  const tlp = report.tlp || "amber";
+  const tlpStyle = tlpColors[tlp] || tlpColors.amber;
+  const tlpLabel = tlp === "amber+strict" ? "TLP:AMBER+STRICT" : `TLP:${tlp.toUpperCase()}`;
 
   return (
     <Document>
@@ -198,6 +221,9 @@ export function ThreatReportPdf({ report }: ThreatReportPdfProps) {
           <Text style={styles.subtitle}>
             Cross-Domain Threat Intelligence Analysis
           </Text>
+          <View style={[styles.tlpBanner, { backgroundColor: tlpStyle.bg }]}> 
+            <Text style={[styles.tlpBannerText, { color: tlpStyle.text }]}>{tlpLabel}</Text>
+          </View>
 
           {/* Entity metadata row */}
           <View style={styles.metaRow}>

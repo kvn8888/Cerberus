@@ -659,13 +659,13 @@ docker compose up --build      # starts all 3 services
 7. **VITE_API_URL** — Baked into JS bundle at build time for prod stage. Dev uses env var.
 - [ ] End-to-end integration tested with real Anthropic API key
 
-## Analyst-Grounded Feature Roadmap
+## Analyst Operations Pack (Implemented Apr 2026)
 
-Features below are ordered by analyst impact / effort ratio. All extend existing infrastructure — no new dependencies. Sources: Picus Security research (45% of CTI users cite noise/signal separation as #1 pain), Flashpoint analyst workflow surveys, Forbes/ForbesTech council CTI gap analysis (2026).
+These eight analyst-grounded features shipped as a focused operations pack. Keep this section as the implementation reference for why the feature exists, where it plugs in, and what constraints matter. Sources: Picus Security research (45% of CTI users cite noise/signal separation as #1 pain), Flashpoint analyst workflow surveys, Forbes/ForbesTech council CTI gap analysis (2026).
 
 ### Tier 1 — Trivial (< 2 hours each)
 
-#### 1. IOC Defanging Toggle
+#### 1. IOC Defanging Toggle ✅
 **Pain point:** Analysts copy IOCs into Slack, Jira, and incident tickets. Raw IPs/domains are clickable and trigger accidental DNS resolution. Every mature TI tool defangs by default.  
 **Integration point:** `iocExtract.ts` + NarrativePanel copy/CSV export buttons  
 **Implementation:** ~20 lines in a `defang.ts` util + UI toggle default-on:
@@ -675,11 +675,11 @@ evil.com      → evil[.]com
 http://       → hxxp://
 ```
 
-#### 2. TLP Marking on Exports
+#### 2. TLP Marking on Exports ✅
 **Pain point:** STIX bundles and PDF exports are non-shareable in any compliance-aware org without TLP stamps (CLEAR / GREEN / AMBER / AMBER+STRICT / RED).  
 **Integration point:** `/api/stix/bundle` + PDF export already exist. Add `marking-definition` objects to STIX 2.1 bundle (natively supported) + colored TLP banner to PDF header.
 
-#### 3. Investigation Summary → Clipboard as Markdown
+#### 3. Investigation Summary → Clipboard as Markdown ✅
 **Pain point:** Analysts constantly paste findings into Slack/Jira/wiki. PDF → section-copy → reformat is slow.  
 **Integration point:** NarrativePanel already has all data in React state: narrative, threat score, blast radius, IOCs, MITRE technique IDs, suggestions.  
 **Implementation:** Pure frontend "Copy as Markdown" button — no backend changes.
@@ -694,7 +694,7 @@ http://       → hxxp://
 
 ### Tier 2 — Moderate (2–4 hours each)
 
-#### 4. LLM-Generated Detection Rule Sketches (Sigma / YARA)
+#### 4. LLM-Generated Detection Rule Sketches (Sigma / YARA) ✅
 **Pain point:** The biggest operationalization gap — analysts identify IOCs and TTPs, then spend 30–60 minutes manually writing Sigma rules for their SIEM or YARA rules for endpoint scanning.  
 **Integration point:** All ingredients already exist: extracted IOCs (iocExtract.ts), MITRE technique IDs (mitreTactics.ts), Claude Sonnet 4.6 (llm.py), SSE streaming mechanism.  
 **Implementation:** New `/api/detect/rules` endpoint takes IOCs + technique IDs, prompts Claude:
@@ -702,19 +702,19 @@ http://       → hxxp://
 
 Returns as code block with copy buttons. Rules are sketches — analysts tune — but the 80% draft is the hard part. **Highest ROI feature on this list.**
 
-#### 5. Bulk IOC Submission
+#### 5. Bulk IOC Submission ✅
 **Pain point:** During active incidents, analysts get 20–50 IOCs at once. One-by-one submission via QueryPanel is untenable.  
 **Integration point:** QueryPanel entity type auto-detection + backend async query pipeline.  
 **Implementation:** "Bulk" toggle → newline/comma-separated textarea → parallel `/api/query` calls (throttled to 3 concurrent for Aura free tier) → summary table: entity | type | threat_score | top_connection. Click row to drill into full investigation.
 
-#### 6. Shareable Investigation Permalinks
+#### 6. Shareable Investigation Permalinks ✅
 **Pain point:** Investigation findings live in individual analysts' localStorage. Shift handoffs are verbal.  
 **Integration point:** Investigation history already persists in localStorage.  
 **Implementation:** Encode entity + type into URL query params (`?entity=ua-parser-js&type=package`). On load, if params exist, auto-trigger the investigation. For richer sharing: POST to `/api/investigations/save` (stores in Neo4j, returns short ID) — same pattern as existing `:ConfirmedThreat` annotation writes.
 
 ### Tier 3 — Medium (4–8 hours)
 
-#### 7. Enrichment Confidence Scoring
+#### 7. Enrichment Confidence Scoring ✅
 **Pain point:** #1 analyst complaint — distinguishing signal from noise. A direct CVE match from NVD and a single IP sighting from a public feed 6 months ago currently carry equal visual weight.  
 **Integration point:** `enrich.py` creates nodes/relationships during enrichment. `get_graph()` already fetches them.  
 **Implementation:** Add `confidence` property (0.0–1.0) to enrichment relationships:
@@ -723,7 +723,7 @@ Returns as code block with copy buttons. Rules are sketches — analysts tune �
 - Corroboration bonus if multiple sources confirm same rel
 Surface as `linkWidth` or `linkOpacity` in GraphPanel (react-force-graph-2d supports `linkWidth` callbacks — already customized there). Also weight `threat_score` by confidence instead of binary connection presence.
 
-#### 8. Watchlist Change Digest
+#### 8. Watchlist Change Digest ✅
 **Pain point:** 30-second auto-check creates alert fatigue — same problem as SOC alert queues. Analysts want "what changed since I last looked," not real-time per-change noise.  
 **Integration point:** `/api/watchlist/check` already scans for new connections. Header watchlist bell already shows counts.  
 **Implementation:** Frontend accumulates changes over configurable window (15 min default), renders batched summary: "3 new connections for 2 watched entities." Expandable detail → "Mark reviewed" clears batch. Optional: add `since` param to `/api/watchlist/check` to skip already-seen changes.
@@ -741,7 +741,7 @@ Surface as `linkWidth` or `linkOpacity` in GraphPanel (react-force-graph-2d supp
 | 7 | Enrichment Confidence Scoring | ~6h | High — directly addresses #1 analyst complaint (noise) |
 | 8 | Watchlist Digest | ~4h | Medium — QoL improvement on existing feature |
 
-Features 1–4 could ship in a single focused day and would meaningfully change how an analyst evaluates the tool.
+The full pack now ships in the product. When changing any of these flows, keep README.md, changes-from-hackathon.md, and this skill aligned.
 - [ ] Demo rehearsed + pre-cached
 
 ## Known Issues

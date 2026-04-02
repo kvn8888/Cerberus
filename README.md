@@ -105,8 +105,15 @@ Cerberus is a thoughtful security agent that eliminates the 4-hour manual graph-
 
 ### Demo / analyst features
 - **Cross-domain alerts** — Sidebar block uses `/api/juspay/signals` with actor context (cyber ↔ fraud overlap)
-- **IOC extraction** — IPs, CVEs, domains, packages from graph + narrative; copy-all and CSV
+- **IOC extraction + defanging** — IPs, CVEs, domains, packages from graph + narrative; copy-all and CSV respect a default-on defang toggle for safe sharing
+- **TLP-aware exports** — PDF and STIX exports support `TLP:CLEAR`, `GREEN`, `AMBER`, `AMBER+STRICT`, and `RED`; STIX bundles include marking definitions and PDFs render a visible TLP banner
+- **Clipboard markdown export** — Copy a Slack/Jira/wiki-ready investigation summary with score, blast radius, IOCs, MITRE techniques, and follow-up suggestions
+- **Detection rule sketches** — Generate Sigma and YARA drafts from the current investigation context via `/api/detect/rules`
+- **Bulk IOC triage** — QueryPanel bulk mode accepts newline/comma-separated entities, throttles investigations, and summarizes threat score plus top connection per row
+- **Shareable permalinks** — Investigations replay from `?entity=...&type=...` URLs and the narrative panel can copy a permalink directly
 - **Technical / Executive** — Executive mode surfaces risk summary and recommended actions
+- **Confidence-weighted graph** — Enrichment confidence now affects edge opacity/width and contributes to weighted threat scoring
+- **Watchlist digest** — Header bell batches watchlist changes into a reviewable digest instead of one-alert-at-a-time noise
 - **PDF export** — Generate a full investigation report
 - **Session timeline** — Bottom timeline for investigation stages and replay
 
