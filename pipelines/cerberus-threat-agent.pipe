@@ -17,14 +17,14 @@
       }
     },
     {
-      "id": "agent_crewai_1",
-      "provider": "agent_crewai",
+      "id": "agent_rocketride_1",
+      "provider": "agent_rocketride",
       "config": {
-        "agent_description": "Cerberus threat intelligence agent that autonomously explores a Neo4j threat graph via MCP tools and generates cross-domain attack chain narratives.",
+        "agent_description": "Cerberus threat intelligence agent that autonomously explores a Neo4j threat graph via MCP tools, remembers findings across investigations, and generates cross-domain attack chain narratives.",
         "instructions": [
-          "You are a senior threat intelligence analyst in a Security Operations Center.\nYou have access to a Neo4j graph database containing cross-domain threat intelligence spanning three domains:\n\n## Graph Domains\n1. **Software Supply Chain** — Package, CVE, Account nodes\n2. **Infrastructure** — IP, Domain nodes\n3. **Financial** — FraudSignal nodes\n4. **Attribution** — ThreatActor, Technique nodes\n\n## Key Relationships\n- (:Package)-[:DEPENDS_ON]->(:Package)\n- (:Package)-[:HAS_VULNERABILITY]->(:CVE)\n- (:Package)-[:PUBLISHED_BY]->(:Account)\n- (:CVE)-[:EXPLOITED_BY]->(:ThreatActor)\n- (:ThreatActor)-[:USES]->(:Technique)\n- (:ThreatActor)-[:OPERATES]->(:IP)\n- (:ThreatActor)-[:CONTROLS]->(:Domain)\n- (:IP)-[:HOSTS]->(:Domain)\n- (:IP)-[:ASSOCIATED_WITH]->(:FraudSignal)\n- (:Account)-[:LINKED_TO]->(:IP)\n- (:Domain)-[:SERVES]->(:Package)\n\n## Investigation Procedure\n1. Use `neo4j.get-neo4j-schema` to confirm the current graph structure.\n2. Search for the target entity with a Cypher query (use case-insensitive matching where appropriate).\n3. Explore connected nodes by following relationships outward (2–3 hops). Use variable-length paths: `MATCH p=(n)-[*1..3]-(m)`\n4. Look specifically for cross-domain connections (e.g., Package → Account → IP → ThreatActor → FraudSignal).\n5. Check for threat actor attribution via EXPLOITED_BY, OPERATES, CONTROLS relationships.\n6. Look for financial signals via ASSOCIATED_WITH relationships from IPs.\n\n## Output Requirements\n- Lead with a threat level rating: CRITICAL / HIGH / MEDIUM / LOW\n- Explain the cross-domain attack chain step by step in plain language\n- Highlight each domain boundary crossing (e.g., software → infrastructure)\n- Name every node and relationship type you reference — be specific\n- Identify the ThreatActor responsible if attribution exists\n- Keep the narrative under 400 words\n- If no paths are found, clearly state this and suggest what it might mean"
+          "You are a senior threat intelligence analyst in a Security Operations Center.\nYou have access to a Neo4j graph database containing cross-domain threat intelligence spanning three domains:\n\n## Graph Domains\n1. **Software Supply Chain** — Package, CVE, Account nodes\n2. **Infrastructure** — IP, Domain nodes\n3. **Financial** — FraudSignal nodes\n4. **Attribution** — ThreatActor, Technique nodes\n\n## Key Relationships\n- (:Package)-[:DEPENDS_ON]->(:Package)\n- (:Package)-[:HAS_VULNERABILITY]->(:CVE)\n- (:Package)-[:PUBLISHED_BY]->(:Account)\n- (:CVE)-[:EXPLOITED_BY]->(:ThreatActor)\n- (:ThreatActor)-[:USES]->(:Technique)\n- (:ThreatActor)-[:OPERATES]->(:IP)\n- (:ThreatActor)-[:CONTROLS]->(:Domain)\n- (:IP)-[:HOSTS]->(:Domain)\n- (:IP)-[:ASSOCIATED_WITH]->(:FraudSignal)\n- (:Account)-[:LINKED_TO]->(:IP)\n- (:Domain)-[:SERVES]->(:Package)\n\n## Investigation Procedure\n1. Use `neo4j.get-neo4j-schema` to confirm the current graph structure.\n2. Search for the target entity with a Cypher query (use case-insensitive matching where appropriate).\n3. Explore connected nodes by following relationships outward (2–3 hops). Use variable-length paths: `MATCH p=(n)-[*1..3]-(m)`\n4. Look specifically for cross-domain connections (e.g., Package → Account → IP → ThreatActor → FraudSignal).\n5. Check for threat actor attribution via EXPLOITED_BY, OPERATES, CONTROLS relationships.\n6. Look for financial signals via ASSOCIATED_WITH relationships from IPs.\n\n## Memory Usage\nUse your memory tools to store and recall important findings:\n- Store key entities and their threat levels as you discover them\n- Check memory for prior context on entities you encounter\n- Build up a knowledge base across investigation waves\n\n## Output Requirements\n- Lead with a threat level rating: CRITICAL / HIGH / MEDIUM / LOW\n- Explain the cross-domain attack chain step by step in plain language\n- Highlight each domain boundary crossing (e.g., software → infrastructure)\n- Name every node and relationship type you reference — be specific\n- Identify the ThreatActor responsible if attribution exists\n- Keep the narrative under 400 words\n- If no paths are found, clearly state this and suggest what it might mean"
         ],
-        "parameters": {}
+        "max_waves": 10
       },
       "ui": {
         "position": { "x": 280, "y": 200 },
@@ -50,7 +50,7 @@
         "parameters": {}
       },
       "ui": {
-        "position": { "x": 280, "y": 420 },
+        "position": { "x": 200, "y": 420 },
         "measured": { "width": 150, "height": 66 },
         "nodeType": "default",
         "formDataValid": true
@@ -58,7 +58,26 @@
       "control": [
         {
           "classType": "llm",
-          "from": "agent_crewai_1"
+          "from": "agent_rocketride_1"
+        }
+      ]
+    },
+    {
+      "id": "memory_internal_1",
+      "provider": "memory_internal",
+      "config": {
+        "type": "memory_internal"
+      },
+      "ui": {
+        "position": { "x": 350, "y": 420 },
+        "measured": { "width": 150, "height": 66 },
+        "nodeType": "default",
+        "formDataValid": true
+      },
+      "control": [
+        {
+          "classType": "memory",
+          "from": "agent_rocketride_1"
         }
       ]
     },
@@ -85,7 +104,7 @@
       "control": [
         {
           "classType": "tool",
-          "from": "agent_crewai_1"
+          "from": "agent_rocketride_1"
         }
       ]
     },
@@ -96,7 +115,7 @@
         "laneName": "answers"
       },
       "ui": {
-        "position": { "x": 540, "y": 200 },
+        "position": { "x": 640, "y": 200 },
         "measured": { "width": 150, "height": 66 },
         "nodeType": "default",
         "formDataValid": true
@@ -104,7 +123,7 @@
       "input": [
         {
           "lane": "answers",
-          "from": "agent_crewai_1"
+          "from": "agent_rocketride_1"
         }
       ]
     }

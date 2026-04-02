@@ -2,14 +2,16 @@
 pipeline.py — RocketRide AI pipeline integration with direct-LLM fallback.
 
 Architecture:
-  The cerberus-threat-agent pipeline runs a CrewAI agent inside RocketRide
-  that autonomously explores the Neo4j threat graph via an MCP Client node
-  connected to our neo4j-mcp server.  The agent uses Claude Sonnet 4.6 for
-  reasoning and generates the threat narrative.
+  The cerberus-threat-agent pipeline runs a RocketRide native wave-planning
+  agent inside RocketRide that autonomously explores the Neo4j threat graph
+  via an MCP Client node connected to our neo4j-mcp server.  The agent uses
+  Claude Sonnet 4.6 for reasoning, keyed memory for cross-investigation
+  context, and generates the threat narrative.
 
   Pipeline shape (cerberus-threat-agent.pipe):
-    chat → agent_crewai → [invoke] → mcp_client (neo4j-mcp)
-                        → [invoke] → llm_anthropic (Claude Sonnet 4.6)
+    chat → agent_rocketride → [invoke] → mcp_client (neo4j-mcp)
+                             → [invoke] → llm_anthropic (Claude Sonnet 4.6)
+                             → [invoke] → memory_internal
              ↓
         response_answers
 
@@ -18,10 +20,11 @@ Architecture:
 
 Flow:
   1. Backend sends the entity name + type to RocketRide via SDK chat()
-  2. RocketRide's CrewAI agent queries Neo4j via MCP tools (get-neo4j-schema,
-     read-neo4j-cypher) — it explores the graph autonomously
-  3. Agent generates a cross-domain threat intelligence narrative
-  4. Answer is returned to the backend and streamed to the frontend as SSE
+  2. RocketRide's wave-planning agent queries Neo4j via MCP tools (get-neo4j-schema,
+     read-neo4j-cypher) — it explores the graph autonomously in parallel waves
+  3. Agent stores key findings in keyed memory across investigation waves
+  4. Agent generates a cross-domain threat intelligence narrative
+  5. Answer is returned to the backend and streamed to the frontend as SSE
 
   The backend still runs db.traverse() in parallel for the GraphPanel
   visualization — the agent's graph exploration is independent.
