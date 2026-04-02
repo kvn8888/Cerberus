@@ -29,9 +29,20 @@ interface MemoryLink {
   confirmed_at?: number;
 }
 
+// Node types that map 1:1 to investigatable entity types
+const INVESTIGATABLE: Record<string, string> = {
+  Package:     "package",
+  IP:          "ip",
+  Domain:      "domain",
+  CVE:         "cve",
+  ThreatActor: "threatactor",
+  FraudSignal: "fraudsignal",
+};
+
 interface MemoryPanelProps {
   refreshKey: number;
   onCountChange?: (count: number) => void;
+  onInvestigate?: (entity: string, type: string) => void;
 }
 
 const NODE_COLORS: Record<string, string> = {
@@ -45,7 +56,7 @@ const NODE_COLORS: Record<string, string> = {
   FraudSignal: "#E6CC33",
 };
 
-export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
+export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: MemoryPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
   const [graphData, setGraphData] = useState<{ nodes: MemoryNode[]; links: MemoryLink[] }>({ nodes: [], links: [] });
@@ -162,8 +173,14 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
     return () => obs.disconnect();
   }, []);
 
-  /** Click handler — expand a node to show its children */
+  /** Click handler — expand a node to show its children, or investigate it */
   const handleNodeClick = useCallback(async (node: MemoryNode) => {
+    // If the node is investigatable and NOT expandable, fire a narrative investigation
+    const entityType = INVESTIGATABLE[node.type];
+    if (entityType && !node.expandable) {
+      onInvestigate?.(node.id, entityType);
+      return;
+    }
     if (!node.expandable || expanding) return;
     setExpanding(node.id);
     try {
@@ -201,7 +218,7 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
     } finally {
       setExpanding(null);
     }
-  }, [expanding]);
+  }, [expanding, onInvestigate]);
 
   /** Custom node renderer — glow + expandable ring indicator */
   const paintNode = useCallback((rawNode: object, ctx: CanvasRenderingContext2D) => {
@@ -293,6 +310,11 @@ export function MemoryPanel({ refreshKey, onCountChange }: MemoryPanelProps) {
             ctx.fill();
           }}
           onNodeClick={(node) => handleNodeClick(node as unknown as MemoryNode)}
+          nodeLabel={(rawNode) => {
+            const n = rawNode as MemoryNode;
+            const isInvestigatable = !!INVESTIGATABLE[n.type] && !n.expandable;
+            return isInvestigatable ? `Click to investigate ${n.id}` : n.label;
+          }}
           linkCanvasObject={paintLink as (link: object, ctx: CanvasRenderingContext2D, globalScale: number) => void}
           linkDirectionalParticles={2}
           linkDirectionalParticleWidth={2}

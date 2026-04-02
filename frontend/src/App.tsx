@@ -140,6 +140,7 @@ function App() {
               <MemoryPanel
                 refreshKey={memoryRefreshKey}
                 onCountChange={setMemoryCount}
+                onInvestigate={investigate}
               />
             )}
             {centerView === "compare" && <ComparePanel />}
