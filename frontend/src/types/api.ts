@@ -94,13 +94,25 @@ export type StreamChunk =
   | { route_info: RouteInfo }
   | { threat_score: ThreatScore }
   | { blast_radius: BlastRadius }
-  | { suggestions: Suggestion[] };
+  | { suggestions: Suggestion[] }
+  | { agent_activity: AgentActivity };
 
 /** Route decision metadata emitted during the ROUTE stage */
 export interface RouteInfo {
   strategy: string;
   path: string[];
   reason: string;
+}
+
+/** Agent activity events from RocketRide wave-planning agent.
+ *  Emitted during the ANALYZE stage when the agent pipeline is active. */
+export interface AgentActivity {
+  status: "started" | "completed";
+  pipeline?: string;
+  tools?: string[];
+  description: string;
+  tool_call_count?: number;
+  metadata?: Record<string, unknown>;
 }
 
 /**
@@ -165,6 +177,7 @@ export interface InvestigationState {
   threatScore?: ThreatScore;
   blastRadius?: BlastRadius;
   suggestions?: Suggestion[];
+  agentActivity?: AgentActivity;
   audienceMode: "analyst" | "executive";
 }
 

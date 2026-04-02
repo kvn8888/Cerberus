@@ -55,6 +55,11 @@ const ComparePanel = lazy(() =>
     default: m.ComparePanel,
   })),
 );
+const IngestPanel = lazy(() =>
+  import("./components/panels/IngestPanel").then((m) => ({
+    default: m.IngestPanel,
+  })),
+);
 
 function App() {
   const { state, investigate, cancel, setTlp } = useInvestigation();
@@ -105,6 +110,7 @@ function App() {
         currentStage={state.currentStage}
         isRunning={state.status === "running"}
         routeInfo={state.routeInfo}
+        agentActivity={state.agentActivity}
         onCancel={cancel}
       />
 
@@ -144,6 +150,9 @@ function App() {
               />
             )}
             {centerView === "compare" && <ComparePanel />}
+            {centerView === "ingest" && (
+              <IngestPanel onInvestigate={investigate} />
+            )}
           </Suspense>
         </section>
 

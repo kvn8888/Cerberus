@@ -274,6 +274,11 @@ async def _stream_via_sdk(
     yield f"data: {json.dumps({'stage': 'analyze'})}\n\n"
     await asyncio.sleep(0)
 
+    # ── Emit agent activity info so frontend can show what RocketRide is doing ─
+    if _active_pipeline == "agent":
+        yield f"data: {json.dumps({'agent_activity': {'status': 'started', 'pipeline': 'cerberus-threat-agent', 'tools': ['neo4j-mcp (graph exploration)', 'memory_internal (cross-wave memory)', 'tool_http_request (MITRE ATT&CK / AbuseIPDB)', 'tool_python (attack chain scoring)'], 'description': 'Agent is autonomously exploring the threat graph via MCP tools, storing findings in memory across investigation waves, and fetching live threat intel.'}})}\n\n"
+        await asyncio.sleep(0)
+
     # ── Build and send the question via SDK chat() ────────────────────────
     question = Question()
 
@@ -302,6 +307,23 @@ async def _stream_via_sdk(
 
     # Both pipelines use a chat source → use chat() method
     response = await client.chat(token=token, question=question)
+
+    # ── Emit agent completion event with response metadata ────────────
+    if _active_pipeline == "agent":
+        # Extract any metadata about what the agent did from the response
+        agent_meta = {
+            "status": "completed",
+            "response_keys": list(response.keys()) if isinstance(response, dict) else [],
+            "description": "Agent completed autonomous graph exploration and narrative synthesis.",
+        }
+        # Check if response contains wave/tool usage metadata
+        if isinstance(response, dict):
+            if "metadata" in response:
+                agent_meta["metadata"] = response["metadata"]
+            if "tool_calls" in response:
+                agent_meta["tool_call_count"] = len(response["tool_calls"])
+        yield f"data: {json.dumps({'agent_activity': agent_meta})}\n\n"
+        await asyncio.sleep(0)
 
     yield f"data: {json.dumps({'stage': 'narrate'})}\n\n"
     await asyncio.sleep(0)

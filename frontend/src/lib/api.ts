@@ -472,3 +472,67 @@ export async function checkWatchlistSince(since: number): Promise<{
   if (!res.ok) throw new Error(`Watchlist check failed: ${res.status}`);
   return res.json();
 }
+
+/* ── Ingest (RocketRide document/text ingestion) ──────────────────── */
+
+/** Response shape from the ingest endpoints */
+export interface IngestResponse {
+  entities_found: number;
+  entities: Array<{
+    type: string;
+    value: string;
+    threat_domain?: string;
+    confidence?: string;
+    context?: string;
+  }>;
+  written_to_graph: number;
+  pipeline: string;
+  filename?: string;
+}
+
+/** Check whether the RocketRide ingest pipeline is loaded and ready. */
+export async function checkIngestStatus(): Promise<{
+  ready: boolean;
+  reason?: string;
+  pipeline?: string;
+}> {
+  const res = await fetch(`${API_BASE}/api/ingest/status`);
+  if (!res.ok) throw new Error(`Ingest status check failed: ${res.status}`);
+  return res.json();
+}
+
+/** Submit raw text for threat entity extraction via the ingest pipeline. */
+export async function ingestText(
+  text: string,
+  writeToGraph: boolean = true
+): Promise<IngestResponse> {
+  const res = await fetch(`${API_BASE}/api/ingest/text`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, write_to_graph: writeToGraph }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`Ingest text failed: ${detail}`);
+  }
+  return res.json();
+}
+
+/** Upload a file (PDF, image, text doc) for entity extraction via the ingest pipeline. */
+export async function ingestFile(
+  file: File,
+  writeToGraph: boolean = true
+): Promise<IngestResponse> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("write_to_graph", String(writeToGraph));
+  const res = await fetch(`${API_BASE}/api/ingest/file`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => res.statusText);
+    throw new Error(`Ingest file failed: ${detail}`);
+  }
+  return res.json();
+}
