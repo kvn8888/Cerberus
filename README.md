@@ -310,18 +310,37 @@ Frontend at http://localhost:5173, backend at http://localhost:8000.
 ### Manual, no Docker
 
 ```bash
-# Terminal 1
+# 1. Configure environment
+cp .env.example .env   # fill in NEO4J_URI, NEO4J_PASSWORD, ANTHROPIC_API_KEY, etc.
+
+# 2. Start neo4j-mcp bridge (Terminal 1)
+#    Connects your Neo4j Aura instance to the MCP protocol.
+#    macOS ARM:
+./neo4j-mcp_Linux_arm64/neo4j-mcp
+#    Linux x86_64:
+./neo4j-mcp_Linux_x86_64/neo4j-mcp
+#    Runs on http://localhost:8787 by default.
+#    Requires NEO4J_URI in your .env.
+
+# 3. Start the backend (Terminal 2)
 cd backend
 pip install -r ../requirements.txt
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+#    API available at http://localhost:8000
+#    Health check: http://localhost:8000/health
 
-# Terminal 2
+# 4. Start the frontend (Terminal 3)
 cd frontend
 npm install
 npm run dev
+#    Opens at http://localhost:5173
+#    Proxies /api/* requests to the backend via Vite config
 ```
 
-Frontend at http://localhost:5173.
+> **RocketRide (optional):** If you have the RocketRide local service installed,
+> it runs automatically on `http://localhost:5565`. The backend will detect it and
+> use the wave-planning agent pipeline instead of direct LLM calls. Without it,
+> the backend falls back to calling Anthropic directly — all features still work.
 
 ---
 

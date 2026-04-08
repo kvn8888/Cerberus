@@ -21,7 +21,7 @@ import {
   CheckCircle2,
   StopCircle,
 } from "lucide-react";
-import type { PipelineStage, RouteInfo } from "../../types/api";
+import type { PipelineStage, RouteInfo, AgentActivity } from "../../types/api";
 import { cn } from "../../lib/utils";
 
 /** Configuration for each pipeline stage — icon, label, description */
@@ -94,6 +94,7 @@ interface PipelineStagesProps {
   currentStage: PipelineStage;
   isRunning: boolean;
   routeInfo?: RouteInfo;
+  agentActivity?: AgentActivity;
   onCancel?: () => void;
 }
 
@@ -101,6 +102,7 @@ export function PipelineStages({
   currentStage,
   isRunning,
   routeInfo,
+  agentActivity,
   onCancel,
 }: PipelineStagesProps) {
   const currentIdx = STAGE_ORDER.indexOf(currentStage);
@@ -236,6 +238,63 @@ export function PipelineStages({
               {routeInfo.path.join(" -> ")}
             </span>
             <span className="text-muted-foreground/75">{routeInfo.reason}</span>
+          </div>
+        </div>
+      )}
+
+      {/* Agent activity bar — shown during ANALYZE when RocketRide agent is active */}
+      {agentActivity && (
+        <div className="max-w-5xl mx-auto mt-2 relative z-10">
+          <div
+            className={cn(
+              "rounded-md border px-3 py-2 text-[10px] font-mono",
+              agentActivity.status === "started"
+                ? "border-amber-500/30 bg-amber-500/5"
+                : "border-green-500/30 bg-green-500/5"
+            )}
+          >
+            <div className="flex items-center gap-3">
+              {/* Status indicator */}
+              <span
+                className={cn(
+                  "uppercase tracking-[0.16em] flex items-center gap-1.5",
+                  agentActivity.status === "started"
+                    ? "text-amber-400"
+                    : "text-green-400"
+                )}
+              >
+                {agentActivity.status === "started" && (
+                  <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-400 animate-pulse" />
+                )}
+                {agentActivity.status === "started"
+                  ? "Agent Active"
+                  : "Agent Done"}
+              </span>
+
+              {/* Description */}
+              <span className="text-foreground/80">
+                {agentActivity.description}
+              </span>
+            </div>
+
+            {/* Tool chips — shown when agent is running */}
+            {agentActivity.tools && agentActivity.tools.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
+                {agentActivity.tools.map((tool) => (
+                  <span
+                    key={tool}
+                    className={cn(
+                      "px-1.5 py-0.5 rounded text-[9px] border",
+                      agentActivity.status === "started"
+                        ? "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                        : "border-green-500/20 bg-green-500/10 text-green-300"
+                    )}
+                  >
+                    {tool}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

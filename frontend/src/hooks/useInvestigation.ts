@@ -230,6 +230,12 @@ export function useInvestigation() {
                   ...prev,
                   suggestions: chunk.suggestions,
                 }));
+              } else if ("agent_activity" in chunk) {
+                /* Agent wave-planning activity from RocketRide */
+                updateState((prev) => ({
+                  ...prev,
+                  agentActivity: chunk.agent_activity,
+                }));
               } else if ("text" in chunk) {
                 /* Narrative text fragment — append to accumulated narrative */
                 accumulated += chunk.text;
