@@ -31,10 +31,10 @@ interface MemoryLink {
 
 // Node types that map 1:1 to investigatable entity types
 const INVESTIGATABLE: Record<string, string> = {
-  Package:     "package",
-  IP:          "ip",
-  Domain:      "domain",
-  CVE:         "cve",
+  Package: "package",
+  IP: "ip",
+  Domain: "domain",
+  CVE: "cve",
   ThreatActor: "threatactor",
   FraudSignal: "fraudsignal",
 };
@@ -56,10 +56,17 @@ const NODE_COLORS: Record<string, string> = {
   FraudSignal: "#E6CC33",
 };
 
-export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: MemoryPanelProps) {
+export function MemoryPanel({
+  refreshKey,
+  onCountChange,
+  onInvestigate,
+}: MemoryPanelProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const fgRef = useRef<ForceGraphMethods | undefined>(undefined);
-  const [graphData, setGraphData] = useState<{ nodes: MemoryNode[]; links: MemoryLink[] }>({ nodes: [], links: [] });
+  const [graphData, setGraphData] = useState<{
+    nodes: MemoryNode[];
+    links: MemoryLink[];
+  }>({ nodes: [], links: [] });
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [expanding, setExpanding] = useState<string | null>(null);
@@ -93,11 +100,15 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
   const handleStixExport = useCallback(async () => {
     // Collect confirmed entities that map to an entity type
     const typeMap: Record<string, string> = {
-      Package: "package", CVE: "cve", IP: "ip",
-      Domain: "domain", ThreatActor: "threatactor", FraudSignal: "fraudsignal",
+      Package: "package",
+      CVE: "cve",
+      IP: "ip",
+      Domain: "domain",
+      ThreatActor: "threatactor",
+      FraudSignal: "fraudsignal",
     };
     const exportable = graphData.nodes.filter(
-      (n) => n.confirmed && typeMap[n.type]
+      (n) => n.confirmed && typeMap[n.type],
     );
     if (exportable.length === 0) return;
 
@@ -109,10 +120,16 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
         const batch = exportable.slice(i, i + 5);
         const results = await Promise.all(
           batch.map((n) =>
-            fetchStixBundle({ entity: n.label, type: typeMap[n.type] as import("../../types/api").EntityType })
-              .then((b) => (b.objects as Record<string, unknown>[] | undefined) ?? [])
-              .catch(() => [])
-          )
+            fetchStixBundle({
+              entity: n.label,
+              type: typeMap[n.type] as import("../../types/api").EntityType,
+            })
+              .then(
+                (b) =>
+                  (b.objects as Record<string, unknown>[] | undefined) ?? [],
+              )
+              .catch(() => []),
+          ),
         );
         results.forEach((objs) => allObjects.push(...objs));
       }
@@ -133,7 +150,9 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
       };
 
       // Trigger download
-      const blob = new Blob([JSON.stringify(merged, null, 2)], { type: "application/json" });
+      const blob = new Blob([JSON.stringify(merged, null, 2)], {
+        type: "application/json",
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -167,130 +186,159 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
     const el = containerRef.current;
     if (!el) return;
     const obs = new ResizeObserver(([entry]) => {
-      setDimensions({ w: entry.contentRect.width, h: entry.contentRect.height });
+      setDimensions({
+        w: entry.contentRect.width,
+        h: entry.contentRect.height,
+      });
     });
     obs.observe(el);
     return () => obs.disconnect();
   }, []);
 
   /** Click handler — expand a node to show its children, or investigate it */
-  const handleNodeClick = useCallback(async (node: MemoryNode) => {
-    // If the node is investigatable and NOT expandable, fire a narrative investigation
-    const entityType = INVESTIGATABLE[node.type];
-    if (entityType && !node.expandable) {
-      onInvestigate?.(node.id, entityType);
-      return;
-    }
-    if (!node.expandable || expanding) return;
-    setExpanding(node.id);
-    try {
-      const data = await expandMemoryNode(node.id);
-      if (data.nodes.length === 0) return;
+  const handleNodeClick = useCallback(
+    async (node: MemoryNode) => {
+      // If the node is investigatable and NOT expandable, fire a narrative investigation
+      const entityType = INVESTIGATABLE[node.type];
+      if (entityType && !node.expandable) {
+        onInvestigate?.(node.id, entityType);
+        return;
+      }
+      if (!node.expandable || expanding) return;
+      setExpanding(node.id);
+      try {
+        const data = await expandMemoryNode(node.id);
+        if (data.nodes.length === 0) return;
 
-      setGraphData((prev) => {
-        const existingIds = new Set(prev.nodes.map((n) => n.id));
-        const newNodes = data.nodes.filter((n) => !existingIds.has(n.id));
-        const existingLinks = new Set(
-          prev.links.map((l) => {
-            const s = typeof l.source === "string" ? l.source : l.source.id;
-            const t = typeof l.target === "string" ? l.target : l.target.id;
-            return `${s}-${t}-${l.type}`;
-          })
-        );
-        const newLinks = data.links.filter((l) => {
-          const key = `${l.source}-${l.target}-${l.type}`;
-          const keyRev = `${l.target}-${l.source}-${l.type}`;
-          return !existingLinks.has(key) && !existingLinks.has(keyRev);
+        setGraphData((prev) => {
+          const existingIds = new Set(prev.nodes.map((n) => n.id));
+          const newNodes = data.nodes.filter((n) => !existingIds.has(n.id));
+          const existingLinks = new Set(
+            prev.links.map((l) => {
+              const s = typeof l.source === "string" ? l.source : l.source.id;
+              const t = typeof l.target === "string" ? l.target : l.target.id;
+              return `${s}-${t}-${l.type}`;
+            }),
+          );
+          const newLinks = data.links.filter((l) => {
+            const key = `${l.source}-${l.target}-${l.type}`;
+            const keyRev = `${l.target}-${l.source}-${l.type}`;
+            return !existingLinks.has(key) && !existingLinks.has(keyRev);
+          });
+
+          // Mark the expanded node as no longer expandable
+          const updatedNodes = prev.nodes.map((n) =>
+            n.id === node.id
+              ? { ...n, expandable: false, hidden_children: 0 }
+              : n,
+          );
+
+          return {
+            nodes: [...updatedNodes, ...newNodes],
+            links: [...prev.links, ...newLinks],
+          };
         });
-
-        // Mark the expanded node as no longer expandable
-        const updatedNodes = prev.nodes.map((n) =>
-          n.id === node.id ? { ...n, expandable: false, hidden_children: 0 } : n
-        );
-
-        return {
-          nodes: [...updatedNodes, ...newNodes],
-          links: [...prev.links, ...newLinks],
-        };
-      });
-    } catch (err) {
-      console.error("Expand failed:", err);
-    } finally {
-      setExpanding(null);
-    }
-  }, [expanding, onInvestigate]);
+      } catch (err) {
+        console.error("Expand failed:", err);
+      } finally {
+        setExpanding(null);
+      }
+    },
+    [expanding, onInvestigate],
+  );
 
   /** Custom node renderer — glow + expandable ring indicator */
-  const paintNode = useCallback((rawNode: object, ctx: CanvasRenderingContext2D) => {
-    const node = rawNode as MemoryNode & { x: number; y: number };
-    if (node.x == null || node.y == null) return;
+  const paintNode = useCallback(
+    (rawNode: object, ctx: CanvasRenderingContext2D) => {
+      const node = rawNode as MemoryNode & { x: number; y: number };
+      if (node.x == null || node.y == null) return;
 
-    const color = NODE_COLORS[node.type] || "#888";
-    const r = node.type === "Package" || node.type === "ThreatActor" ? 8 : 5;
-    const isExpanding = expanding === node.id;
+      const color = NODE_COLORS[node.type] || "#888";
+      const r = node.type === "Package" || node.type === "ThreatActor" ? 8 : 5;
+      const isExpanding = expanding === node.id;
 
-    // Outer glow
-    const grad = ctx.createRadialGradient(node.x, node.y, 0, node.x, node.y, r * 3);
-    grad.addColorStop(0, color + "50");
-    grad.addColorStop(1, color + "00");
-    ctx.beginPath();
-    ctx.arc(node.x, node.y, r * 3, 0, Math.PI * 2);
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // Core circle
-    ctx.beginPath();
-    ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
-    ctx.fillStyle = color;
-    ctx.fill();
-    ctx.strokeStyle = color + "80";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // Expandable indicator — dashed ring + count badge
-    if (node.expandable && node.hidden_children) {
-      ctx.setLineDash(isExpanding ? [2, 2] : [4, 3]);
+      // Outer glow
+      const grad = ctx.createRadialGradient(
+        node.x,
+        node.y,
+        0,
+        node.x,
+        node.y,
+        r * 3,
+      );
+      grad.addColorStop(0, color + "50");
+      grad.addColorStop(1, color + "00");
       ctx.beginPath();
-      ctx.arc(node.x, node.y, r + 5, 0, Math.PI * 2);
-      ctx.strokeStyle = isExpanding ? "#ffaa00" : "rgba(0, 255, 200, 0.6)";
+      ctx.arc(node.x, node.y, r * 3, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+
+      // Core circle
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = color + "80";
       ctx.lineWidth = 1.5;
       ctx.stroke();
-      ctx.setLineDash([]);
 
-      // "+" count badge
-      ctx.fillStyle = "rgba(0, 255, 200, 0.9)";
-      ctx.font = "bold 8px 'JetBrains Mono', monospace";
+      // Expandable indicator — dashed ring + count badge
+      if (node.expandable && node.hidden_children) {
+        ctx.setLineDash(isExpanding ? [2, 2] : [4, 3]);
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r + 5, 0, Math.PI * 2);
+        ctx.strokeStyle = isExpanding ? "#ffaa00" : "rgba(0, 255, 200, 0.6)";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // "+" count badge
+        ctx.fillStyle = "rgba(0, 255, 200, 0.9)";
+        ctx.font = "bold 8px 'JetBrains Mono', monospace";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(
+          `+${node.hidden_children}`,
+          node.x + r + 8,
+          node.y - r - 2,
+        );
+      }
+
+      // Label
+      ctx.fillStyle = "rgba(255,255,255,0.8)";
+      ctx.font = "10px 'JetBrains Mono', monospace";
       ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(`+${node.hidden_children}`, node.x + r + 8, node.y - r - 2);
-    }
+      ctx.textBaseline = "top";
+      const label =
+        node.label.length > 20 ? node.label.slice(0, 18) + "..." : node.label;
+      ctx.fillText(label, node.x, node.y + r + 6);
 
-    // Label
-    ctx.fillStyle = "rgba(255,255,255,0.8)";
-    ctx.font = "10px 'JetBrains Mono', monospace";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "top";
-    const label = node.label.length > 20 ? node.label.slice(0, 18) + "..." : node.label;
-    ctx.fillText(label, node.x, node.y + r + 6);
-
-    // Type sub-label
-    ctx.fillStyle = color + "aa";
-    ctx.font = "8px 'JetBrains Mono', monospace";
-    ctx.fillText(node.type, node.x, node.y + r + 18);
-  }, [expanding]);
+      // Type sub-label
+      ctx.fillStyle = color + "aa";
+      ctx.font = "8px 'JetBrains Mono', monospace";
+      ctx.fillText(node.type, node.x, node.y + r + 18);
+    },
+    [expanding],
+  );
 
   /** Custom link renderer */
-  const paintLink = useCallback((rawLink: object, ctx: CanvasRenderingContext2D) => {
-    const link = rawLink as { source: { x: number; y: number }; target: { x: number; y: number } };
-    if (!link.source?.x || !link.target?.x) return;
+  const paintLink = useCallback(
+    (rawLink: object, ctx: CanvasRenderingContext2D) => {
+      const link = rawLink as {
+        source: { x: number; y: number };
+        target: { x: number; y: number };
+      };
+      if (!link.source?.x || !link.target?.x) return;
 
-    ctx.beginPath();
-    ctx.moveTo(link.source.x, link.source.y);
-    ctx.lineTo(link.target.x, link.target.y);
-    ctx.strokeStyle = "rgba(0, 255, 200, 0.15)";
-    ctx.lineWidth = 1.2;
-    ctx.stroke();
-  }, []);
+      ctx.beginPath();
+      ctx.moveTo(link.source.x, link.source.y);
+      ctx.lineTo(link.target.x, link.target.y);
+      ctx.strokeStyle = "rgba(0, 255, 200, 0.15)";
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+    },
+    [],
+  );
 
   return (
     <div className="relative w-full h-full bg-background" ref={containerRef}>
@@ -301,8 +349,18 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
           height={dimensions.h}
           graphData={graphData}
           backgroundColor="transparent"
-          nodeCanvasObject={paintNode as (node: object, ctx: CanvasRenderingContext2D, globalScale: number) => void}
-          nodePointerAreaPaint={(rawNode: object, color: string, ctx: CanvasRenderingContext2D) => {
+          nodeCanvasObject={
+            paintNode as (
+              node: object,
+              ctx: CanvasRenderingContext2D,
+              globalScale: number,
+            ) => void
+          }
+          nodePointerAreaPaint={(
+            rawNode: object,
+            color: string,
+            ctx: CanvasRenderingContext2D,
+          ) => {
             const n = rawNode as MemoryNode & { x: number; y: number };
             ctx.beginPath();
             ctx.arc(n.x, n.y, 14, 0, Math.PI * 2);
@@ -315,7 +373,13 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
             const isInvestigatable = !!INVESTIGATABLE[n.type] && !n.expandable;
             return isInvestigatable ? `Click to investigate ${n.id}` : n.label;
           }}
-          linkCanvasObject={paintLink as (link: object, ctx: CanvasRenderingContext2D, globalScale: number) => void}
+          linkCanvasObject={
+            paintLink as (
+              link: object,
+              ctx: CanvasRenderingContext2D,
+              globalScale: number,
+            ) => void
+          }
           linkDirectionalParticles={2}
           linkDirectionalParticleWidth={2}
           linkDirectionalParticleColor={() => "rgba(0, 255, 200, 0.4)"}
@@ -343,7 +407,7 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
             "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-mono",
             "border border-border/60 bg-surface/80 backdrop-blur-sm",
             "text-muted-foreground hover:text-foreground transition-colors",
-            loading && "animate-pulse"
+            loading && "animate-pulse",
           )}
         >
           <RefreshCw className={cn("h-3 w-3", loading && "animate-spin")} />
@@ -358,7 +422,7 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
               "flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-mono",
               "border border-border/60 bg-surface/80 backdrop-blur-sm",
               "text-muted-foreground hover:text-foreground transition-colors",
-              stixBusy && "animate-pulse"
+              stixBusy && "animate-pulse",
             )}
           >
             <Download className={cn("h-3 w-3", stixBusy && "animate-spin")} />
@@ -371,13 +435,19 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
       <div className="absolute bottom-3 left-3 z-10 flex items-center gap-3">
         <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-primary/20 bg-surface/80 backdrop-blur-sm">
           <Brain className="h-3.5 w-3.5 text-primary" />
-          <span className="text-xs font-mono text-primary font-semibold">{total}</span>
-          <span className="text-[10px] font-mono text-muted-foreground">memorized</span>
+          <span className="text-xs font-mono text-primary font-semibold">
+            {total}
+          </span>
+          <span className="text-[10px] font-mono text-muted-foreground">
+            memorized
+          </span>
         </div>
         {lastSaved && (
           <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md border border-success/20 bg-surface/80 backdrop-blur-sm">
             <Zap className="h-3 w-3 text-success" />
-            <span className="text-[10px] font-mono text-success/80">Last updated {lastSaved}</span>
+            <span className="text-[10px] font-mono text-success/80">
+              Last updated {lastSaved}
+            </span>
           </div>
         )}
       </div>
@@ -386,7 +456,8 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
       {graphData.nodes.some((n) => n.expandable) && (
         <div className="absolute bottom-3 right-3 z-10 px-2.5 py-1.5 rounded-md border border-border/40 bg-surface/80 backdrop-blur-sm">
           <span className="text-[10px] font-mono text-muted-foreground/60">
-            Click nodes with <span className="text-[rgb(0,255,200)]">+N</span> to expand
+            Click nodes with <span className="text-[rgb(0,255,200)]">+N</span>{" "}
+            to expand
           </span>
         </div>
       )}
@@ -403,8 +474,8 @@ export function MemoryPanel({ refreshKey, onCountChange, onInvestigate }: Memory
           </p>
           <p className="text-xs text-muted-foreground/30 max-w-[260px] text-center leading-relaxed">
             Investigate an entity and click &quot;Save to Memory&quot; to teach
-            the system. Memorized patterns appear here and are recalled instantly
-            on future queries.
+            the system. Memorized patterns appear here and are recalled
+            instantly on future queries.
           </p>
         </div>
       )}
